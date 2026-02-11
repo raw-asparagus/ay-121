@@ -76,6 +76,8 @@ def main():
                         help='Samples per block')
     parser.add_argument('--nblocks', type=int, default=10,
                         help='Number of blocks per experiment')
+    parser.add_argument('--no-confirm', action='store_true',
+                        help='Run without confirmation prompts')
     args = parser.parse_args()
 
     experiments = build_plan(args.outdir, args.nsamples, args.nblocks)
@@ -88,7 +90,8 @@ def main():
     synth = connect_siggen()
 
     try:
-        paths = run_queue(experiments, sdr=sdr, synth=synth)
+        paths = run_queue(experiments, sdr=sdr, synth=synth,
+                          confirm=not args.no_confirm)
     finally:
         synth.rf_off()
         sdr.close()

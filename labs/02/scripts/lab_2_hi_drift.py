@@ -43,8 +43,8 @@ def main():
                         help='Output directory for .npz files')
     parser.add_argument('--duration', type=float, default=1.5,
                         help='Total observation duration in hours (default: 1.5)')
-    parser.add_argument('--cadence', type=float, default=60.0,
-                        help='Seconds between cycle starts (default: 60)')
+    parser.add_argument('--cadence', type=float, default=120.0,
+                        help='Seconds between cycle starts (default: 120)')
     parser.add_argument('--nsamples', type=int, default=16384,
                         help='Samples per block (default: 16384)')
     parser.add_argument('--nblocks', type=int, default=100,

@@ -9,10 +9,6 @@ import numpy as np
 import ugradio.timing as timing
 import ugradio.nch as nch
 
-# Unit-to-Hz conversion for siggen frequency
-_FREQ_TO_HZ = {'GHz': 1e9, 'MHz': 1e6, 'kHz': 1e3}
-
-
 def save_cal(filepath, data, sdr, synth, alt_deg=0.0, az_deg=0.0,
              lat=nch.lat, lon=nch.lon, observer_alt=nch.alt):
     """Save a calibration capture to .npz.
@@ -25,7 +21,7 @@ def save_cal(filepath, data, sdr, synth, alt_deg=0.0, az_deg=0.0,
         Raw int8 samples, shape (nblocks, nsamples) or (nblocks, nsamples, 2).
     sdr : ugradio.sdr.SDR
         The SDR object used for capture.
-    synth : ugradio.agilent.SynthDirect
+    synth : SignalGenerator
         The signal generator object (queried for current state).
     alt_deg : float
         Telescope altitude/elevation in degrees.
@@ -42,12 +38,6 @@ def save_cal(filepath, data, sdr, synth, alt_deg=0.0, az_deg=0.0,
     jd = timing.julian_date(t)
     lst = timing.lst(jd, lon)
 
-    freq_val, freq_unit = synth.get_frequency()
-    siggen_freq_hz = freq_val * _FREQ_TO_HZ[freq_unit]
-
-    amp_val, amp_unit = synth.get_amplitude()
-    siggen_amp_dbm = amp_val if amp_unit == 'dBm' else amp_val
-
     nblocks = data.shape[0]
     nsamples = data.shape[1]
 
@@ -57,9 +47,9 @@ def save_cal(filepath, data, sdr, synth, alt_deg=0.0, az_deg=0.0,
              center_freq=np.float64(sdr.get_center_freq()),
              gain=np.float64(sdr.get_gain()),
              direct=np.bool_(sdr.direct),
-             siggen_freq=np.float64(siggen_freq_hz),
-             siggen_amp=np.float64(siggen_amp_dbm),
-             siggen_rf_on=np.bool_(synth.get_rfout()),
+             siggen_freq=np.float64(synth.get_freq()),
+             siggen_amp=np.float64(synth.get_ampl()),
+             siggen_rf_on=np.bool_(synth.rf_state()),
              unix_time=np.float64(t),
              jd=np.float64(jd),
              lst=np.float64(lst),

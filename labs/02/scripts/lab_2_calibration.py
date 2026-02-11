@@ -110,7 +110,7 @@ def main():
         paths = run_queue(experiments, sdr=sdr, synth=synth)
     finally:
         # Always turn off RF output when done
-        synth.set_rfout(on=False)
+        synth.rf_off()
         sdr.close()
 
     print()

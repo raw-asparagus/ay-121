@@ -3,23 +3,13 @@
 
 Horn points at zenith (alt=90°, az=0°).  As Earth rotates the beam
 traces a constant-declination arc at δ ≈ +37.87° (Berkeley latitude).
-Interleaves sky captures with calibration tones every 2 minutes to
-track gain drift.
 
-Sequence (for 1.5 hr = 90 min → 45 cycles):
-  1.  HI-SKY-PRE       sky obs (baseline reference)
-  2.  HI-CAL-001       cal tone at −35 dBm
-  3.  HI-SKY-001       sky obs
-      (sleep until next 2-min mark)
-  4.  HI-CAL-002       cal tone
-  5.  HI-SKY-002       sky obs
-      ...
-  N-1. HI-CAL-045      cal tone
-  N.   HI-SKY-POST     sky obs (final baseline)
+By default only sky captures are taken.  Pass --cal to interleave
+calibration tones (requires a signal generator).
 
 Usage:
     python lab_2_hi_drift.py [--outdir DIR] [--duration HOURS] [--cadence SEC]
-                             [--nsamples N] [--nblocks N]
+                             [--nsamples N] [--nblocks N] [--cal]
                              [--cal-freq-mhz F] [--cal-dbm D] [--no-confirm]
 """
 
@@ -31,10 +21,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from ugradio.sdr import SDR
-from ugradiolab.drivers.siggen import connect as connect_siggen
-from ugradiolab.experiment import (
-    ObsExperiment, CalExperiment, _format_experiment,
-)
+from ugradiolab.experiment import ObsExperiment, CalExperiment, _format_experiment
 
 # ---------------------------------------------------------------------------
 SDR_DEFAULTS = dict(
@@ -62,6 +49,8 @@ def main():
                         help='Samples per block (default: 2048)')
     parser.add_argument('--nblocks', type=int, default=100,
                         help='Number of blocks per capture (default: 100)')
+    parser.add_argument('--cal', action='store_true',
+                        help='Enable interleaved cal tones (requires signal generator)')
     parser.add_argument('--cal-freq-mhz', type=float, default=CAL_FREQ_MHZ,
                         help=f'Cal tone frequency in MHz (default: {CAL_FREQ_MHZ})')
     parser.add_argument('--cal-dbm', type=float, default=CAL_DBM,
@@ -71,20 +60,26 @@ def main():
     args = parser.parse_args()
 
     n_cycles = int(args.duration * 3600 / args.cadence)
-    # 1 pre-baseline + n_cycles*(cal+sky) + 1 post-baseline
-    total_steps = 1 + 2 * n_cycles + 1
+    steps_per_cycle = 2 if args.cal else 1  # cal+sky or sky only
+    total_steps = 1 + steps_per_cycle * n_cycles + 1  # +pre +post
 
     common = dict(nsamples=args.nsamples, nblocks=args.nblocks,
                   outdir=args.outdir, **SDR_DEFAULTS)
 
     print(f'Lab 2 HI drift scan: {n_cycles} cycles, {total_steps} steps')
     print(f'Duration: {args.duration} hr | Cadence: {args.cadence} s')
-    print(f'Cal tone: {args.cal_freq_mhz} MHz, {args.cal_dbm} dBm')
+    if args.cal:
+        print(f'Cal tone: {args.cal_freq_mhz} MHz, {args.cal_dbm} dBm')
+    else:
+        print('Cal tones: disabled (sky only)')
     print(f'Output: {args.outdir}/')
     print()
 
     sdr = SDR(direct=False, center_freq=1420e6, sample_rate=2.56e6, gain=0.0)
-    synth = connect_siggen()
+    synth = None
+    if args.cal:
+        from ugradiolab.drivers.siggen import connect as connect_siggen
+        synth = connect_siggen()
 
     paths = []
     step = 0
@@ -117,15 +112,16 @@ def main():
             cycle_start = time.time()
             tag = f'{i:03d}'
 
-            # Cal tone
-            result = run_one(CalExperiment(
-                prefix=f'HI-CAL-{tag}',
-                siggen_freq_mhz=args.cal_freq_mhz,
-                siggen_amp_dbm=args.cal_dbm,
-                **ZENITH, **common))
-            if result is None:
-                print('Aborted.')
-                return
+            # Cal tone (if enabled)
+            if args.cal:
+                result = run_one(CalExperiment(
+                    prefix=f'HI-CAL-{tag}',
+                    siggen_freq_mhz=args.cal_freq_mhz,
+                    siggen_amp_dbm=args.cal_dbm,
+                    **ZENITH, **common))
+                if result is None:
+                    print('Aborted.')
+                    return
 
             # Sky observation
             result = run_one(ObsExperiment(
@@ -146,7 +142,8 @@ def main():
         run_one(ObsExperiment(prefix='HI-SKY-POST', **ZENITH, **common))
 
     finally:
-        synth.rf_off()
+        if synth is not None:
+            synth.rf_off()
         sdr.close()
 
     print()

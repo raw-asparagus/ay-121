@@ -16,12 +16,11 @@ Usage:
 import argparse
 import sys
 import os
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from ugradio.sdr import SDR
-from ugradiolab.experiment import ObsExperiment, CalExperiment, _format_experiment
+from ugradiolab.experiment import ObsExperiment, CalExperiment, run_queue
 
 # ---------------------------------------------------------------------------
 SDR_DEFAULTS = dict(
@@ -34,6 +33,28 @@ SDR_DEFAULTS = dict(
 ZENITH = dict(alt_deg=90.0, az_deg=0.0)
 CAL_FREQ_MHZ = 1421.2058
 CAL_DBM = -35.0
+
+
+def build_plan(outdir, nsamples, nblocks, n_cycles, cal=False,
+               cal_freq_mhz=CAL_FREQ_MHZ, cal_dbm=CAL_DBM):
+    """Build the HI drift-scan experiment list."""
+
+    common = dict(nsamples=nsamples, nblocks=nblocks, outdir=outdir,
+                  **SDR_DEFAULTS)
+
+    experiments = [ObsExperiment(prefix='HI-SKY-PRE', **ZENITH, **common)]
+
+    for i in range(1, n_cycles + 1):
+        tag = f'{i:03d}'
+        if cal:
+            experiments.append(CalExperiment(
+                prefix=f'HI-CAL-{tag}', siggen_freq_mhz=cal_freq_mhz,
+                siggen_amp_dbm=cal_dbm, **ZENITH, **common))
+        experiments.append(ObsExperiment(
+            prefix=f'HI-SKY-{tag}', **ZENITH, **common))
+
+    experiments.append(ObsExperiment(prefix='HI-SKY-POST', **ZENITH, **common))
+    return experiments
 
 
 def main():
@@ -60,13 +81,13 @@ def main():
     args = parser.parse_args()
 
     n_cycles = int(args.duration * 3600 / args.cadence)
-    steps_per_cycle = 2 if args.cal else 1  # cal+sky or sky only
-    total_steps = 1 + steps_per_cycle * n_cycles + 1  # +pre +post
 
-    common = dict(nsamples=args.nsamples, nblocks=args.nblocks,
-                  outdir=args.outdir, **SDR_DEFAULTS)
+    experiments = build_plan(args.outdir, args.nsamples, args.nblocks,
+                             n_cycles, cal=args.cal,
+                             cal_freq_mhz=args.cal_freq_mhz,
+                             cal_dbm=args.cal_dbm)
 
-    print(f'Lab 2 HI drift scan: {n_cycles} cycles, {total_steps} steps')
+    print(f'Lab 2 HI drift scan: {n_cycles} cycles, {len(experiments)} steps')
     print(f'Duration: {args.duration} hr | Cadence: {args.cadence} s')
     if args.cal:
         print(f'Cal tone: {args.cal_freq_mhz} MHz, {args.cal_dbm} dBm')
@@ -81,66 +102,10 @@ def main():
         from ugradiolab.drivers.siggen import connect as connect_siggen
         synth = connect_siggen()
 
-    paths = []
-    step = 0
-
-    def run_one(exp):
-        nonlocal step
-        step += 1
-        print(_format_experiment(exp, step, total_steps))
-        if not args.no_confirm:
-            resp = input('  [Enter]=run  s=skip  q=quit: ').strip().lower()
-            if resp == 'q':
-                return None  # signal abort
-            if resp == 's':
-                print('  skipped.')
-                return 'skipped'
-        path = exp.run(sdr, synth=synth)
-        paths.append(path)
-        print(f'  -> {path}')
-        return path
-
     try:
-        # --- Pre-baseline ---
-        result = run_one(ObsExperiment(prefix='HI-SKY-PRE', **ZENITH, **common))
-        if result is None:
-            print('Aborted.')
-            return
-
-        # --- Main loop ---
-        for i in range(1, n_cycles + 1):
-            cycle_start = time.time()
-            tag = f'{i:03d}'
-
-            # Cal tone (if enabled)
-            if args.cal:
-                result = run_one(CalExperiment(
-                    prefix=f'HI-CAL-{tag}',
-                    siggen_freq_mhz=args.cal_freq_mhz,
-                    siggen_amp_dbm=args.cal_dbm,
-                    **ZENITH, **common))
-                if result is None:
-                    print('Aborted.')
-                    return
-
-            # Sky observation
-            result = run_one(ObsExperiment(
-                prefix=f'HI-SKY-{tag}', **ZENITH, **common))
-            if result is None:
-                print('Aborted.')
-                return
-
-            # Sleep until the next cadence boundary
-            if i < n_cycles:
-                elapsed = time.time() - cycle_start
-                wait = args.cadence - elapsed
-                if wait > 0:
-                    print(f'  sleeping {wait:.1f}s until next cycle...')
-                    time.sleep(wait)
-
-        # --- Post-baseline ---
-        run_one(ObsExperiment(prefix='HI-SKY-POST', **ZENITH, **common))
-
+        paths = run_queue(experiments, sdr=sdr, synth=synth,
+                          confirm=not args.no_confirm,
+                          cadence_sec=args.cadence)
     finally:
         if synth is not None:
             synth.rf_off()

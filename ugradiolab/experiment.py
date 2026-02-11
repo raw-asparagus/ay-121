@@ -91,6 +91,7 @@ class CalExperiment(Experiment):
         set_signal(synth, self.siggen_freq_mhz, self.siggen_amp_dbm)
         from .drivers.sdr_utils import _capture
         data = _capture(sdr, self.nsamples, self.nblocks)
+        synth.rf_off()
         path = _make_path(self.outdir, self.prefix, 'cal')
         save_cal(path, data, sdr, synth, alt_deg=self.alt_deg,
                  az_deg=self.az_deg, lat=self.lat, lon=self.lon,
@@ -159,7 +160,7 @@ def _format_experiment(exp, index, total):
     return '\n'.join(lines)
 
 
-def run_queue(experiments, sdr, synth=None, confirm=True):
+def run_queue(experiments, sdr, synth=None, confirm=True, cadence_sec=None):
     """Execute a list of experiments sequentially.
 
     Parameters
@@ -173,6 +174,9 @@ def run_queue(experiments, sdr, synth=None, confirm=True):
     confirm : bool
         If True, prompt for confirmation before each experiment.
         Enter=run, s=skip, q=quit. Default: True.
+    cadence_sec : float, optional
+        When set, enforce a minimum interval (in seconds) between the
+        start of consecutive ObsExperiment runs.
 
     Returns
     -------
@@ -181,7 +185,16 @@ def run_queue(experiments, sdr, synth=None, confirm=True):
     """
     n = len(experiments)
     paths = []
+    obs_start = None
     for i, exp in enumerate(experiments):
+        # Sleep until next cadence boundary (before starting an ObsExperiment)
+        if cadence_sec and isinstance(exp, ObsExperiment) and obs_start is not None:
+            elapsed = time.time() - obs_start
+            wait = cadence_sec - elapsed
+            if wait > 0:
+                print(f'  sleeping {wait:.1f}s until next cadence...')
+                time.sleep(wait)
+
         print(_format_experiment(exp, i + 1, n))
         if confirm:
             resp = input('  [Enter]=run  s=skip  q=quit: ').strip().lower()
@@ -191,6 +204,10 @@ def run_queue(experiments, sdr, synth=None, confirm=True):
             if resp == 's':
                 print('  skipped.')
                 continue
+
+        if isinstance(exp, ObsExperiment):
+            obs_start = time.time()
+
         path = exp.run(sdr, synth=synth)
         paths.append(path)
         print(f'  -> {path}')

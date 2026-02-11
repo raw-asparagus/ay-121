@@ -24,7 +24,7 @@ class SignalGenerator:
     def _validate(self):
         """Verify the connected instrument is an Agilent N9310A."""
         resp = self._query('*IDN?')
-        assert 'Agilent' in resp, f'Unexpected instrument: {resp}'
+        assert 'N9310A' in resp, f'Unexpected instrument: {resp}'
 
     def _write(self, cmd):
         """Send a SCPI command to the instrument."""

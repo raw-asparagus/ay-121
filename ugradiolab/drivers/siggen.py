@@ -70,9 +70,11 @@ class SignalGenerator:
             Frequency in Hz.
         """
         resp = self._query('FREQ:CW?')
-        val, unit, *_ = resp.split()
+        parts = resp.split()
         multiplier = {'GHz': 1e9, 'MHz': 1e6, 'kHz': 1e3, 'Hz': 1.0}
-        return float(val) * multiplier.get(unit, 1.0)
+        if len(parts) >= 2 and parts[1] in multiplier:
+            return float(parts[0]) * multiplier[parts[1]]
+        return float(parts[0])
 
     # ---- Amplitude --------------------------------------------------------
 
@@ -95,8 +97,8 @@ class SignalGenerator:
             Amplitude in dBm.
         """
         resp = self._query('AMPL:CW?')
-        val, unit, *_ = resp.split()
-        return float(val)
+        parts = resp.split()
+        return float(parts[0])
 
     # ---- RF output --------------------------------------------------------
 

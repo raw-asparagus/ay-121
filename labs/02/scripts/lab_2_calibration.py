@@ -6,13 +6,13 @@ Sequence:
   2.  Z-BASE-2      Zenith, generator OFF (repeat)
   3.  H-BASE-1      Horizontal, generator OFF
   4.  H-BASE-2      Horizontal, generator OFF (repeat)
-  5.  Z-TONE-PWR1   Zenith, 1421.2058 MHz, -44 dBm (~25 counts)
-  6.  Z-TONE-PWR2   Zenith, 1421.2058 MHz, -41 dBm (~35 counts)
-  7.  Z-TONE-PWR3   Zenith, 1421.2058 MHz, -38 dBm (~50 counts, default)
-  8.  Z-TONE-UP100  Zenith, 1421.3058 MHz, -38 dBm
-  9.  Z-TONE-DN100  Zenith, 1421.1058 MHz, -38 dBm
- 10.  Z-TONE-LOWER  Zenith, 1419.6058 MHz, -38 dBm
- 11.  H-TONE        Horizontal, 1421.2058 MHz, -38 dBm
+  5.  Z-TONE-PWR1   Zenith, 1421.2058 MHz, -41 dBm (~35 counts)
+  6.  Z-TONE-PWR2   Zenith, 1421.2058 MHz, -38 dBm (~50 counts)
+  7.  Z-TONE-PWR3   Zenith, 1421.2058 MHz, -35 dBm (~71 counts, default)
+  8.  Z-TONE-UP100  Zenith, 1421.3058 MHz, -35 dBm
+  9.  Z-TONE-DN100  Zenith, 1421.1058 MHz, -35 dBm
+ 10.  Z-TONE-LOWER  Zenith, 1419.6058 MHz, -35 dBm
+ 11.  H-TONE        Horizontal, 1421.2058 MHz, -35 dBm
  12.  H-POST        Horizontal, generator OFF
  13.  Z-POST        Zenith, generator OFF
 
@@ -61,23 +61,23 @@ def build_plan(outdir, nsamples, nblocks):
 
         # --- Power sweep at zenith ---
         CalExperiment(prefix='Z-TONE-PWR1', siggen_freq_mhz=1421.2058,
-                      siggen_amp_dbm=-44, **ZENITH, **common),
-        CalExperiment(prefix='Z-TONE-PWR2', siggen_freq_mhz=1421.2058,
                       siggen_amp_dbm=-41, **ZENITH, **common),
-        CalExperiment(prefix='Z-TONE-PWR3', siggen_freq_mhz=1421.2058,
+        CalExperiment(prefix='Z-TONE-PWR2', siggen_freq_mhz=1421.2058,
                       siggen_amp_dbm=-38, **ZENITH, **common),
+        CalExperiment(prefix='Z-TONE-PWR3', siggen_freq_mhz=1421.2058,
+                      siggen_amp_dbm=-35, **ZENITH, **common),
 
         # --- Frequency offsets at zenith ---
         CalExperiment(prefix='Z-TONE-UP100', siggen_freq_mhz=1421.3058,
-                      siggen_amp_dbm=-38, **ZENITH, **common),
+                      siggen_amp_dbm=-35, **ZENITH, **common),
         CalExperiment(prefix='Z-TONE-DN100', siggen_freq_mhz=1421.1058,
-                      siggen_amp_dbm=-38, **ZENITH, **common),
+                      siggen_amp_dbm=-35, **ZENITH, **common),
         CalExperiment(prefix='Z-TONE-LOWER', siggen_freq_mhz=1419.6058,
-                      siggen_amp_dbm=-38, **ZENITH, **common),
+                      siggen_amp_dbm=-35, **ZENITH, **common),
 
         # --- Horizontal with tone ---
         CalExperiment(prefix='H-TONE', siggen_freq_mhz=1421.2058,
-                      siggen_amp_dbm=-38, **HORIZONTAL, **common),
+                      siggen_amp_dbm=-35, **HORIZONTAL, **common),
 
         # --- Post-cal baselines (generator OFF) ---
         ObsExperiment(prefix='H-POST', **HORIZONTAL, **common),

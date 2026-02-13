@@ -54,7 +54,7 @@ def build_plan(outdir, nsamples, nblocks):
 
     experiments = [
         # --- Baselines (generator OFF) ---
-        ObsExperiment(prefix='Z-BASE-1',  **ZENITH,     **common),
+        ObsExperiment11(prefix='Z-BASE-1',  **ZENITH,     **common),
         ObsExperiment(prefix='Z-BASE-2',  **ZENITH,     **common),
         ObsExperiment(prefix='H-BASE-1',  **HORIZONTAL, **common),
         ObsExperiment(prefix='H-BASE-2',  **HORIZONTAL, **common),

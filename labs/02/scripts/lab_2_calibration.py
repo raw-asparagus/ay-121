@@ -21,15 +21,11 @@ Usage:
 """
 
 import argparse
-import sys
-import os
-
-# Ensure ugradiolab is importable when running from this directory
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from ugradio.sdr import SDR
 from ugradiolab.drivers.siggen import connect as connect_siggen
-from ugradiolab.experiment import ObsExperiment, CalExperiment, run_queue
+from ugradiolab.experiment import ObsExperiment, CalExperiment
+from ugradiolab.queue import QueueRunner
 
 # ---------------------------------------------------------------------------
 # SDR defaults (I/Q mode for 21-cm work)
@@ -54,7 +50,7 @@ def build_plan(outdir, nsamples, nblocks):
 
     experiments = [
         # --- Baselines (generator OFF) ---
-        ObsExperiment11(prefix='Z-BASE-1',  **ZENITH,     **common),
+        ObsExperiment(prefix='Z-BASE-1',  **ZENITH,     **common),
         ObsExperiment(prefix='Z-BASE-2',  **ZENITH,     **common),
         ObsExperiment(prefix='H-BASE-1',  **HORIZONTAL, **common),
         ObsExperiment(prefix='H-BASE-2',  **HORIZONTAL, **common),
@@ -109,8 +105,13 @@ def main():
     synth = connect_siggen()
 
     try:
-        paths = run_queue(experiments, sdr=sdr, synth=synth,
-                          confirm=not args.no_confirm)
+        runner = QueueRunner(
+            experiments=experiments,
+            sdr=sdr,
+            synth=synth,
+            confirm=not args.no_confirm,
+        )
+        paths = runner.run()
     finally:
         # Always turn off RF output when done
         synth.rf_off()

@@ -14,13 +14,10 @@ Usage:
 """
 
 import argparse
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from ugradio.sdr import SDR
-from ugradiolab.experiment import ObsExperiment, CalExperiment, run_queue
+from ugradiolab.experiment import ObsExperiment, CalExperiment
+from ugradiolab.queue import QueueRunner
 
 # ---------------------------------------------------------------------------
 SDR_DEFAULTS = dict(
@@ -103,9 +100,14 @@ def main():
         synth = connect_siggen()
 
     try:
-        paths = run_queue(experiments, sdr=sdr, synth=synth,
-                          confirm=not args.no_confirm,
-                          cadence_sec=args.cadence)
+        runner = QueueRunner(
+            experiments=experiments,
+            sdr=sdr,
+            synth=synth,
+            confirm=not args.no_confirm,
+            cadence_sec=args.cadence,
+        )
+        paths = runner.run()
     finally:
         if synth is not None:
             synth.rf_off()

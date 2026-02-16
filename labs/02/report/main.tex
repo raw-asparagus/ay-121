@@ -1,0 +1,136 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{amsmath}
+\usepackage{geometry}
+\usepackage{wrapfig}
+%% For code blocks 
+\usepackage{listings}
+\usepackage{xcolor} 
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+
+%% For hyper refs
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=blue,
+}
+ 
+\urlstyle{same}
+
+\graphicspath{{./}{figures/}}
+
+\title{2024 AY128 Lab0: Hyades Cluster}
+\author{Anna Pusack, Olivia Aspegren}
+\date{February 22, 2024}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+\textit{This section is meant to give the scientific background of the question we are addressing in the lab. In the case of lab 0, we want to include the basics on star clusters and the Gaia mission, as well as what can lead to bad astrometry.}
+
+\vspace{1cm}
+
+Star clusters are groups of several stars that are thought to be born in the same environment and at the same time. Star clusters are classified into globular clusters, characterized by older star populations and in large numbers, and open clusters, often characterized by younger stars in smaller numbers. 
+
+Gaia \cite{gaia_archive} is a groundbreaking mission that surveys the whole sky and is a vital resource for understanding nearby star clusters. The archive provides astrometry, photometry, and spectroscopy, as well as deduced positions, parallaxes, proper motions, radial velocities, and brightness measurements. 
+
+\section{Methods}
+
+\textit{The Methods section is the nitty-gritty of how you set up your science. For example, the data used, the queries made, the ways in which you decided to make the cluster member cuts, etc. This will contain a lot of how you got to the results you will report later. This section might include tables, code blocks, and figures as well as the prose style text.}
+
+\vspace{1cm}
+
+Using the query example as described in \cite{gaia_dr2_2018}, we use the following to get a rough cut of the cluster memebers: 
+
+\begin{lstlisting}[language=Python]
+QUERY_TEXT_HYADES = '''
+SELECT * FROM gaiaedr3.gaia_source
+where parallax between 19 and 23
+and pmra between 75 and 135
+and pmdec between -50 and 0
+and 1 = contains(POINT('ICRS', ra, dec), CIRCLE('ICRS', 66.75, 15.80, 5))
+AND parallax_over_error > 50
+AND phot_g_mean_flux_over_error>50
+AND phot_rp_mean_flux_over_error>20
+AND phot_bp_mean_flux_over_error>20
+AND phot_bp_rp_excess_factor < 1.3+0.06*power(phot_bp_mean_mag-phot_rp_mean_mag,2)
+AND phot_bp_rp_excess_factor > 1.0+0.015*power(phot_bp_mean_mag-phot_rp_mean_mag,2)
+AND visibility_periods_used>8
+AND astrometric_chi2_al/(astrometric_n_good_obs_al-5)<1.44*greatest(1,exp(-0.4*(phot_g_mean_mag-19.5)))
+'''
+
+hyades_cat = gaia.launch_job_async(QUERY_TEXT_HYADES).get_results()
+\end{lstlisting}
+
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=\textwidth]{figures/pm_cuts.png}
+    \caption{Left, the proper motion plot with chosen cluster members in black and suspected interlopers in red. That color scheme carries through other plots. Center, the parallax histogram of chosen members versus suspected interlopers. Right, the CMD of the selected members plotted over the interlopers.}
+    \label{fig:diagnostic}
+\end{figure}
+
+In order to determine membership in a cluster, it is important to examine the proper motion and parallax plots. These diagnostic plots are shown in Figure \ref{fig:diagnostic}.
+
+
+\section{Results}
+\textit{This is the concrete answers to your science questions. in the case of Lab 0, this meant your final CMD and age and metallicity estimates. It's good to include tables and figures here.}
+\vspace{1cm}
+
+\begin{tabular}{|c|c|c|c|}
+    \hline
+    \textbf{Cluster} & \textbf{Est.Age, $\log (\text{Age/yr})$} & \textbf{Est. [Fe/H]} \\
+    \hline
+    Hyades & 8.9 & 0.14 \\
+    M67 & 9.6 & 0.2 \\
+    NGC 6397 & $>$10.3 &  -2.02 \\
+    \hline
+\end{tabular}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\columnwidth]{figures/isochrones.png}
+    \caption{Isochrones plotted on top of data. Left, varying age and fixing metallicity at [Fe/H] = 0.25. Right, varying metallicity and fixing age at log(age/yr) = 8.8. }
+\end{figure}
+
+\section{Discussion}
+\textit{This section is where you discuss the implications of your results. For Lab 0, this might have included how your CMD showed the different phases of stellar evolution, where were binaires in the CMD, the discrepencies between the models and the data, and the differences between the different models. Essentitally you want the \textbf{what do my results mean} part of your report.}
+
+\section{Conclusion}
+
+\textit{This section is meant to re-iterate your science question, your results, your implications, and you can also include some further work that could be done.}
+
+\newpage
+\bibliography{ref}
+\bibliographystyle{plain}
+
+\end{document}

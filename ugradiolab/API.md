@@ -5,12 +5,11 @@
 ```
 ugradiolab/
     __init__.py              # re-exports all public symbols
-    experiment.py            # Experiment dataclasses + queue runner
-    lab.py                   # combined SDR+siggen workflows
+    experiment.py            # Experiment dataclasses
+    queue.py                 # QueueRunner stateful executor
     drivers/
         __init__.py
         siggen.py            # SignalGenerator (USBTMC/SCPI)
-        sdr_utils.py         # SDR capture helpers
     data/
         __init__.py
         schema.py            # .npz save/load (cal + obs schemas)
@@ -73,59 +72,16 @@ from ugradiolab.drivers.siggen import connect, set_signal, freq_sweep
 
 ---
 
-## 2. SDR Capture — `drivers/sdr_utils.py`
-
-Wraps `ugradio.sdr.SDR` with helpers that handle the **stale first
-block** (the RTL-SDR ring buffer retains data from before the capture
-request — block 0 is always discarded).
-
-```python
-from ugradiolab.drivers.sdr_utils import capture_and_fft, power_spectrum, collect_time_series
-```
-
-### Internal: `_capture(sdr, nsamples, nblocks)`
-
-Requests `nblocks + 1` blocks from `sdr.capture_data()` and returns
-`data[1:]`, discarding the stale buffer.  All public functions below
-use `_capture` internally.
-
-### Functions
-
-#### `capture_and_fft(sdr, nsamples=2048, nblocks=1)`
-
-Capture raw samples and compute the FFT per block.
-
-- **Direct mode** (`sdr.direct=True`): real-valued → `np.fft.rfft`,
-  frequency axis via `rfftfreq`.
-- **I/Q mode** (`sdr.direct=False`): complex I+jQ → `np.fft.fft` with
-  `fftshift`, frequency axis centered on `center_freq`.
-
-**Returns**: `(freqs, fft_data)` — frequency axis in Hz, complex FFT
-array with shape `(nblocks, ...)`.
-
-#### `power_spectrum(sdr, nsamples=2048, nblocks=1)`
-
-Calls `capture_and_fft`, then computes `mean(|FFT|^2)` over blocks.
-
-**Returns**: `(freqs, psd)` — frequency axis in Hz, averaged PSD array.
-
-#### `collect_time_series(sdr, nsamples=2048, nblocks=1)`
-
-Capture raw voltage data with a time axis.
-
-**Returns**: `(t, data)` — time in seconds (`np.arange(nsamples) / sample_rate`),
-raw int8 array with shape `(nblocks, nsamples)` or `(nblocks, nsamples, 2)`.
-
----
-
-## 3. Data Schemas — `data/schema.py`
+## 2. Data Schemas — `data/schema.py`
 
 All captures are stored as `.npz` files (NumPy compressed archives).
 Two schemas exist, sharing a common core of SDR parameters and
 timestamps, with type-specific metadata.
 
 ```python
-from ugradiolab.data.schema import save_cal, save_obs, load
+from ugradiolab.data.schema import (
+    CaptureRecord, build_record, save_record, save_cal, save_obs, load
+)
 ```
 
 ### Common fields (both schemas)
@@ -168,6 +124,14 @@ everything to a `.npz` file.
 Same as `save_cal` but without signal generator fields.  Observer
 location defaults to `ugradio.nch` (New Campbell Hall).
 
+### Unified record helpers
+
+- `CaptureRecord`: immutable in-memory record for both cal/obs captures
+- `build_record(...)`: builds a `CaptureRecord` from SDR state + data (+ optional siggen)
+- `save_record(filepath, record)`: writes a `CaptureRecord` to `.npz`
+
+`save_cal` and `save_obs` are compatibility wrappers over this shared path.
+
 ### `load(filepath)`
 
 Returns `np.load(filepath, allow_pickle=False)` — a dict-like
@@ -183,7 +147,7 @@ f['sample_rate']   # 2560000.0
 
 ---
 
-## 4. Experiment Specification — `experiment.py`
+## 3. Experiment Specification — `experiment.py`
 
 Experiments are Python **dataclasses** that bundle all parameters
 needed for a single capture.  They form an inheritance hierarchy:
@@ -228,7 +192,7 @@ Additional fields:
 1. Reconfigures the SDR
 2. Sets the signal generator via `set_signal()`
 3. Captures data (discards stale block)
-4. Saves to `.npz` via `save_cal()`
+4. Saves to `.npz` via `build_record(...)` + `save_record(...)`
 5. Returns the output filepath
 
 ### `ObsExperiment(Experiment)`
@@ -239,10 +203,10 @@ Additional fields: `alt_deg`, `az_deg`, `lat`, `lon`, `observer_alt`
 `run(sdr, synth=None)`:
 1. Reconfigures the SDR
 2. Captures data (discards stale block)
-3. Saves to `.npz` via `save_obs()`
+3. Saves to `.npz` via `build_record(...)` + `save_record(...)`
 4. Returns the output filepath
 
-### `run_queue(experiments, sdr, synth=None, confirm=True)`
+### `QueueRunner(experiments, sdr, synth=None, confirm=True, cadence_sec=None)`
 
 Executes a list of experiments sequentially on shared hardware.
 
@@ -261,7 +225,11 @@ Executes a list of experiments sequentially on shared hardware.
 - **s** — skip it (no file produced)
 - **q** — abort the rest of the queue
 
-**Returns**: list of output filepaths (one per executed experiment).
+`cadence_sec` (optional):
+- If set, enforces a minimum interval (seconds) between starts of
+  consecutive `ObsExperiment` runs.
+
+Call `QueueRunner(...).run()` to execute and get a list of output filepaths.
 
 ### Output filename convention
 
@@ -276,7 +244,7 @@ Example: `Z-TONE-PWR1_cal_20260211_143022.npz`
 
 ---
 
-## 5. Pipeline: Configuration to Data Collection
+## 4. Pipeline: Configuration to Data Collection
 
 The end-to-end workflow has four stages:
 
@@ -337,16 +305,16 @@ to match its own parameters before capturing.
 ### Stage 3 — Execute the queue
 
 ```python
-from ugradiolab.experiment import run_queue
+from ugradiolab.queue import QueueRunner
 
 try:
-    paths = run_queue(experiments, sdr=sdr, synth=synth, confirm=True)
+    paths = QueueRunner(experiments, sdr=sdr, synth=synth, confirm=True).run()
 finally:
     synth.rf_off()
     sdr.close()
 ```
 
-For each experiment in the list, `run_queue`:
+For each experiment in the list, `QueueRunner.run()`:
 
 1. **Prints** a summary of the experiment parameters
 2. **Prompts** for confirmation (if `confirm=True`)
@@ -381,7 +349,7 @@ print(f['alt'])                   # 90.0 (degrees)
 
 ---
 
-## 6. CLI Scripts
+## 5. CLI Scripts
 
 Scripts live in `labs/02/scripts/` and auto-configure `sys.path` to
 find `ugradiolab`.
@@ -415,7 +383,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from ugradio.sdr import SDR
 from ugradiolab.drivers.siggen import connect
-from ugradiolab.experiment import ObsExperiment, CalExperiment, run_queue
+from ugradiolab.experiment import ObsExperiment, CalExperiment
+from ugradiolab.queue import QueueRunner
 
 def build_plan(outdir, nsamples, nblocks):
     common = dict(nsamples=nsamples, nblocks=nblocks, outdir=outdir,
@@ -428,7 +397,7 @@ def build_plan(outdir, nsamples, nblocks):
 sdr = SDR(direct=False, center_freq=1420e6, sample_rate=2.56e6)
 synth = connect()
 try:
-    paths = run_queue(build_plan('data/my_run', 2048, 10), sdr=sdr, synth=synth)
+    paths = QueueRunner(build_plan('data/my_run', 2048, 10), sdr=sdr, synth=synth).run()
 finally:
     synth.rf_off()
     sdr.close()

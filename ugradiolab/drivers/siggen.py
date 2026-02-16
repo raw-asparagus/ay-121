@@ -28,8 +28,7 @@ class SignalGenerator:
 
     def _write(self, cmd):
         """Send a SCPI command to the instrument."""
-        if isinstance(cmd, str):
-            cmd = cmd.encode()
+        cmd = cmd.encode()
         self._dev.write(cmd)
         self._dev.flush()
         time.sleep(WAIT)

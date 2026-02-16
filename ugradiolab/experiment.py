@@ -1,18 +1,17 @@
-"""Experiment specification and sequential queue runner.
+"""Experiment specification for SDR data collection workflows.
 
 Define collection parameters as dataclass instances, then execute them
-sequentially with ``run_queue`` to produce one .npz file per experiment.
+sequentially with ``QueueRunner`` to produce one .npz file per experiment.
 """
 
 import os
 import time
 from dataclasses import dataclass, field
 
-import numpy as np
 import ugradio.nch as nch
 
 from .drivers.siggen import set_signal
-from .data.schema import save_cal, save_obs
+from .data.schema import build_record, save_record
 
 
 def _make_path(outdir, prefix, tag):
@@ -87,15 +86,23 @@ class CalExperiment(Experiment):
         str
             Path to the saved .npz file.
         """
+        if synth is None:
+            raise ValueError('CalExperiment requires a connected signal generator (synth).')
+
         self._configure_sdr(sdr)
-        set_signal(synth, self.siggen_freq_mhz, self.siggen_amp_dbm)
-        from .drivers.sdr_utils import _capture
-        data = _capture(sdr, self.nsamples, self.nblocks)
-        synth.rf_off()
         path = _make_path(self.outdir, self.prefix, 'cal')
-        save_cal(path, data, sdr, synth, alt_deg=self.alt_deg,
-                 az_deg=self.az_deg, lat=self.lat, lon=self.lon,
-                 observer_alt=self.observer_alt)
+        try:
+            set_signal(synth, self.siggen_freq_mhz, self.siggen_amp_dbm)
+            # Discard the first block, which may contain stale ring-buffer data.
+            data = sdr.capture_data(nsamples=self.nsamples, nblocks=self.nblocks + 1)[1:]
+            record = build_record(
+                data, sdr, alt_deg=self.alt_deg, az_deg=self.az_deg,
+                lat=self.lat, lon=self.lon, observer_alt=self.observer_alt,
+                synth=synth
+            )
+            save_record(path, record)
+        finally:
+            synth.rf_off()
         return path
 
 
@@ -137,78 +144,13 @@ class ObsExperiment(Experiment):
             Path to the saved .npz file.
         """
         self._configure_sdr(sdr)
-        from .drivers.sdr_utils import _capture
-        data = _capture(sdr, self.nsamples, self.nblocks)
+        # Discard the first block, which may contain stale ring-buffer data.
+        data = sdr.capture_data(nsamples=self.nsamples, nblocks=self.nblocks + 1)[1:]
         path = _make_path(self.outdir, self.prefix, 'obs')
-        save_obs(path, data, sdr, self.alt_deg, self.az_deg,
-                 lat=self.lat, lon=self.lon, observer_alt=self.observer_alt)
+        record = build_record(
+            data, sdr, alt_deg=self.alt_deg, az_deg=self.az_deg,
+            lat=self.lat, lon=self.lon, observer_alt=self.observer_alt,
+            synth=None
+        )
+        save_record(path, record)
         return path
-
-
-def _format_experiment(exp, index, total):
-    """Format experiment details for display."""
-    tag = type(exp).__name__
-    lines = [f'[{index}/{total}] {exp.prefix} ({tag})']
-    lines.append(f'  alt={exp.alt_deg}  az={exp.az_deg}')
-    lines.append(f'  nsamples={exp.nsamples}  nblocks={exp.nblocks}  '
-                 f'sample_rate={exp.sample_rate/1e6:.2f} MHz')
-    if isinstance(exp, CalExperiment):
-        lines.append(f'  siggen: {exp.siggen_freq_mhz} MHz, '
-                     f'{exp.siggen_amp_dbm} dBm')
-    else:
-        lines.append(f'  siggen: OFF')
-    return '\n'.join(lines)
-
-
-def run_queue(experiments, sdr, synth=None, confirm=True, cadence_sec=None):
-    """Execute a list of experiments sequentially.
-
-    Parameters
-    ----------
-    experiments : list of Experiment
-        Experiments to run in order.
-    sdr : ugradio.sdr.SDR
-        Initialized SDR object (reused across experiments).
-    synth : ugradio.agilent.SynthDirect, optional
-        Signal generator (required for CalExperiment entries).
-    confirm : bool
-        If True, prompt for confirmation before each experiment.
-        Enter=run, s=skip, q=quit. Default: True.
-    cadence_sec : float, optional
-        When set, enforce a minimum interval (in seconds) between the
-        start of consecutive ObsExperiment runs.
-
-    Returns
-    -------
-    list of str
-        Paths to the saved .npz files, one per experiment.
-    """
-    n = len(experiments)
-    paths = []
-    obs_start = None
-    for i, exp in enumerate(experiments):
-        # Sleep until next cadence boundary (before starting an ObsExperiment)
-        if cadence_sec and isinstance(exp, ObsExperiment) and obs_start is not None:
-            elapsed = time.time() - obs_start
-            wait = cadence_sec - elapsed
-            if wait > 0:
-                print(f'  sleeping {wait:.1f}s until next cadence...')
-                time.sleep(wait)
-
-        print(_format_experiment(exp, i + 1, n))
-        if confirm:
-            resp = input('  [Enter]=run  s=skip  q=quit: ').strip().lower()
-            if resp == 'q':
-                print('Queue aborted.')
-                break
-            if resp == 's':
-                print('  skipped.')
-                continue
-
-        if isinstance(exp, ObsExperiment):
-            obs_start = time.time()
-
-        path = exp.run(sdr, synth=synth)
-        paths.append(path)
-        print(f'  -> {path}')
-    return paths

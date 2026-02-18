@@ -1,15 +1,11 @@
-"""Standardized .npz schemas for SDR data collection.
-
-Two schemas:
-- Calibration (cal): signal-generator-driven measurements
-- Observation (obs): sky observations with pointing metadata
-"""
+"""Standardized .npz schema for SDR data collection."""
 
 from dataclasses import dataclass
 
 import numpy as np
-import ugradio.timing as timing
 import ugradio.nch as nch
+import ugradio.timing as timing
+
 
 @dataclass(frozen=True)
 class CaptureRecord:
@@ -34,7 +30,125 @@ class CaptureRecord:
     siggen_amp: float | None = None
     siggen_rf_on: bool | None = None
 
-    def to_npz_dict(self):
+    @classmethod
+    def from_sdr(
+        cls,
+        data,
+        sdr,
+        alt_deg,
+        az_deg,
+        lat=nch.lat,
+        lon=nch.lon,
+        observer_alt=nch.alt,
+        synth=None,
+        unix_time=None,
+    ):
+        """Build a CaptureRecord from hardware state and raw captured data.
+
+        Parameters
+        ----------
+        data : array-like
+            Raw captured samples, shape (nblocks, nsamples[, 2]).
+        sdr : ugradio.sdr.SDR
+            Configured SDR instance; queried for sample_rate, center_freq, gain.
+        alt_deg : float
+            Telescope altitude in degrees.
+        az_deg : float
+            Telescope azimuth in degrees.
+        lat : float
+            Observer latitude in degrees.
+        lon : float
+            Observer longitude in degrees.
+        observer_alt : float
+            Observer altitude in metres.
+        synth : SignalGenerator, optional
+            Connected signal generator; if provided, siggen fields are populated.
+        unix_time : float, optional
+            Unix timestamp to use; defaults to current time.
+
+        Returns
+        -------
+        CaptureRecord
+        """
+        data = np.asarray(data, dtype=np.int8)
+        if data.ndim < 2:
+            raise ValueError('data must have shape (nblocks, nsamples[, ...])')
+
+        t = timing.unix_time() if unix_time is None else float(unix_time)
+        jd = timing.julian_date(t)
+        lst = timing.lst(jd, lon)
+
+        kwargs = dict(
+            data=data,
+            sample_rate=sdr.get_sample_rate(),
+            center_freq=sdr.get_center_freq(),
+            gain=sdr.get_gain(),
+            direct=sdr.direct,
+            unix_time=t,
+            jd=jd,
+            lst=lst,
+            alt=alt_deg,
+            az=az_deg,
+            observer_lat=lat,
+            observer_lon=lon,
+            observer_alt=observer_alt,
+            nblocks=data.shape[0],
+            nsamples=data.shape[1],
+        )
+        if synth is not None:
+            kwargs.update(
+                siggen_freq=synth.get_freq(),
+                siggen_amp=synth.get_ampl(),
+                siggen_rf_on=synth.rf_state(),
+            )
+        return cls(**kwargs)
+
+    def save(self, filepath):
+        """Save this record to a .npz file.
+
+        Parameters
+        ----------
+        filepath : str or Path
+            Destination path.
+        """
+        np.savez(filepath, **self._to_npz_dict())
+
+    @classmethod
+    def load(cls, filepath):
+        """Load a .npz file and return a CaptureRecord.
+
+        Parameters
+        ----------
+        filepath : str or Path
+            Path to a .npz file written by ``save``.
+
+        Returns
+        -------
+        CaptureRecord
+        """
+        with np.load(filepath, allow_pickle=False) as f:
+            return cls(
+                data=f['data'],
+                sample_rate=float(f['sample_rate']),
+                center_freq=float(f['center_freq']),
+                gain=float(f['gain']),
+                direct=bool(f['direct']),
+                unix_time=float(f['unix_time']),
+                jd=float(f['jd']),
+                lst=float(f['lst']),
+                alt=float(f['alt']),
+                az=float(f['az']),
+                observer_lat=float(f['observer_lat']),
+                observer_lon=float(f['observer_lon']),
+                observer_alt=float(f['observer_alt']),
+                nblocks=int(f['nblocks']),
+                nsamples=int(f['nsamples']),
+                siggen_freq=float(f['siggen_freq']) if 'siggen_freq' in f else None,
+                siggen_amp=float(f['siggen_amp']) if 'siggen_amp' in f else None,
+                siggen_rf_on=bool(f['siggen_rf_on']) if 'siggen_rf_on' in f else None,
+            )
+
+    def _to_npz_dict(self):
         """Convert this record to dtype-stable kwargs for ``np.savez``."""
         out = dict(
             data=self.data.astype(np.int8),
@@ -54,56 +168,9 @@ class CaptureRecord:
             nsamples=np.int64(self.nsamples),
         )
         if self.siggen_freq is not None:
-            out['siggen_freq'] = np.float64(self.siggen_freq)
-        if self.siggen_amp is not None:
-            out['siggen_amp'] = np.float64(self.siggen_amp)
-        if self.siggen_rf_on is not None:
-            out['siggen_rf_on'] = np.bool_(self.siggen_rf_on)
+            out.update(
+                siggen_freq=np.float64(self.siggen_freq),
+                siggen_amp=np.float64(self.siggen_amp),
+                siggen_rf_on=np.bool_(self.siggen_rf_on),
+            )
         return out
-
-
-def build_record(data, sdr, alt_deg, az_deg, lat=nch.lat, lon=nch.lon,
-                 observer_alt=nch.alt, synth=None, unix_time=None):
-    """Build a unified capture record from hardware state + raw data."""
-    data = np.asarray(data, dtype=np.int8)
-    if data.ndim < 2:
-        raise ValueError('data must have shape (nblocks, nsamples[, ...])')
-
-    t = timing.unix_time() if unix_time is None else float(unix_time)
-    jd = timing.julian_date(t)
-    lst = timing.lst(jd, lon)
-
-    kwargs = dict(
-        data=data,
-        sample_rate=sdr.get_sample_rate(),
-        center_freq=sdr.get_center_freq(),
-        gain=sdr.get_gain(),
-        direct=sdr.direct,
-        unix_time=t,
-        jd=jd,
-        lst=lst,
-        alt=alt_deg,
-        az=az_deg,
-        observer_lat=lat,
-        observer_lon=lon,
-        observer_alt=observer_alt,
-        nblocks=data.shape[0],
-        nsamples=data.shape[1],
-    )
-    if synth is not None:
-        kwargs.update(
-            siggen_freq=synth.get_freq(),
-            siggen_amp=synth.get_ampl(),
-            siggen_rf_on=synth.rf_state(),
-        )
-    return CaptureRecord(**kwargs)
-
-
-def save_record(filepath, record):
-    """Save a ``CaptureRecord`` to a .npz file."""
-    np.savez(filepath, **record.to_npz_dict())
-
-
-def load(filepath):
-    """Load a .npz data file with pickle disabled."""
-    return np.load(filepath, allow_pickle=False)

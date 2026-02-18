@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import ugradio.nch as nch
 
-from .data.schema import build_record, save_record
+from .data.schema import CaptureRecord
 
 
 def _make_path(outdir, prefix, tag):
@@ -54,17 +54,33 @@ class Experiment(ABC):
     def _capture(self, sdr, synth=None):
         """Capture data and build a CaptureRecord.
 
-         Discards the first block to flush stale buffer."""
+        Discards the first block to flush stale buffer.
+        """
         raw_data = sdr.capture_data(
             nsamples=self.nsamples,
             nblocks=self.nblocks + 1,
         )
-        return build_record(
-            raw_data[1:], sdr,
-            alt_deg=self.alt_deg, az_deg=self.az_deg,
-            lat=self.lat, lon=self.lon, observer_alt=self.observer_alt,
+        return CaptureRecord.from_sdr(
+            raw_data[1:],
+            sdr,
+            alt_deg=self.alt_deg,
+            az_deg=self.az_deg,
+            lat=self.lat,
+            lon=self.lon,
+            observer_alt=self.observer_alt,
             synth=synth,
         )
+
+    @property
+    def requires_synth(self) -> bool:
+        return False
+
+    @property
+    def counts_for_cadence(self) -> bool:
+        return True
+
+    def siggen_summary(self) -> str:
+        return 'OFF'
 
     @abstractmethod
     def run(self, sdr, synth=None):
@@ -85,6 +101,17 @@ class CalExperiment(Experiment):
     siggen_freq_mhz: float = 1420.405751768
     siggen_amp_dbm: float = -45.0
 
+    @property
+    def requires_synth(self) -> bool:
+        return True
+
+    @property
+    def counts_for_cadence(self) -> bool:
+        return False
+
+    def siggen_summary(self) -> str:
+        return f'{self.siggen_freq_mhz} MHz, {self.siggen_amp_dbm} dBm'
+
     def run(self, sdr, synth=None):
         """Execute the calibration experiment.
 
@@ -101,15 +128,18 @@ class CalExperiment(Experiment):
             Path to the saved .npz file.
         """
         if synth is None:
-            raise ValueError('CalExperiment requires a connected signal generator (synth).')
+            raise ValueError(
+                'CalExperiment requires a connected signal generator (synth).'
+            )
 
         self._configure_sdr(sdr)
         path = _make_path(self.outdir, self.prefix, 'cal')
         try:
             synth.set_freq_mhz(self.siggen_freq_mhz)
             synth.set_ampl_dbm(self.siggen_amp_dbm)
+            synth.rf_on()
             record = self._capture(sdr, synth=synth)
-            save_record(path, record)
+            record.save(path)
         finally:
             synth.rf_off()
         return path
@@ -136,5 +166,5 @@ class ObsExperiment(Experiment):
         self._configure_sdr(sdr)
         record = self._capture(sdr)
         path = _make_path(self.outdir, self.prefix, 'obs')
-        save_record(path, record)
+        record.save(path)
         return path

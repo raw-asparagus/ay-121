@@ -23,7 +23,7 @@ Usage:
 import argparse
 
 from ugradio.sdr import SDR
-from ugradiolab.drivers.SignalGenerator import connect as connect_siggen
+from ugradiolab.drivers.SignalGenerator import SignalGenerator
 from ugradiolab.experiment import ObsExperiment, CalExperiment
 from ugradiolab.queue import QueueRunner
 
@@ -84,7 +84,7 @@ def main():
     print()
 
     sdr = SDR(direct=False, center_freq=1420e6, sample_rate=2.56e6, gain=0.0)
-    synth = connect_siggen()
+    synth = SignalGenerator()
 
     try:
         runner = QueueRunner(

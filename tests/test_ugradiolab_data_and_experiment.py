@@ -5,11 +5,7 @@ from unittest import mock
 
 import numpy as np
 
-from ugradiolab.data.schema import (
-    build_record,
-    load,
-    save_record,
-)
+from ugradiolab.data.schema import CaptureRecord
 from ugradiolab.experiment import CalExperiment, ObsExperiment
 from ugradiolab.queue import QueueRunner
 
@@ -76,15 +72,6 @@ class FakeSynth:
         return self._on
 
 
-def _fake_set_signal(synth, freq_mhz, amp_dbm, rf_on=True):
-    synth.set_freq_mhz(freq_mhz)
-    synth.set_ampl_dbm(amp_dbm)
-    if rf_on:
-        synth.rf_on()
-    else:
-        synth.rf_off()
-
-
 class SchemaTests(unittest.TestCase):
     def setUp(self):
         self.sdr = FakeSDR()
@@ -104,8 +91,8 @@ class SchemaTests(unittest.TestCase):
     def tearDown(self):
         self.time_patch.stop()
 
-    def test_build_record_observation_has_no_siggen_fields(self):
-        record = build_record(
+    def test_from_sdr_observation_has_no_siggen_fields(self):
+        record = CaptureRecord.from_sdr(
             self.raw, self.sdr, alt_deg=90.0, az_deg=0.0, synth=None
         )
         self.assertEqual(record.nblocks, 3)
@@ -117,43 +104,40 @@ class SchemaTests(unittest.TestCase):
         self.assertIsNone(record.siggen_amp)
         self.assertIsNone(record.siggen_rf_on)
 
-    def test_build_record_calibration_has_siggen_fields(self):
+    def test_from_sdr_calibration_has_siggen_fields(self):
         self.synth.set_freq_mhz(1421.2058)
         self.synth.set_ampl_dbm(-35.0)
         self.synth.rf_on()
-        record = build_record(
+        record = CaptureRecord.from_sdr(
             self.raw, self.sdr, alt_deg=45.0, az_deg=180.0, synth=self.synth
         )
         self.assertAlmostEqual(record.siggen_freq, 1421.2058e6)
         self.assertAlmostEqual(record.siggen_amp, -35.0)
         self.assertTrue(record.siggen_rf_on)
 
-    def test_build_record_rejects_bad_shape(self):
+    def test_from_sdr_rejects_bad_shape(self):
         with self.assertRaises(ValueError):
-            build_record(np.array([1, 2, 3], dtype=np.int8), self.sdr, alt_deg=0, az_deg=0)
+            CaptureRecord.from_sdr(
+                np.array([1, 2, 3], dtype=np.int8), self.sdr, alt_deg=0, az_deg=0
+            )
 
-    def test_save_record_obs_round_trip(self):
-        record = build_record(self.raw, self.sdr, alt_deg=90.0, az_deg=0.0)
+    def test_save_and_load_obs_round_trip(self):
+        record = CaptureRecord.from_sdr(self.raw, self.sdr, alt_deg=90.0, az_deg=0.0)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "obs.npz"
-            save_record(path, record)
-            loaded = load(path)
-            self.assertIn("data", loaded.files)
-            self.assertIn("sample_rate", loaded.files)
-            self.assertNotIn("siggen_freq", loaded.files)
-            self.assertNotIn("siggen_amp", loaded.files)
-            self.assertNotIn("siggen_rf_on", loaded.files)
+            record.save(path)
+            loaded = CaptureRecord.load(path)
+            self.assertIsNotNone(loaded.data)
+            self.assertIsNotNone(loaded.sample_rate)
+            self.assertIsNone(loaded.siggen_freq)
+            self.assertIsNone(loaded.siggen_amp)
+            self.assertIsNone(loaded.siggen_rf_on)
 
 
 class ExperimentTests(unittest.TestCase):
     def setUp(self):
         self.sdr = FakeSDR()
         self.synth = FakeSynth()
-        self.signal_patch = mock.patch(
-            "ugradiolab.experiment.set_signal",
-            side_effect=_fake_set_signal,
-        )
-        self.signal_patch.start()
         self.time_patch = mock.patch.multiple(
             "ugradiolab.data.schema.timing",
             unix_time=mock.DEFAULT,
@@ -167,13 +151,12 @@ class ExperimentTests(unittest.TestCase):
 
     def tearDown(self):
         self.time_patch.stop()
-        self.signal_patch.stop()
 
     def test_cal_experiment_records_rf_on_then_turns_off(self):
         recorded = {}
 
-        def _capture_record(_path, record):
-            recorded["record"] = record
+        def _capture_save(self, _path):
+            recorded["record"] = self
 
         exp = CalExperiment(
             outdir=".",
@@ -187,7 +170,7 @@ class ExperimentTests(unittest.TestCase):
             az_deg=0.0,
         )
 
-        with mock.patch("ugradiolab.experiment.save_record", side_effect=_capture_record):
+        with mock.patch.object(CaptureRecord, 'save', autospec=True, side_effect=_capture_save):
             outpath = exp.run(self.sdr, synth=self.synth)
 
         self.assertTrue(outpath.endswith(".npz"))
@@ -198,8 +181,8 @@ class ExperimentTests(unittest.TestCase):
     def test_obs_experiment_record_has_no_siggen(self):
         recorded = {}
 
-        def _capture_record(_path, record):
-            recorded["record"] = record
+        def _capture_save(self, _path):
+            recorded["record"] = self
 
         exp = ObsExperiment(
             outdir=".",
@@ -211,7 +194,7 @@ class ExperimentTests(unittest.TestCase):
             az_deg=180.0,
         )
 
-        with mock.patch("ugradiolab.experiment.save_record", side_effect=_capture_record):
+        with mock.patch.object(CaptureRecord, 'save', autospec=True, side_effect=_capture_save):
             outpath = exp.run(self.sdr, synth=None)
 
         self.assertTrue(outpath.endswith(".npz"))

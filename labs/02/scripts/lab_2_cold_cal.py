@@ -3,7 +3,7 @@
 
 Horn stays horizontal (alt=0, az=0) throughout.  Alternates between
 SIGGEN OFF (baseline) and SIGGEN ON at 1421.2058 MHz, sweeping from
--50 to -30 dBm in 1 dB steps.  Interleaved baselines track drift.
+-50 to -30 dBm in 4 dB steps.  Interleaved baselines track drift.
 
 Sequence (44 steps):
   1.  COLD-BASE-PRE    baseline (gen OFF)
@@ -23,7 +23,7 @@ Usage:
 import argparse
 
 from ugradio.sdr import SDR
-from ugradiolab.drivers.siggen import connect as connect_siggen
+from ugradiolab.drivers.SignalGenerator import connect as connect_siggen
 from ugradiolab.experiment import ObsExperiment, CalExperiment
 from ugradiolab.queue import QueueRunner
 

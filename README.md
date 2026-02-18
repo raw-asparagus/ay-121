@@ -34,7 +34,6 @@ From the repository root (or any directory after installation):
 python labs/02/scripts/lab_2_calibration.py --help
 python labs/02/scripts/lab_2_cold_cal.py --help
 python labs/02/scripts/lab_2_hi_drift.py --help
-python labs/test/test_siggen.py --help
 ```
 
 For real hardware tests, run on the RPi with SDR + signal generator connected and

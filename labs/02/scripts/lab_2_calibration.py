@@ -23,7 +23,7 @@ Usage:
 import argparse
 
 from ugradio.sdr import SDR
-from ugradiolab.drivers.siggen import connect as connect_siggen
+from ugradiolab.drivers.SignalGenerator import connect as connect_siggen
 from ugradiolab.experiment import ObsExperiment, CalExperiment
 from ugradiolab.queue import QueueRunner
 

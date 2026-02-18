@@ -104,37 +104,6 @@ def save_record(filepath, record):
     np.savez(filepath, **record.to_npz_dict())
 
 
-def save_cal(filepath, data, sdr, synth, alt_deg=0.0, az_deg=0.0,
-             lat=nch.lat, lon=nch.lon, observer_alt=nch.alt):
-    """Save a calibration capture to .npz."""
-    record = build_record(
-        data, sdr, alt_deg=alt_deg, az_deg=az_deg, lat=lat, lon=lon,
-        observer_alt=observer_alt, synth=synth
-    )
-    save_record(filepath, record)
-
-
-def save_obs(filepath, data, sdr, alt_deg, az_deg,
-             lat=nch.lat, lon=nch.lon, observer_alt=nch.alt):
-    """Save a sky observation capture to .npz."""
-    record = build_record(
-        data, sdr, alt_deg=alt_deg, az_deg=az_deg, lat=lat, lon=lon,
-        observer_alt=observer_alt, synth=None
-    )
-    save_record(filepath, record)
-
-
 def load(filepath):
-    """Load a .npz data file.
-
-    Parameters
-    ----------
-    filepath : str
-        Path to the .npz file.
-
-    Returns
-    -------
-    np.lib.npyio.NpzFile
-        Dict-like object; access fields by key (e.g., f['data'], f['alt']).
-    """
+    """Load a .npz data file with pickle disabled."""
     return np.load(filepath, allow_pickle=False)

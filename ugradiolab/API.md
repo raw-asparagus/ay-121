@@ -12,7 +12,7 @@ ugradiolab/
         siggen.py            # SignalGenerator (USBTMC/SCPI)
     data/
         __init__.py
-        schema.py            # .npz save/load (cal + obs schemas)
+        schema.py            # .npz save helpers (cal + obs schemas)
 ```
 
 **External dependencies** (installed separately):
@@ -34,7 +34,7 @@ Communicates with an Agilent/Keysight N9310A via USBTMC, sending
 short-form SCPI commands directly to `/dev/usbtmc0`.
 
 ```python
-from ugradiolab.drivers.siggen import SignalGenerator
+from ugradiolab.drivers.SignalGenerator import SignalGenerator
 
 sg = SignalGenerator(device='/dev/usbtmc0')
 ```
@@ -53,7 +53,6 @@ identity via `*IDN?` (checks for `"N9310A"` in the response).
 | `rf_on()` | `RFO:STAT ON` | Enable RF output |
 | `rf_off()` | `RFO:STAT OFF` | Disable RF output |
 | `rf_state()` | `RFO:STAT?` | Returns `True` if RF is on |
-| `close()` | — | Close the USBTMC device handle |
 
 **Timing**: A 0.3 s delay is enforced after each write to avoid
 overwhelming the instrument's command buffer.
@@ -61,14 +60,13 @@ overwhelming the instrument's command buffer.
 ### Convenience functions
 
 ```python
-from ugradiolab.drivers.siggen import connect, set_signal, freq_sweep
+from ugradiolab.drivers.SignalGenerator import connect, set_signal
 ```
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `connect(device)` | `connect(device='/dev/usbtmc0') -> SignalGenerator` | Open and validate a connection |
 | `set_signal(synth, freq_mhz, amp_dbm, rf_on=True)` | — | Set frequency, amplitude, and RF state in one call |
-| `freq_sweep(synth, start, stop, step)` | yields `float` | Generator: steps frequency from `start` to `stop` (MHz), yielding each value after setting it |
 
 ---
 
@@ -80,7 +78,7 @@ timestamps, with type-specific metadata.
 
 ```python
 from ugradiolab.data.schema import (
-    CaptureRecord, build_record, save_record, save_cal, save_obs, load
+    CaptureRecord, build_record, save_record, load
 )
 ```
 
@@ -112,32 +110,17 @@ from ugradiolab.data.schema import (
 | `siggen_amp` | float64 | Signal generator amplitude (dBm) |
 | `siggen_rf_on` | bool | RF output state at capture time |
 
-### `save_cal(filepath, data, sdr, synth, alt_deg, az_deg, lat, lon, observer_alt)`
-
-Queries the `SignalGenerator` for its current state (`get_freq()`,
-`get_ampl()`, `rf_state()`), reads SDR parameters from the `SDR`
-object, captures timestamps via `ugradio.timing`, and writes
-everything to a `.npz` file.
-
-### `save_obs(filepath, data, sdr, alt_deg, az_deg, lat, lon, observer_alt)`
-
-Same as `save_cal` but without signal generator fields.  Observer
-location defaults to `ugradio.nch` (New Campbell Hall).
-
 ### Unified record helpers
 
 - `CaptureRecord`: immutable in-memory record for both cal/obs captures
 - `build_record(...)`: builds a `CaptureRecord` from SDR state + data (+ optional siggen)
 - `save_record(filepath, record)`: writes a `CaptureRecord` to `.npz`
+- `load(filepath)`: reads a `.npz` capture with pickle disabled
 
-`save_cal` and `save_obs` are compatibility wrappers over this shared path.
-
-### `load(filepath)`
-
-Returns `np.load(filepath, allow_pickle=False)` — a dict-like
-`NpzFile` object.  Access fields by key:
+For reading:
 
 ```python
+from ugradiolab.data.schema import load
 f = load('data/obs.npz')
 f['data']          # (nblocks, nsamples, 2) int8
 f['alt']           # 90.0
@@ -292,7 +275,7 @@ state is shared between experiments.
 
 ```python
 from ugradio.sdr import SDR
-from ugradiolab.drivers.siggen import connect
+from ugradiolab.drivers.SignalGenerator import connect
 
 sdr = SDR(direct=False, center_freq=1420e6, sample_rate=2.56e6, gain=0.0)
 synth = connect()  # opens /dev/usbtmc0
@@ -351,8 +334,8 @@ print(f['alt'])                   # 90.0 (degrees)
 
 ## 5. CLI Scripts
 
-Scripts live in `labs/02/scripts/` and auto-configure `sys.path` to
-find `ugradiolab`.
+Scripts live in `labs/02/scripts/` and import installed packages
+(`ugradio`, `ugradiolab`) directly.
 
 ### `lab_2_calibration.py`
 
@@ -378,27 +361,26 @@ python lab_2_cold_cal.py --no-confirm
 
 ```python
 #!/usr/bin/env python3
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-
 from ugradio.sdr import SDR
-from ugradiolab.drivers.siggen import connect
+from ugradiolab.drivers.SignalGenerator import connect
 from ugradiolab.experiment import ObsExperiment, CalExperiment
 from ugradiolab.queue import QueueRunner
 
+
 def build_plan(outdir, nsamples, nblocks):
-    common = dict(nsamples=nsamples, nblocks=nblocks, outdir=outdir,
-                  direct=False, center_freq=1420e6, sample_rate=2.56e6)
-    return [
-        ObsExperiment(prefix='MY-OBS', alt_deg=45, az_deg=180, **common),
-        # ... add more experiments
-    ]
+  common = dict(nsamples=nsamples, nblocks=nblocks, outdir=outdir,
+                direct=False, center_freq=1420e6, sample_rate=2.56e6)
+  return [
+    ObsExperiment(prefix='MY-OBS', alt_deg=45, az_deg=180, **common),
+    # ... add more experiments
+  ]
+
 
 sdr = SDR(direct=False, center_freq=1420e6, sample_rate=2.56e6)
 synth = connect()
 try:
-    paths = QueueRunner(build_plan('data/my_run', 2048, 10), sdr=sdr, synth=synth).run()
+  paths = QueueRunner(build_plan('data/my_run', 2048, 10), sdr=sdr, synth=synth).run()
 finally:
-    synth.rf_off()
-    sdr.close()
+  synth.rf_off()
+  sdr.close()
 ```

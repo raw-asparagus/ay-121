@@ -1,14 +1,13 @@
-"""Agilent N9310A signal generator control via USBTMC (SCPI)."""
+"""Agilent/Keysight N9310A signal generator control via USBTMC (SCPI)."""
 
 import time
-import numpy as np
 
 DEVICE = '/dev/usbtmc0'
-WAIT = 0.3  # seconds between writes
+WAIT = 0.25  # seconds between writes
 
 
 class SignalGenerator:
-    """Direct USBTMC interface to an Agilent N9310A signal generator.
+    """Direct USBTMC interface to an Agilent/Keysight N9310A signal generator.
 
     Parameters
     ----------
@@ -22,7 +21,7 @@ class SignalGenerator:
         self._validate()
 
     def _validate(self):
-        """Verify the connected instrument is an Agilent N9310A."""
+        """Verify the connected instrument is an Agilent/Keysight N9310A."""
         resp = self._query('*IDN?')
         assert 'N9310A' in resp, f'Unexpected instrument: {resp}'
 
@@ -35,13 +34,7 @@ class SignalGenerator:
 
     def _read(self):
         """Read a response from the instrument."""
-        chunks = []
-        while True:
-            try:
-                chunks.append(self._dev.read(1))
-            except TimeoutError:
-                break
-        return b''.join(chunks).decode().strip()
+        return self._dev.read(4096).decode().strip()
 
     def _query(self, cmd):
         """Send a SCPI query and return the response string."""
@@ -119,82 +112,3 @@ class SignalGenerator:
         """
         resp = self._query('RFO:STAT?')
         return bool(int(resp.strip()[0]))
-
-    # ---- Cleanup ----------------------------------------------------------
-
-    def close(self):
-        """Close the USBTMC device."""
-        self._dev.close()
-
-    def __del__(self):
-        try:
-            self._dev.close()
-        except Exception:
-            pass
-
-
-# ---------------------------------------------------------------------------
-# Convenience functions
-# ---------------------------------------------------------------------------
-
-def connect(device=DEVICE):
-    """Open a USB connection to the Agilent N9310A signal generator.
-
-    Parameters
-    ----------
-    device : str
-        USB TMC device path. Default: '/dev/usbtmc0'.
-
-    Returns
-    -------
-    SignalGenerator
-        Connected and validated instance.
-    """
-    return SignalGenerator(device=device)
-
-
-def set_signal(synth, freq_mhz, amp_dbm, rf_on=True):
-    """Set frequency, amplitude, and RF output in one call.
-
-    Parameters
-    ----------
-    synth : SignalGenerator
-        Connected signal generator.
-    freq_mhz : float
-        CW frequency in MHz.
-    amp_dbm : float
-        CW amplitude in dBm.
-    rf_on : bool
-        Whether to enable RF output. Default: True.
-    """
-    synth.set_freq_mhz(freq_mhz)
-    synth.set_ampl_dbm(amp_dbm)
-    if rf_on:
-        synth.rf_on()
-    else:
-        synth.rf_off()
-
-
-def freq_sweep(synth, start_mhz, stop_mhz, step_mhz):
-    """Generator that steps through a frequency range.
-
-    Parameters
-    ----------
-    synth : SignalGenerator
-        Connected signal generator.
-    start_mhz : float
-        Start frequency in MHz (inclusive).
-    stop_mhz : float
-        Stop frequency in MHz (inclusive).
-    step_mhz : float
-        Frequency step size in MHz.
-
-    Yields
-    ------
-    freq_mhz : float
-        The frequency that was just set, in MHz.
-    """
-    freqs = np.arange(start_mhz, stop_mhz + step_mhz / 2, step_mhz)
-    for freq in freqs:
-        synth.set_freq_mhz(float(freq))
-        yield float(freq)

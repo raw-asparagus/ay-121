@@ -96,7 +96,7 @@ def main():
     sdr = SDR(direct=False, center_freq=1420e6, sample_rate=2.56e6, gain=0.0)
     synth = None
     if args.cal:
-        from ugradiolab.drivers.siggen import connect as connect_siggen
+        from ugradiolab.drivers.SignalGenerator import connect as connect_siggen
         synth = connect_siggen()
 
     try:

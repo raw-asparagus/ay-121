@@ -8,8 +8,6 @@ import numpy as np
 from ugradiolab.data.schema import (
     build_record,
     load,
-    save_cal,
-    save_obs,
     save_record,
 )
 from ugradiolab.experiment import CalExperiment, ObsExperiment
@@ -145,26 +143,6 @@ class SchemaTests(unittest.TestCase):
             self.assertNotIn("siggen_freq", loaded.files)
             self.assertNotIn("siggen_amp", loaded.files)
             self.assertNotIn("siggen_rf_on", loaded.files)
-
-    def test_save_cal_and_save_obs_wrappers(self):
-        self.synth.set_freq_mhz(1421.2058)
-        self.synth.set_ampl_dbm(-35.0)
-        self.synth.rf_on()
-
-        with tempfile.TemporaryDirectory() as tmp:
-            cal_path = Path(tmp) / "cal.npz"
-            obs_path = Path(tmp) / "obs.npz"
-
-            save_cal(cal_path, self.raw, self.sdr, self.synth, alt_deg=90.0, az_deg=0.0)
-            save_obs(obs_path, self.raw, self.sdr, alt_deg=90.0, az_deg=0.0)
-
-            cal_loaded = load(cal_path)
-            obs_loaded = load(obs_path)
-
-            self.assertIn("siggen_freq", cal_loaded.files)
-            self.assertIn("siggen_amp", cal_loaded.files)
-            self.assertIn("siggen_rf_on", cal_loaded.files)
-            self.assertNotIn("siggen_freq", obs_loaded.files)
 
 
 class ExperimentTests(unittest.TestCase):

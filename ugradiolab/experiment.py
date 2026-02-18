@@ -6,11 +6,11 @@ sequentially with ``QueueRunner`` to produce one .npz file per experiment.
 
 import os
 import time
-from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 import ugradio.nch as nch
 
-from .drivers.siggen import set_signal
 from .data.schema import build_record, save_record
 
 
@@ -22,34 +22,53 @@ def _make_path(outdir, prefix, tag):
 
 
 @dataclass
-class Experiment:
-    """Base experiment specification (SDR parameters + output settings).
-
-    Not intended to be run directly — use CalExperiment or ObsExperiment.
-    """
-    nsamples: int = 2048
+class Experiment(ABC):
+    """Base experiment specification (SDR parameters + output settings)."""
+    nsamples: int = 32768
     nblocks: int = 1
-    sample_rate: float = 2.56e6
-    center_freq: float = 0.0
+    sample_rate: float = 2.56e6  # Hz
+    center_freq: float = 1420e6  # Hz
     gain: float = 0.0
-    direct: bool = True
+    direct: bool = False
     outdir: str = '.'
     prefix: str = 'exp'
+    alt_deg: float = 0.0
+    az_deg: float = 0.0
+    lat: float = nch.lat
+    lon: float = nch.lon
+    observer_alt: float = nch.alt
 
     def _configure_sdr(self, sdr):
         """Apply this experiment's SDR parameters to an existing SDR object."""
+        # Using the same statefull reinstantiation as in ugradio.sdr
+        sdr.direct = self.direct
         if self.direct:
             sdr.set_direct_sampling('q')
             sdr.set_center_freq(0)
         else:
             sdr.set_direct_sampling(0)
             sdr.set_center_freq(self.center_freq)
-        sdr.direct = self.direct
-        sdr.set_sample_rate(self.sample_rate)
         sdr.set_gain(self.gain)
+        sdr.set_sample_rate(self.sample_rate)
 
+    def _capture(self, sdr, synth=None):
+        """Capture data and build a CaptureRecord.
+
+         Discards the first block to flush stale buffer."""
+        raw_data = sdr.capture_data(
+            nsamples=self.nsamples,
+            nblocks=self.nblocks + 1,
+        )
+        return build_record(
+            raw_data[1:], sdr,
+            alt_deg=self.alt_deg, az_deg=self.az_deg,
+            lat=self.lat, lon=self.lon, observer_alt=self.observer_alt,
+            synth=synth,
+        )
+
+    @abstractmethod
     def run(self, sdr, synth=None):
-        raise NotImplementedError
+        ...
 
 
 @dataclass
@@ -63,13 +82,8 @@ class CalExperiment(Experiment):
     siggen_amp_dbm : float
         Signal generator amplitude in dBm.
     """
-    siggen_freq_mhz: float = 0.0
-    siggen_amp_dbm: float = -10.0
-    alt_deg: float = 0.0
-    az_deg: float = 0.0
-    lat: float = field(default_factory=lambda: nch.lat)
-    lon: float = field(default_factory=lambda: nch.lon)
-    observer_alt: float = field(default_factory=lambda: nch.alt)
+    siggen_freq_mhz: float = 1420.405751768
+    siggen_amp_dbm: float = -45.0
 
     def run(self, sdr, synth=None):
         """Execute the calibration experiment.
@@ -92,14 +106,9 @@ class CalExperiment(Experiment):
         self._configure_sdr(sdr)
         path = _make_path(self.outdir, self.prefix, 'cal')
         try:
-            set_signal(synth, self.siggen_freq_mhz, self.siggen_amp_dbm)
-            # Discard the first block, which may contain stale ring-buffer data.
-            data = sdr.capture_data(nsamples=self.nsamples, nblocks=self.nblocks + 1)[1:]
-            record = build_record(
-                data, sdr, alt_deg=self.alt_deg, az_deg=self.az_deg,
-                lat=self.lat, lon=self.lon, observer_alt=self.observer_alt,
-                synth=synth
-            )
+            synth.set_freq_mhz(self.siggen_freq_mhz)
+            synth.set_ampl_dbm(self.siggen_amp_dbm)
+            record = self._capture(sdr, synth=synth)
             save_record(path, record)
         finally:
             synth.rf_off()
@@ -108,26 +117,7 @@ class CalExperiment(Experiment):
 
 @dataclass
 class ObsExperiment(Experiment):
-    """Sky observation experiment.
-
-    Parameters
-    ----------
-    alt_deg : float
-        Telescope altitude/elevation in degrees.
-    az_deg : float
-        Telescope azimuth in degrees.
-    lat : float
-        Observer latitude in degrees.
-    lon : float
-        Observer longitude in degrees.
-    observer_alt : float
-        Observer altitude in meters.
-    """
-    alt_deg: float = 0.0
-    az_deg: float = 0.0
-    lat: float = field(default_factory=lambda: nch.lat)
-    lon: float = field(default_factory=lambda: nch.lon)
-    observer_alt: float = field(default_factory=lambda: nch.alt)
+    """Sky observation experiment."""
 
     def run(self, sdr, synth=None):
         """Execute the sky observation experiment.
@@ -144,13 +134,7 @@ class ObsExperiment(Experiment):
             Path to the saved .npz file.
         """
         self._configure_sdr(sdr)
-        # Discard the first block, which may contain stale ring-buffer data.
-        data = sdr.capture_data(nsamples=self.nsamples, nblocks=self.nblocks + 1)[1:]
+        record = self._capture(sdr)
         path = _make_path(self.outdir, self.prefix, 'obs')
-        record = build_record(
-            data, sdr, alt_deg=self.alt_deg, az_deg=self.az_deg,
-            lat=self.lat, lon=self.lon, observer_alt=self.observer_alt,
-            synth=None
-        )
         save_record(path, record)
         return path

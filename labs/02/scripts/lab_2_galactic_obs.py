@@ -30,7 +30,7 @@ from ugradiolab.queue import QueueRunner
 
 # ---------------------------------------------------------------------------
 OUTDIR = 'data/lab2_galactic_obs'
-N_PAIRS = 200
+N_PAIRS = 20
 
 GAL_L = 120.0   # degrees
 GAL_B = 0.0     # degrees

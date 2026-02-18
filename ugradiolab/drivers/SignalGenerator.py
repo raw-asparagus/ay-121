@@ -34,7 +34,13 @@ class SignalGenerator:
 
     def _read(self):
         """Read a response from the instrument."""
-        return self._dev.read(4096).decode().strip()
+        chunks = []
+        while True:
+            try:
+                chunks.append(self._dev.read(1))
+            except TimeoutError:
+                break
+        return b''.join(chunks).decode().strip()
 
     def _query(self, cmd):
         """Send a SCPI query and return the response string."""

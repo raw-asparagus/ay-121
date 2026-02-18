@@ -1,9 +1,3 @@
-"""Experiment specification for SDR data collection workflows.
-
-Define collection parameters as dataclass instances, then execute them
-sequentially with ``QueueRunner`` to produce one .npz file per experiment.
-"""
-
 import os
 import time
 from abc import ABC, abstractmethod
@@ -11,7 +5,7 @@ from dataclasses import dataclass
 
 import ugradio.nch as nch
 
-from .data.schema import CaptureRecord
+from .data import Record
 
 
 def _make_path(outdir, prefix, tag):
@@ -30,7 +24,7 @@ class Experiment(ABC):
     center_freq: float = 1420e6  # Hz
     gain: float = 0.0
     direct: bool = False
-    outdir: str = '.'
+    outdir: str = 'data/'
     prefix: str = 'exp'
     alt_deg: float = 0.0
     az_deg: float = 0.0
@@ -52,7 +46,7 @@ class Experiment(ABC):
         sdr.set_sample_rate(self.sample_rate)
 
     def _capture(self, sdr, synth=None):
-        """Capture data and build a CaptureRecord.
+        """Capture data and build a Record.
 
         Discards the first block to flush stale buffer.
         """
@@ -60,7 +54,7 @@ class Experiment(ABC):
             nsamples=self.nsamples,
             nblocks=self.nblocks + 1,
         )
-        return CaptureRecord.from_sdr(
+        return Record.from_sdr(
             raw_data[1:],
             sdr,
             alt_deg=self.alt_deg,
@@ -70,10 +64,6 @@ class Experiment(ABC):
             observer_alt=self.observer_alt,
             synth=synth,
         )
-
-    @property
-    def requires_synth(self) -> bool:
-        return False
 
     @property
     def counts_for_cadence(self) -> bool:
@@ -99,11 +89,7 @@ class CalExperiment(Experiment):
         Signal generator amplitude in dBm.
     """
     siggen_freq_mhz: float = 1420.405751768
-    siggen_amp_dbm: float = -45.0
-
-    @property
-    def requires_synth(self) -> bool:
-        return True
+    siggen_amp_dbm: float = -80.0
 
     @property
     def counts_for_cadence(self) -> bool:

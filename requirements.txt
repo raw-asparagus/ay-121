@@ -1,5 +1,5 @@
 numpy
 astropy
 scipy
-pyserial
+ntplib
 setuptools<=81.0.0

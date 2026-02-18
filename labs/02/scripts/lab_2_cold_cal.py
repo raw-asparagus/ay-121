@@ -21,7 +21,7 @@ Usage:
 """
 
 from ugradio.sdr import SDR
-from ugradiolab.drivers.SignalGenerator import SignalGenerator
+from ugradiolab.drivers.signal_generator import SignalGenerator
 from ugradiolab.experiment import ObsExperiment, CalExperiment
 from ugradiolab.queue import QueueRunner
 

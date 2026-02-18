@@ -5,7 +5,7 @@ from unittest import mock
 
 import numpy as np
 
-from ugradiolab.data.schema import CaptureRecord
+from ugradiolab.data.record import Record
 from ugradiolab.experiment import CalExperiment, ObsExperiment
 from ugradiolab.queue import QueueRunner
 
@@ -72,13 +72,13 @@ class FakeSynth:
         return self._on
 
 
-class SchemaTests(unittest.TestCase):
+class RecordTests(unittest.TestCase):
     def setUp(self):
         self.sdr = FakeSDR()
         self.synth = FakeSynth()
         self.raw = np.zeros((3, 8, 2), dtype=np.int8)
         self.time_patch = mock.patch.multiple(
-            "ugradiolab.data.schema.timing",
+            "ugradiolab.data.record.timing",
             unix_time=mock.DEFAULT,
             julian_date=mock.DEFAULT,
             lst=mock.DEFAULT,
@@ -92,7 +92,7 @@ class SchemaTests(unittest.TestCase):
         self.time_patch.stop()
 
     def test_from_sdr_observation_has_no_siggen_fields(self):
-        record = CaptureRecord.from_sdr(
+        record = Record.from_sdr(
             self.raw, self.sdr, alt_deg=90.0, az_deg=0.0, synth=None
         )
         self.assertEqual(record.nblocks, 3)
@@ -108,7 +108,7 @@ class SchemaTests(unittest.TestCase):
         self.synth.set_freq_mhz(1421.2058)
         self.synth.set_ampl_dbm(-35.0)
         self.synth.rf_on()
-        record = CaptureRecord.from_sdr(
+        record = Record.from_sdr(
             self.raw, self.sdr, alt_deg=45.0, az_deg=180.0, synth=self.synth
         )
         self.assertAlmostEqual(record.siggen_freq, 1421.2058e6)
@@ -117,16 +117,16 @@ class SchemaTests(unittest.TestCase):
 
     def test_from_sdr_rejects_bad_shape(self):
         with self.assertRaises(ValueError):
-            CaptureRecord.from_sdr(
+            Record.from_sdr(
                 np.array([1, 2, 3], dtype=np.int8), self.sdr, alt_deg=0, az_deg=0
             )
 
     def test_save_and_load_obs_round_trip(self):
-        record = CaptureRecord.from_sdr(self.raw, self.sdr, alt_deg=90.0, az_deg=0.0)
+        record = Record.from_sdr(self.raw, self.sdr, alt_deg=90.0, az_deg=0.0)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "obs.npz"
             record.save(path)
-            loaded = CaptureRecord.load(path)
+            loaded = Record.load(path)
             self.assertIsNotNone(loaded.data)
             self.assertIsNotNone(loaded.sample_rate)
             self.assertIsNone(loaded.siggen_freq)
@@ -139,7 +139,7 @@ class ExperimentTests(unittest.TestCase):
         self.sdr = FakeSDR()
         self.synth = FakeSynth()
         self.time_patch = mock.patch.multiple(
-            "ugradiolab.data.schema.timing",
+            "ugradiolab.data.record.timing",
             unix_time=mock.DEFAULT,
             julian_date=mock.DEFAULT,
             lst=mock.DEFAULT,
@@ -170,7 +170,7 @@ class ExperimentTests(unittest.TestCase):
             az_deg=0.0,
         )
 
-        with mock.patch.object(CaptureRecord, 'save', autospec=True, side_effect=_capture_save):
+        with mock.patch.object(Record, 'save', autospec=True, side_effect=_capture_save):
             outpath = exp.run(self.sdr, synth=self.synth)
 
         self.assertTrue(outpath.endswith(".npz"))
@@ -194,7 +194,7 @@ class ExperimentTests(unittest.TestCase):
             az_deg=180.0,
         )
 
-        with mock.patch.object(CaptureRecord, 'save', autospec=True, side_effect=_capture_save):
+        with mock.patch.object(Record, 'save', autospec=True, side_effect=_capture_save):
             outpath = exp.run(self.sdr, synth=None)
 
         self.assertTrue(outpath.endswith(".npz"))

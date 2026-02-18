@@ -1,3 +1,1 @@
-"""Hardware driver utilities for SDR and signal generator."""
-
-from .SignalGenerator import SignalGenerator
+from .signal_generator import SignalGenerator

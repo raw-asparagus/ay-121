@@ -17,10 +17,8 @@ Sequence (44 steps):
   44. COLD-BASE-POST   baseline (gen OFF)
 
 Usage:
-    python lab_2_cold_cal.py [--outdir DATA_DIR] [--nsamples N] [--nblocks N]
+    python lab_2_cold_cal.py
 """
-
-import argparse
 
 from ugradio.sdr import SDR
 from ugradiolab.drivers.SignalGenerator import SignalGenerator
@@ -28,6 +26,8 @@ from ugradiolab.experiment import ObsExperiment, CalExperiment
 from ugradiolab.queue import QueueRunner
 
 # ---------------------------------------------------------------------------
+OUTDIR = 'data/lab2_cold_cal'
+
 SDR_DEFAULTS = dict(
     direct=False,
     center_freq=1420e6,
@@ -39,11 +39,10 @@ COLD = dict(alt_deg=0.0, az_deg=0.0)
 TONE_FREQ = 1421.2058  # MHz
 
 
-def build_plan(outdir, nsamples, nblocks):
+def build_plan():
     """Build the 44-step cold calibration experiment list."""
 
-    common = dict(nsamples=nsamples, nblocks=nblocks, outdir=outdir,
-                  **SDR_DEFAULTS)
+    common = dict(outdir=OUTDIR, **SDR_DEFAULTS)
 
     experiments = [
         ObsExperiment(prefix='COLD-BASE-PRE', **COLD, **common),
@@ -51,9 +50,13 @@ def build_plan(outdir, nsamples, nblocks):
 
     for dbm in range(-50, -29):  # -50 to -30 inclusive
         experiments.append(
-            CalExperiment(prefix=f'COLD-TONE-{dbm}',
-                          siggen_freq_mhz=TONE_FREQ,
-                          siggen_amp_dbm=dbm, **COLD, **common))
+            CalExperiment(
+                prefix=f'COLD-TONE-{dbm}',
+                siggen_freq_mhz=TONE_FREQ,
+                siggen_amp_dbm=dbm,
+                **COLD,
+                **common,
+            ))
         experiments.append(
             ObsExperiment(prefix=f'COLD-BASE-{dbm}', **COLD, **common))
 
@@ -65,22 +68,10 @@ def build_plan(outdir, nsamples, nblocks):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Lab 2 cold calibration — SIGGEN power sweep')
-    parser.add_argument('--outdir', default='data/lab2_cold_cal',
-                        help='Output directory for .npz files')
-    parser.add_argument('--nsamples', type=int, default=2048,
-                        help='Samples per block')
-    parser.add_argument('--nblocks', type=int, default=10,
-                        help='Number of blocks per experiment')
-    parser.add_argument('--no-confirm', action='store_true',
-                        help='Run without confirmation prompts')
-    args = parser.parse_args()
-
-    experiments = build_plan(args.outdir, args.nsamples, args.nblocks)
+    experiments = build_plan()
 
     print(f'Lab 2 cold calibration: {len(experiments)} steps')
-    print(f'Output: {args.outdir}/')
+    print(f'Output: {OUTDIR}/')
     print()
 
     sdr = SDR(direct=False, center_freq=1420e6, sample_rate=2.56e6, gain=0.0)
@@ -91,7 +82,7 @@ def main():
             experiments=experiments,
             sdr=sdr,
             synth=synth,
-            confirm=not args.no_confirm,
+            confirm=False,
         )
         paths = runner.run()
     finally:
@@ -99,7 +90,7 @@ def main():
         sdr.close()
 
     print()
-    print(f'Done. {len(paths)} files saved to {args.outdir}/')
+    print(f'Done. {len(paths)} files saved to {OUTDIR}/')
 
 
 if __name__ == '__main__':

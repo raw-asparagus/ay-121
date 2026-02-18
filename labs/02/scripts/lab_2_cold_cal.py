@@ -3,18 +3,18 @@
 
 Horn stays horizontal (alt=0, az=0) throughout.  Alternates between
 SIGGEN OFF (baseline) and SIGGEN ON at 1421.2058 MHz, sweeping from
--50 to -30 dBm in 4 dB steps.  Interleaved baselines track drift.
+-90 to -30 dBm in 4 dB steps.  Interleaved baselines track drift.
 
-Sequence (44 steps):
+Sequence (34 steps):
   1.  COLD-BASE-PRE    baseline (gen OFF)
-  2.  COLD-TONE--50    1421.2058 MHz, -50 dBm
-  3.  COLD-BASE--50    baseline
-  4.  COLD-TONE--49    1421.2058 MHz, -49 dBm
-  5.  COLD-BASE--49    baseline
+  2.  COLD-TONE--90    1421.2058 MHz, -90 dBm
+  3.  COLD-BASE--90    baseline
+  4.  COLD-TONE--86    1421.2058 MHz, -86 dBm
+  5.  COLD-BASE--86    baseline
       ...
-  42. COLD-TONE--30    1421.2058 MHz, -30 dBm
-  43. COLD-BASE--30    baseline
-  44. COLD-BASE-POST   baseline (gen OFF)
+  32. COLD-TONE--30    1421.2058 MHz, -30 dBm
+  33. COLD-BASE--30    baseline
+  34. COLD-BASE-POST   baseline (gen OFF)
 
 Usage:
     python lab_2_cold_cal.py
@@ -48,7 +48,7 @@ def build_plan():
         ObsExperiment(prefix='COLD-BASE-PRE', **COLD, **common),
     ]
 
-    for dbm in range(-50, -29):  # -50 to -30 inclusive
+    for dbm in range(-90, -29, 4):  # -90 to -30 in 4 dBm steps
         experiments.append(
             CalExperiment(
                 prefix=f'COLD-TONE-{dbm}',

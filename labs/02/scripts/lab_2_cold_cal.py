@@ -42,7 +42,7 @@ TONE_FREQ = 1421.2058  # MHz
 def build_plan():
     """Build the 44-step cold calibration experiment list."""
 
-    common = dict(outdir=OUTDIR, **SDR_DEFAULTS)
+    common = dict(outdir=OUTDIR, nblocks=10, **SDR_DEFAULTS)
 
     experiments = [
         ObsExperiment(prefix='COLD-BASE-PRE', **COLD, **common),

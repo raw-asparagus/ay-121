@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="VcsDirectoryMappings">
-    <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/librtlsdr" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/pyrtlsdr" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/ugradio" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../ay-128" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../ay-128/course_materials_sp2026" vcs="Git" />
   </component>
 </project>

@@ -1,5 +1,6 @@
 """Stateful queue runner for experiment execution."""
 
+import tarfile
 import time
 
 
@@ -33,8 +34,15 @@ class QueueRunner:
         self.confirm = confirm
         self.cadence_sec = cadence_sec
 
-    def run(self):
-        """Execute the queue and return output file paths."""
+    def run(self, archive=None):
+        """Execute the queue and return output file paths.
+
+        Parameters
+        ----------
+        archive : str, optional
+            If provided, pack all collected output files into a tar.gz at this
+            path after the queue finishes.
+        """
         n = len(self.experiments)
         paths = []
         obs_start = None
@@ -72,4 +80,11 @@ class QueueRunner:
             path = exp.run(self.sdr, synth=self.synth)
             paths.append(path)
             print(f'  -> {path}')
+
+        if archive and paths:
+            with tarfile.open(archive, 'w:gz') as tar:
+                for p in paths:
+                    tar.add(p)
+            print(f'  archived {len(paths)} file(s) -> {archive}')
+
         return paths

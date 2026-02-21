@@ -1,17 +1,18 @@
+import os
 from dataclasses import dataclass
 
-import ntplib
 import numpy as np
+
+_REQUIRED_KEYS = frozenset({
+    'data', 'sample_rate', 'center_freq', 'gain', 'direct',
+    'unix_time', 'jd', 'lst', 'alt', 'az',
+    'observer_lat', 'observer_lon', 'observer_alt',
+    'nblocks', 'nsamples',
+})
 import ugradio.nch as nch
 import ugradio.timing as timing
 
-
-def _get_unix_time() -> float:
-    try:
-        c = ntplib.NTPClient()
-        return c.request('pool.ntp.org', version=3).tx_time
-    except ntplib.NTPException:
-        return timing.unix_time()
+from ..utils import get_unix_time
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ class Record:
             )
         iq = raw[..., 0].astype(np.float64) + 1j * raw[..., 1].astype(np.float64)
 
-        t = _get_unix_time()
+        t = get_unix_time()
         jd = timing.julian_date(t)
         lst = timing.lst(jd, lon)
 
@@ -129,7 +130,7 @@ class Record:
         filepath : str or Path
             Destination path.
         """
-        np.savez(filepath, **self._to_npz_dict())
+        np.savez(os.fspath(filepath), **self._to_npz_dict())
 
     @classmethod
     def load(cls, filepath):
@@ -143,10 +144,41 @@ class Record:
         Returns
         -------
         Record
+
+        Raises
+        ------
+        ValueError
+            If required keys are missing, the data array has an unexpected
+            shape or dtype, or stored nblocks/nsamples are inconsistent with
+            the data array dimensions.
         """
         with np.load(filepath, allow_pickle=False) as f:
+            missing = _REQUIRED_KEYS - f.keys()
+            if missing:
+                raise ValueError(
+                    f'{filepath}: missing required keys: {missing}'
+                )
+
+            data = f['data']
+            nblocks = int(f['nblocks'])
+            nsamples = int(f['nsamples'])
+
+            if data.ndim != 2:
+                raise ValueError(
+                    f'{filepath}: data must be 2-D, got shape {data.shape}'
+                )
+            if not np.issubdtype(data.dtype, np.complexfloating):
+                raise ValueError(
+                    f'{filepath}: data must be complex, got dtype {data.dtype}'
+                )
+            if data.shape != (nblocks, nsamples):
+                raise ValueError(
+                    f'{filepath}: data shape {data.shape} inconsistent with '
+                    f'nblocks={nblocks}, nsamples={nsamples}'
+                )
+
             return cls(
-                data=f['data'],
+                data=data,
                 sample_rate=float(f['sample_rate']),
                 center_freq=float(f['center_freq']),
                 gain=float(f['gain']),
@@ -159,8 +191,8 @@ class Record:
                 observer_lat=float(f['observer_lat']),
                 observer_lon=float(f['observer_lon']),
                 observer_alt=float(f['observer_alt']),
-                nblocks=int(f['nblocks']),
-                nsamples=int(f['nsamples']),
+                nblocks=nblocks,
+                nsamples=nsamples,
                 siggen_freq=(
                     float(f['siggen_freq']) if 'siggen_freq' in f else None
                 ),

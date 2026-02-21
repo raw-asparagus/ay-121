@@ -17,9 +17,13 @@ class Spectrum:
     record : Record
         The raw capture this spectrum was derived from.
     psd : np.ndarray, shape (nfrequencies,)
-        Mean |FFT|² across blocks, DC-centred.
+        Normalised mean power spectrum across blocks, DC-centred.
+        Each bin is ``mean(|FFT|²) / nsamples²`` — *not* raw |FFT|²  — so
+        that ``sum(psd)`` equals ``mean(|IQ|²)`` (mean per-sample signal
+        power in counts²) by Parseval's theorem, independent of FFT length.
     std : np.ndarray, shape (nfrequencies,)
-        Standard deviation of |FFT|² across blocks.
+        Standard deviation of the normalised per-block spectra
+        (``std(|FFT|²/nsamples²)`` across blocks).  Same units as ``psd``.
     freqs : np.ndarray, shape (nfrequencies,)
         Frequency axis in Hz, DC-centred, absolute (baseband + centre_freq).
     """
@@ -43,9 +47,10 @@ class Spectrum:
         Spectrum
         """
         nblocks, nsamples = rec.data.shape
-        block_psds = np.abs(
-            np.fft.fftshift(np.fft.fft(rec.data, axis=1), axes=1)
-        ) ** 2
+        block_psds = (
+            np.abs(np.fft.fftshift(np.fft.fft(rec.data, axis=1), axes=1)) ** 2
+            / nsamples ** 2
+        )
         freqs = np.fft.fftshift(
             np.fft.fftfreq(nsamples, d=1.0 / rec.sample_rate)
         ) + rec.center_freq
@@ -63,7 +68,13 @@ class Spectrum:
 
     @property
     def total_power(self) -> float:
-        """Total integrated power: sum of PSD across all frequency bins."""
+        """Total integrated power: sum of normalised PSD across all frequency bins.
+
+        Because ``psd`` is normalised by ``nsamples²``, this equals
+        ``mean(|IQ|²)`` (mean per-sample signal power in counts²) by
+        Parseval's theorem, and is directly comparable across captures with
+        different ``nsamples``.
+        """
         return float(np.sum(self.psd))
 
     def bin_at(self, freq_hz: float) -> int:

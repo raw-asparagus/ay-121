@@ -33,8 +33,8 @@ class Experiment(ABC):
     observer_alt: float = nch.alt
 
     def _configure_sdr(self, sdr):
-        """Apply this experiment's SDR parameters to an existing SDR object."""
-        # Using the same statefull reinstantiation as in ugradio.sdr
+        """Set SDR parameters of an existing SDR object for this experiment."""
+        # Using the same stateful reinstantiation as in ugradio.sdr
         sdr.direct = self.direct
         if self.direct:
             sdr.set_direct_sampling('q')

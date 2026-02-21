@@ -79,17 +79,20 @@ class RecordTests(unittest.TestCase):
         self.raw = np.zeros((3, 8, 2), dtype=np.int8)
         self.time_patch = mock.patch.multiple(
             "ugradiolab.data.record.timing",
-            unix_time=mock.DEFAULT,
             julian_date=mock.DEFAULT,
             lst=mock.DEFAULT,
         )
+        self.unix_patch = mock.patch(
+            "ugradiolab.data.record.get_unix_time", return_value=1234.5
+        )
         patched = self.time_patch.start()
-        patched["unix_time"].return_value = 1234.5
+        self.unix_patch.start()
         patched["julian_date"].return_value = 2460000.125
         patched["lst"].return_value = 1.75
 
     def tearDown(self):
         self.time_patch.stop()
+        self.unix_patch.stop()
 
     def test_from_sdr_observation_has_no_siggen_fields(self):
         record = Record.from_sdr(
@@ -140,17 +143,20 @@ class ExperimentTests(unittest.TestCase):
         self.synth = FakeSynth()
         self.time_patch = mock.patch.multiple(
             "ugradiolab.data.record.timing",
-            unix_time=mock.DEFAULT,
             julian_date=mock.DEFAULT,
             lst=mock.DEFAULT,
         )
+        self.unix_patch = mock.patch(
+            "ugradiolab.data.record.get_unix_time", return_value=1234.5
+        )
         patched = self.time_patch.start()
-        patched["unix_time"].return_value = 1234.5
+        self.unix_patch.start()
         patched["julian_date"].return_value = 2460000.125
         patched["lst"].return_value = 1.75
 
     def tearDown(self):
         self.time_patch.stop()
+        self.unix_patch.stop()
 
     def test_cal_experiment_records_rf_on_then_turns_off(self):
         recorded = {}

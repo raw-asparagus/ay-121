@@ -27,8 +27,10 @@ LO_FREQ = 1420.0e6
 
 MIN_ALT_DEG = 10.0     # elevation floor; warn below this
 
-SIGGEN_FREQ_MHZ = 1420.405751768
-SIGGEN_AMP_DBM = -80.0
+SIGGEN_FREQ_MHZ = 1421.0
+SIGGEN_AMP_DBM_1 = -80.0
+SIGGEN_AMP_DBM_2 = -60.0
+SIGGEN_AMP_DBM_3 = -40.0
 
 COMMON = dict(
     outdir=OUTDIR,
@@ -45,15 +47,28 @@ COMMON = dict(
 def build_plan(alt_deg, az_deg):
     """Build [CAL, LO_MIN, LO_MIN+STEP, ..., LO_MAX] experiment list."""
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
-    cal = CalExperiment(
+    experiments = []
+    experiments.append(CalExperiment(
         prefix='SKY-SWITCH-FREQ-CAL',
         siggen_freq_mhz=SIGGEN_FREQ_MHZ,
-        siggen_amp_dbm=SIGGEN_AMP_DBM,
+        siggen_amp_dbm=SIGGEN_AMP_DBM_1,
         **pointing,
         **COMMON,
-    )
-    experiments = []
-    experiments.append(cal)
+    ))
+    experiments.append(CalExperiment(
+        prefix='SKY-SWITCH-FREQ-CAL',
+        siggen_freq_mhz=SIGGEN_FREQ_MHZ,
+        siggen_amp_dbm=SIGGEN_AMP_DBM_2,
+        **pointing,
+        **COMMON,
+    ))
+    experiments.append(CalExperiment(
+        prefix='SKY-SWITCH-FREQ-CAL',
+        siggen_freq_mhz=SIGGEN_FREQ_MHZ,
+        siggen_amp_dbm=SIGGEN_AMP_DBM_3,
+        **pointing,
+        **COMMON,
+    ))
 
     return experiments
 

@@ -27,6 +27,7 @@ GAL_L = 120.0   # degrees
 GAL_B = 0.0     # degrees
 
 LO_FREQ = 1420.0e6
+NBLOCKS_STEPS = [2, 8, 32, 128, 512, 2048]
 
 MIN_ALT_DEG = 10.0     # elevation floor; warn below this
 
@@ -36,7 +37,6 @@ SIGGEN_AMP_DBM = -80.0
 COMMON = dict(
     outdir=OUTDIR,
     nsamples=65536,
-    nblocks=128,
     direct=False,
     sample_rate=2.56e6,
     gain=0.0,
@@ -59,12 +59,12 @@ def compute_pointing():
 
 
 def build_plan(alt_deg, az_deg):
-    """Build [CAL, LO_MIN, LO_MIN+STEP, ..., LO_MAX] experiment list."""
+    """Build one ObsExperiment per nblocks step."""
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
-    experiments = []
-    experiments.append(ObsExperiment(prefix="GAL-1420", center_freq=LO_FREQ, **pointing, **COMMON))
-
-    return experiments
+    return [
+        ObsExperiment(prefix=f'GAL-1420-n{n}', center_freq=LO_FREQ, nblocks=n, **pointing, **COMMON)
+        for n in NBLOCKS_STEPS
+    ]
 
 
 def main():
@@ -98,18 +98,16 @@ def main():
     experiments = build_plan(alt, az)
     total = len(experiments)
 
-    print(f'Starting {total} captures (CAL + {total - 1} LO steps)...')
-    print(f'  CAL:  {SIGGEN_FREQ_MHZ} MHz,  {SIGGEN_AMP_DBM} dBm')
-    print(f'  LO:   {LO_FREQ} MHz')
+    print(f'Starting {total} captures (nblocks steps: {NBLOCKS_STEPS})...')
+    print(f'  LO:   {LO_FREQ / 1e6:.1f} MHz')
     print(f'  Output: {OUTDIR}/')
     print()
 
     sdr = SDR(direct=False, center_freq=LO_FREQ, sample_rate=2.56e6, gain=0.0)
-    synth = SignalGenerator()
 
     archive = f'{OUTDIR}/lab_2_1_1420_{time.strftime("%Y%m%d_%H%M%S")}.tar.gz'
     try:
-        runner = QueueRunner(experiments=experiments, sdr=sdr, synth=synth, confirm=False)
+        runner = QueueRunner(experiments=experiments, sdr=sdr, confirm=False)
         t0 = time.time()
         paths = runner.run(archive=archive)
         elapsed = time.time() - t0

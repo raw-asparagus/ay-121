@@ -18,7 +18,7 @@ def _make_path(outdir, prefix, tag):
 @dataclass
 class Experiment(ABC):
     """Base experiment specification (SDR parameters + output settings)."""
-    nsamples: int = 32768
+    nsamples: int = 16384
     nblocks: int = 1
     sample_rate: float = 2.56e6  # Hz
     center_freq: float = 1420e6  # Hz

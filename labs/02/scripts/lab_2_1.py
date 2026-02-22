@@ -1,26 +1,32 @@
 #!/usr/bin/env python3
-"""Lab 2 galactic-plane frequency-switched observation.
+"""Lab 2 galactic-plane frequency-swept observation with calibration.
 
 Computes the current alt/az for galactic (l=120°, b=0°) at NCH using
-NTP time, prints pointing instructions, then runs a frequency-switched
-observation sequence after operator confirmation.
+NTP time, prints pointing instructions, then runs a calibration +
+frequency-swept observation sequence after operator confirmation.
 
-The same two-LO frequency-switching scheme as the zenith observation is
-used so the resulting files are analysed identically.
+Each cycle consists of one CalExperiment followed by ObsExperiments
+stepped from LO_MIN_FREQ to LO_MAX_FREQ in LO_STEP_FREQ increments
+(inclusive):
 
-  LO-A: center_freq = 1420.0 MHz  →  HI line at +0.406 MHz (upper half)
-  LO-B: center_freq = 1421.0 MHz  →  HI line at −0.594 MHz (lower half)
-  LO-C: center_freq = 1419.0 MHz  →  HI line at +1.406 MHz (upper half)
-  LO-D: center_freq = 1422.0 MHz  →  HI line at −1.594 MHz (lower half)
+  CAL:  siggen at 1420.405751768 MHz, −80 dBm
+  LO:   1418 – 1423 MHz in 1 MHz steps  →  HI line offset per step:
+    1418 MHz  →  +2.406 MHz
+    1419 MHz  →  +1.406 MHz
+    1420 MHz  →  +0.406 MHz
+    1421 MHz  →  −0.594 MHz
+    1422 MHz  →  −1.594 MHz
+    1423 MHz  →  −2.594 MHz
+
+Output files are saved to OUTDIR and archived to a timestamped .tar.gz.
 
 Usage:
-    python lab_2_galactic_obs.py
+    python lab_2_1.py
 """
 
 import sys
 import time
 
-import ugradio.nch as nch
 from ugradio.sdr import SDR
 
 from ugradiolab import SignalGenerator

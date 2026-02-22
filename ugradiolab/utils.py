@@ -12,6 +12,7 @@ def get_unix_time() -> float:
         c = ntplib.NTPClient()
         return c.request('pool.ntp.org', version=3).tx_time
     except ntplib.NTPException:
+        print("Unable to connect to NTP! Using system time.")
         return timing.unix_time()
 
 

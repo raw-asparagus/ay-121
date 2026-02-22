@@ -8,7 +8,7 @@ def _format_experiment(exp, index, total):
     """Format experiment details for display."""
     tag = type(exp).__name__
     lines = [f'[{index}/{total}] {exp.prefix} ({tag})']
-    lines.append(f'  alt={exp.alt_deg}  az={exp.az_deg}')
+    lines.append(f'  alt={exp.alt_deg:.2f}  az={exp.az_deg:.2f}')
     lines.append(
         f'  nsamples={exp.nsamples}  nblocks={exp.nblocks}  '
         f'sample_rate={exp.sample_rate / 1e6:.2f} MHz'

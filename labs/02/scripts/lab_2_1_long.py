@@ -39,7 +39,7 @@ SIGGEN_AMP_DBM = -80.0
 COMMON = dict(
     outdir=OUTDIR,
     nsamples=16384,
-    nblocks=32768,
+    nblocks=2048,
     direct=False,
     sample_rate=2.56e6,
     gain=0.0,
@@ -56,7 +56,8 @@ def build_plan(alt_deg, az_deg):
     freq = LO_MIN_FREQ
     while freq <= LO_MAX_FREQ + 0.5 * LO_STEP_FREQ:
         label = f'GAL-{freq / 1e6:.0f}'
-        experiments.append(ObsExperiment(prefix=label, center_freq=freq, **pointing, **COMMON))
+        for i in range(0, 16):
+            experiments.append(ObsExperiment(prefix=f'{label}-{i}', center_freq=freq, **pointing, **COMMON))
         freq += LO_STEP_FREQ
 
     return experiments

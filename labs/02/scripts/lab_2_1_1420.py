@@ -2,7 +2,7 @@
 """Lab 2 galactic-plane observation @ 1420 MHz.
 
 Usage:
-    python lab_2_1_1420.py
+    python lab_2_1_vary_n.py
 """
 
 import sys

@@ -1,27 +1,14 @@
 #!/usr/bin/env python3
-"""Lab 2 galactic-plane frequency-swept observation with calibration.
+"""Lab 2 high precision galactic-plane frequency-swept observation.
 
-Computes the current alt/az for galactic (l=120°, b=0°) at NCH using
-NTP time, prints pointing instructions, then runs a calibration +
-frequency-swept observation sequence after operator confirmation.
-
-Each cycle consists of one CalExperiment followed by ObsExperiments
-stepped from LO_MIN_FREQ to LO_MAX_FREQ in LO_STEP_FREQ increments
-(inclusive):
-
-  CAL:  siggen at 1420.405751768 MHz, −80 dBm
-  LO:   1418 – 1423 MHz in 1 MHz steps  →  HI line offset per step:
-    1418 MHz  →  +2.406 MHz
-    1419 MHz  →  +1.406 MHz
+  LO:   1420 – 1421 MHz in 1 MHz steps  →  HI line offset per step:
     1420 MHz  →  +0.406 MHz
     1421 MHz  →  −0.594 MHz
-    1422 MHz  →  −1.594 MHz
-    1423 MHz  →  −2.594 MHz
 
-Output files are saved to OUTDIR and archived to a timestamped .tar.gz.
+Output files are saved to OUTDIR.
 
 Usage:
-    python lab_2_1.py
+    python lab_2_1_extreme.py
 """
 
 import sys
@@ -35,13 +22,13 @@ from ugradiolab.queue import QueueRunner
 from ugradiolab.utils import compute_pointing
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab2_1_8192'
+OUTDIR = 'data/lab2_1_extreme'
 
 GAL_L = 120.0   # degrees
 GAL_B = 0.0     # degrees
 
-LO_MIN_FREQ = 1418.0e6
-LO_MAX_FREQ = 1423.0e6
+LO_MIN_FREQ = 1420.0e6
+LO_MAX_FREQ = 1421.0e6
 LO_STEP_FREQ = 1.0e6
 
 MIN_ALT_DEG = 10.0     # elevation floor; warn below this
@@ -52,7 +39,7 @@ SIGGEN_AMP_DBM = -80.0
 COMMON = dict(
     outdir=OUTDIR,
     nsamples=16384,
-    nblocks=8192,
+    nblocks=2048,
     direct=False,
     sample_rate=2.56e6,
     gain=0.0,
@@ -64,19 +51,13 @@ COMMON = dict(
 def build_plan(alt_deg, az_deg):
     """Build [CAL, LO_MIN, LO_MIN+STEP, ..., LO_MAX] experiment list."""
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
-    cal = CalExperiment(
-        prefix='SKY-SWITCH-FREQ-CAL',
-        siggen_freq_mhz=SIGGEN_FREQ_MHZ,
-        siggen_amp_dbm=SIGGEN_AMP_DBM,
-        **pointing,
-        **COMMON,
-    )
-    experiments = [cal]
+    experiments = []
 
     freq = LO_MIN_FREQ
     while freq <= LO_MAX_FREQ + 0.5 * LO_STEP_FREQ:
         label = f'GAL-{freq / 1e6:.0f}'
-        experiments.append(ObsExperiment(prefix=label, center_freq=freq, **pointing, **COMMON))
+        for i in range(0, 8):
+            experiments.append(ObsExperiment(prefix=f'{label}-{i}', center_freq=freq, **pointing, **COMMON))
         freq += LO_STEP_FREQ
 
     return experiments

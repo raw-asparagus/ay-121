@@ -27,7 +27,7 @@ GAL_L = 120.0   # degrees
 GAL_B = 0.0     # degrees
 
 LO_FREQ = 1420.0e6
-NBLOCKS_STEPS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
+NBLOCKS_STEPS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
 
 MIN_ALT_DEG = 10.0     # elevation floor; warn below this
 

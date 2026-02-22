@@ -36,7 +36,7 @@ SIGGEN_AMP_DBM = -80.0
 
 COMMON = dict(
     outdir=OUTDIR,
-    nsamples=65536,
+    nsamples=16384,
     direct=False,
     sample_rate=2.56e6,
     gain=0.0,

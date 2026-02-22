@@ -32,8 +32,8 @@ SIGGEN_AMP_STEPS_DBM = [-80.0, -60.0, -40.0]
 
 COMMON = dict(
     outdir=OUTDIR,
-    nsamples=65536,
-    nblocks=10,
+    nsamples=16384,
+    nblocks=512,
     direct=False,
     sample_rate=2.56e6,
     gain=0.0,

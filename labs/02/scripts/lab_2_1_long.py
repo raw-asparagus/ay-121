@@ -99,10 +99,9 @@ def main():
     print()
 
     sdr = SDR(direct=False, center_freq=FREQ_1, sample_rate=2.56e6, gain=0.0)
-    synth = SignalGenerator()
 
     try:
-        runner = QueueRunner(experiments=experiments, sdr=sdr, synth=synth, confirm=False)
+        runner = QueueRunner(experiments=experiments, sdr=sdr, confirm=False)
         t0 = time.time()
         paths = runner.run()
         elapsed = time.time() - t0

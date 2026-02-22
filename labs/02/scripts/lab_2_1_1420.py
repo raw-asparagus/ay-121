@@ -21,7 +21,7 @@ from ugradiolab.queue import QueueRunner
 from ugradiolab.utils import get_unix_time
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab2_1_cal'
+OUTDIR = 'data/lab2_1_1420'
 
 GAL_L = 120.0   # degrees
 GAL_B = 0.0     # degrees
@@ -105,11 +105,10 @@ def main():
 
     sdr = SDR(direct=False, center_freq=LO_FREQ, sample_rate=2.56e6, gain=0.0)
 
-    archive = f'{OUTDIR}/lab_2_1_1420_{time.strftime("%Y%m%d_%H%M%S")}.tar.gz'
     try:
         runner = QueueRunner(experiments=experiments, sdr=sdr, confirm=False)
         t0 = time.time()
-        paths = runner.run(archive=archive)
+        paths = runner.run()
         elapsed = time.time() - t0
     finally:
         sdr.close()

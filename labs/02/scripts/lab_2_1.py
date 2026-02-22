@@ -123,11 +123,10 @@ def main():
     sdr = SDR(direct=False, center_freq=LO_MIN_FREQ, sample_rate=2.56e6, gain=0.0)
     synth = SignalGenerator()
 
-    archive = f'{OUTDIR}/lab_2_1_{time.strftime("%Y%m%d_%H%M%S")}.tar.gz'
     try:
         runner = QueueRunner(experiments=experiments, sdr=sdr, synth=synth, confirm=False)
         t0 = time.time()
-        paths = runner.run(archive=archive)
+        paths = runner.run()
         elapsed = time.time() - t0
     finally:
         sdr.close()

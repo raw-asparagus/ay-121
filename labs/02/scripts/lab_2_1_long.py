@@ -27,9 +27,8 @@ OUTDIR = 'data/lab2_1_long'
 GAL_L = 120.0   # degrees
 GAL_B = 0.0     # degrees
 
-LO_MIN_FREQ = 1420.0e6
-LO_MAX_FREQ = 1421.0e6
-LO_STEP_FREQ = 1.0e6
+FREQ_1 = 1420.0e6
+FREQ_2 = 1421.0e6
 
 MIN_ALT_DEG = 10.0     # elevation floor; warn below this
 
@@ -38,7 +37,7 @@ SIGGEN_AMP_DBM = -80.0
 
 COMMON = dict(
     outdir=OUTDIR,
-    nsamples=16384,
+    nsamples=32768,
     nblocks=2048,
     direct=False,
     sample_rate=2.56e6,
@@ -49,22 +48,21 @@ COMMON = dict(
 # ---------------------------------------------------------------------------
 
 def build_plan(alt_deg, az_deg):
-    """Build [CAL, LO_MIN, LO_MIN+STEP, ..., LO_MAX] experiment list."""
+    """Build several copies of (FREQ_1, FREQ_2) frequency-switched experiment list."""
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
     experiments = []
 
-    freq = LO_MIN_FREQ
-    while freq <= LO_MAX_FREQ + 0.5 * LO_STEP_FREQ:
-        label = f'GAL-{freq / 1e6:.0f}'
-        for i in range(0, 16):
-            experiments.append(ObsExperiment(prefix=f'{label}-{i}', center_freq=freq, **pointing, **COMMON))
-        freq += LO_STEP_FREQ
+    for i in range(4):
+        experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
+                                         **pointing, **COMMON))
+        experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
+                                         **pointing, **COMMON))
 
     return experiments
 
 
 def main():
-    print('Lab 2 galactic observation — computing pointing for (l=120°, b=0°) ...')
+    print(f'Lab 2 galactic observation — computing pointing for (l={GAL_L}°, b={GAL_B}°) ...')
     print()
 
     alt, az, ra, dec, jd = compute_pointing(GAL_L, GAL_B)
@@ -96,12 +94,11 @@ def main():
 
     print(f'Starting {total} captures (CAL + {total - 1} LO steps)...')
     print(f'  CAL:  {SIGGEN_FREQ_MHZ} MHz,  {SIGGEN_AMP_DBM} dBm')
-    print(f'  LO:   {LO_MIN_FREQ / 1e6:.0f} – {LO_MAX_FREQ / 1e6:.0f} MHz  '
-          f'in steps of {LO_STEP_FREQ / 1e6:.0f} MHz')
+    print(f'  LO:   {FREQ_1 / 1e6:.0f} & {FREQ_2 / 1e6:.0f} MHz')
     print(f'  Output: {OUTDIR}/')
     print()
 
-    sdr = SDR(direct=False, center_freq=LO_MIN_FREQ, sample_rate=2.56e6, gain=0.0)
+    sdr = SDR(direct=False, center_freq=FREQ_1, sample_rate=2.56e6, gain=0.0)
     synth = SignalGenerator()
 
     try:

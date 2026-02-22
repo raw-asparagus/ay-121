@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
-"""Lab 2 galactic-plane frequency-swept observation with calibration.
+"""Lab 2 galactic-plane two frequency-switched measurements with calibration.
 
 Computes the current alt/az for galactic (l=120°, b=0°) at NCH using
 NTP time, prints pointing instructions, then runs a calibration +
 frequency-swept observation sequence after operator confirmation.
 
-Each cycle consists of one CalExperiment followed by ObsExperiments
-stepped from LO_MIN_FREQ to LO_MAX_FREQ in LO_STEP_FREQ increments
-(inclusive):
+Each cycle consists of one CalExperiment followed by two ObsExperiments:
 
   CAL:  siggen at 1420.405751768 MHz, −80 dBm
-  LO:   1418 – 1423 MHz in 1 MHz steps  →  HI line offset per step:
-    1418 MHz  →  +2.406 MHz
-    1419 MHz  →  +1.406 MHz
-    1420 MHz  →  +0.406 MHz
-    1421 MHz  →  −0.594 MHz
-    1422 MHz  →  −1.594 MHz
-    1423 MHz  →  −2.594 MHz
+  LO:   1420 MHz  →  HI line at +0.406 MHz
+        1421 MHz  →  HI line at −0.594 MHz
 
 Output files are saved to OUTDIR and archived to a timestamped .tar.gz.
 
@@ -40,9 +33,8 @@ OUTDIR = 'data/lab2_1'
 GAL_L = 120.0   # degrees
 GAL_B = 0.0     # degrees
 
-LO_MIN_FREQ = 1418.0e6
-LO_MAX_FREQ = 1423.0e6
-LO_STEP_FREQ = 1.0e6
+LO_FREQ_1 = 1420.0e6
+LO_FREQ_2 = 1421.0e6
 
 MIN_ALT_DEG = 10.0     # elevation floor; warn below this
 
@@ -62,24 +54,19 @@ COMMON = dict(
 # ---------------------------------------------------------------------------
 
 def build_plan(alt_deg, az_deg):
-    """Build [CAL, LO_MIN, LO_MIN+STEP, ..., LO_MAX] experiment list."""
+    """Build [CAL, GAL-1420, GAL-1421] experiment list."""
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
-    cal = CalExperiment(
-        prefix='SKY-SWITCH-FREQ-CAL',
-        siggen_freq_mhz=SIGGEN_FREQ_MHZ,
-        siggen_amp_dbm=SIGGEN_AMP_DBM,
-        **pointing,
-        **COMMON,
-    )
-    experiments = [cal]
-
-    freq = LO_MIN_FREQ
-    while freq <= LO_MAX_FREQ + 0.5 * LO_STEP_FREQ:
-        label = f'GAL-{freq / 1e6:.0f}'
-        experiments.append(ObsExperiment(prefix=label, center_freq=freq, **pointing, **COMMON))
-        freq += LO_STEP_FREQ
-
-    return experiments
+    return [
+        CalExperiment(
+            prefix='SKY-SWITCH-FREQ-CAL',
+            siggen_freq_mhz=SIGGEN_FREQ_MHZ,
+            siggen_amp_dbm=SIGGEN_AMP_DBM,
+            **pointing,
+            **COMMON,
+        ),
+        ObsExperiment(prefix='GAL-1420', center_freq=LO_FREQ_1, **pointing, **COMMON),
+        ObsExperiment(prefix='GAL-1421', center_freq=LO_FREQ_2, **pointing, **COMMON),
+    ]
 
 
 def main():
@@ -113,14 +100,13 @@ def main():
     experiments = build_plan(alt, az)
     total = len(experiments)
 
-    print(f'Starting {total} captures (CAL + {total - 1} LO steps)...')
+    print(f'Starting {total} captures (CAL + 2 LO steps)...')
     print(f'  CAL:  {SIGGEN_FREQ_MHZ} MHz,  {SIGGEN_AMP_DBM} dBm')
-    print(f'  LO:   {LO_MIN_FREQ / 1e6:.0f} – {LO_MAX_FREQ / 1e6:.0f} MHz  '
-          f'in steps of {LO_STEP_FREQ / 1e6:.0f} MHz')
+    print(f'  LO:   {LO_FREQ_1 / 1e6:.0f} MHz,  {LO_FREQ_2 / 1e6:.0f} MHz')
     print(f'  Output: {OUTDIR}/')
     print()
 
-    sdr = SDR(direct=False, center_freq=LO_MIN_FREQ, sample_rate=2.56e6, gain=0.0)
+    sdr = SDR(direct=False, center_freq=LO_FREQ_1, sample_rate=2.56e6, gain=0.0)
     synth = SignalGenerator()
 
     try:

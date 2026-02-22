@@ -21,16 +21,18 @@ class Spectrum:
         Each bin is ``mean(|FFT|²) / nsamples²`` — *not* raw |FFT|²  — so
         that ``sum(psd)`` equals ``mean(|IQ|²)`` (mean per-sample signal
         power in counts²) by Parseval's theorem, independent of FFT length.
-    std : np.ndarray, shape (nfrequencies,)
-        Standard deviation of the normalised per-block spectra
-        (``std(|FFT|²/nsamples²)`` across blocks).  Same units as ``psd``.
+    std : float
+        Standard error of the mean PSD estimator: mean across frequency bins
+        of ``std(|FFT|²/nsamples², axis=0) / √nblocks``.  Represents the
+        uncertainty on ``psd`` and scales as ``1/√nblocks``.
+        Same units as ``psd``.
     freqs : np.ndarray, shape (nfrequencies,)
         Frequency axis in Hz, DC-centred, absolute (baseband + centre_freq).
     """
 
     record: Record
     psd: np.ndarray
-    std: np.ndarray
+    std: float
     freqs: np.ndarray
 
     @classmethod
@@ -57,7 +59,7 @@ class Spectrum:
         return cls(
             record=rec,
             psd=np.mean(block_psds, axis=0),
-            std=np.std(block_psds, axis=0),
+            std=float(np.mean(np.std(block_psds, axis=0))) / np.sqrt(nblocks),
             freqs=freqs,
         )
 

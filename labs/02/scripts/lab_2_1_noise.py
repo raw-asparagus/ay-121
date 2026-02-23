@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Lab 2 galactic-plane observation @ 1420 MHz.
+"""Lab 2 galactic-plane varying precision observations @ 1420 MHz at varying
+precisions to characterize noise.
+
+  LO:   1420 MHz
 
 Usage:
-    python lab_2_1_vary_n.py
+    python lab_2_1_noise.py
 """
 
 import sys

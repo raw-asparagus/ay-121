@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Combine 8 per-LO-frequency captures from lab_2_1_extreme into one Record
-per LO frequency (16384 blocks each).
+"""Combine n files of per-LO-frequency captures from lab_2_1_long into one
+Record per LO frequency (n * 2048 blocks each).
 
 Input layout  (produced by lab_2_1_long.py)
 ----------------------------------------------
-  <indir>/GAL-1420-{0..7}_obs_*.npz  →  <outdir>/GAL-1420_combined.npz
-  <indir>/GAL-1421-{0..7}_obs_*.npz  →  <outdir>/GAL-1421_combined.npz
+  <indir>/GAL-1420-{0..n}_obs_*.npz  →  <outdir>/GAL-1420_combined.npz
+  <indir>/GAL-1421-{0..n}_obs_*.npz  →  <outdir>/GAL-1421_combined.npz
 
-Each input file has nblocks=2048, nsamples=16384.
-8 × 2048 = 16384 blocks in the combined output.
+Each input file has nblocks=2048, nsamples=32768.
+4 × 2048 = 8192 blocks in the combined output.
 
 Usage
 -----
-  python lab_2_1_extreme_combine.py [indir [outdir]]
+  python lab_2_1_long_combine.py [indir [outdir]]
 
 Defaults:
-  indir  = data/lab2_1_extreme
-  outdir = data/lab2_1_extreme_combined
+  indir  = data/lab_2_1_long
+  outdir = data/lab_2_1_long_combined
 """
 
 import glob
@@ -29,13 +29,13 @@ import numpy as np
 
 from ugradiolab.data import Record
 
-INDIR_DEFAULT  = 'data/lab2_1_extreme'
-OUTDIR_DEFAULT = 'data/lab2_1_extreme_combined'
+INDIR_DEFAULT  = 'data/lab_2_1_long'
+OUTDIR_DEFAULT = 'data/lab_2_1_long_combined'
 
 LO_LABELS              = ('GAL-1420', 'GAL-1421')
-N_FILES_PER_LO         = 8
+N_FILES_PER_LO         = 4
 EXPECTED_NBLOCKS_PER_FILE  = 2048
-EXPECTED_COMBINED_NBLOCKS  = N_FILES_PER_LO * EXPECTED_NBLOCKS_PER_FILE  # 16384
+EXPECTED_COMBINED_NBLOCKS  = N_FILES_PER_LO * EXPECTED_NBLOCKS_PER_FILE  # 8192
 
 
 def _find_files(indir, lo_label):

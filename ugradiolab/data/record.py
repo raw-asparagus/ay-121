@@ -223,11 +223,7 @@ class Record:
             nblocks=np.int64(self.nblocks),
             nsamples=np.int64(self.nsamples),
         )
-        if (
-            self.siggen_freq is not None
-            and self.siggen_amp is not None
-            and self.siggen_rf_on is not None
-        ):
+        if self.uses_synth:
             out.update(
                 siggen_freq=np.float64(self.siggen_freq),
                 siggen_amp=np.float64(self.siggen_amp),

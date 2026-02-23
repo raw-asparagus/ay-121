@@ -49,7 +49,7 @@ def build_plan():
     """Build several copies of (FREQ_1, FREQ_2) frequency-switched experiment list."""
     experiments = []
 
-    for i in range(2):
+    for i in range(4):
         experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_1, **COMMON))
         experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_2, **COMMON))
 
@@ -72,7 +72,7 @@ def main():
     input('  Press Enter once the horn is pointed: ')
     print()
 
-    SETTLE_SEC = 60
+    SETTLE_SEC = 120
     print(f'  Waiting {SETTLE_SEC}s for telescope to settle...', end='', flush=True)
     for remaining in range(SETTLE_SEC, 0, -1):
         print(f'\r  Settling — {remaining:3d}s remaining...   ', end='', flush=True)

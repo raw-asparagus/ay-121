@@ -8,7 +8,7 @@
 Output files are saved to OUTDIR.
 
 Usage:
-    python lab_2_1_long.py
+    python lab_2_1_SGP.py
 """
 
 import sys
@@ -22,7 +22,7 @@ from ugradiolab.queue import QueueRunner
 from ugradiolab.utils import compute_pointing
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab2_1_long'
+OUTDIR = 'data/lab2_1_SGP'
 
 GAL_L = 0.0   # degrees
 GAL_B = -90.0     # degrees
@@ -34,8 +34,8 @@ MIN_ALT_DEG = 10.0     # elevation floor; warn below this
 
 COMMON = dict(
     outdir=OUTDIR,
-    nsamples=8192,
-    nblocks=8192,
+    nsamples=32768,
+    nblocks=2048,
     direct=False,
     sample_rate=2.56e6,
     gain=0.0,
@@ -49,7 +49,7 @@ def build_plan(alt_deg, az_deg):
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
     experiments = []
 
-    for i in range(2):
+    for i in range(8):
         experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
                                          **pointing, **COMMON))
         experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,

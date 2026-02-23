@@ -48,7 +48,7 @@ def build_plan(alt_deg, az_deg):
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
     experiments = []
 
-    for i in range(4):
+    for i in range(8):
         experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
                                          **pointing, **COMMON))
         experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,

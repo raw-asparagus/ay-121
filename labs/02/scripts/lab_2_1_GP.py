@@ -8,28 +8,29 @@
 Output files are saved to OUTDIR.
 
 Usage:
-    python lab_2_1_human.py
+    python lab_2_1_long.py
 """
 
 import sys
 import time
 
 from ugradio.sdr import SDR
-import ugradio.timing as timing
 
 from ugradiolab import SignalGenerator
 from ugradiolab.experiment import CalExperiment, ObsExperiment
 from ugradiolab.queue import QueueRunner
-from ugradiolab.utils import get_unix_time
+from ugradiolab.utils import compute_pointing
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab2_1_human'
+OUTDIR = 'data/lab2_1_long'
 
-ALT = 0.0  # deg
-AZI = 0.0  # deg
+GAL_L = 0.0   # degrees
+GAL_B = -90.0     # degrees
 
 FREQ_1 = 1420.0e6
 FREQ_2 = 1421.0e6
+
+MIN_ALT_DEG = 10.0     # elevation floor; warn below this
 
 COMMON = dict(
     outdir=OUTDIR,
@@ -38,49 +39,54 @@ COMMON = dict(
     direct=False,
     sample_rate=2.56e6,
     gain=0.0,
-    alt_deg=ALT,
-    az_deg=AZI
 )
 
 
 # ---------------------------------------------------------------------------
 
-def build_plan():
+def build_plan(alt_deg, az_deg):
     """Build several copies of (FREQ_1, FREQ_2) frequency-switched experiment list."""
+    pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
     experiments = []
 
     for i in range(2):
-        experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_1, **COMMON))
-        experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_2, **COMMON))
+        experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
+                                         **pointing, **COMMON))
+        experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
+                                         **pointing, **COMMON))
 
     return experiments
 
 
 def main():
-    print(f'Lab 2 human calibration, pointed horizontally ...')
+    print(f'Lab 2 galactic observation — computing pointing for (l={GAL_L}°, b={GAL_B}°) ...')
     print()
 
-    unix_t = get_unix_time()
-    jd = timing.julian_date(unix_t)
+    alt, az, ra, dec, jd = compute_pointing(GAL_L, GAL_B)
 
-    print(f'  Local alt/az    :  Alt = {ALT:.2f}°,  Az = {AZI:.2f}°')
+    print(f'  Galactic        :  l = {GAL_L:.1f}°,  b = {GAL_B:.1f}°')
+    print(f'  Equatorial J2000:  RA = {ra:.4f}°,  Dec = {dec:.4f}°')
+    print(f'  Local alt/az    :  Alt = {alt:.2f}°,  Az = {az:.2f}°')
     print(f'  Julian date     :  {jd:.5f}')
     print()
 
-    print(f'  >>> Point the horn to:  Alt = {ALT:.2f}°,  Az = {AZI:.2f}° <<<')
+    if alt < MIN_ALT_DEG:
+        print(f'  WARNING: target is only {alt:.1f}° above the horizon '
+              f'(minimum recommended: {MIN_ALT_DEG}°).')
+        print('  Consider waiting until the target rises or choose a different LST.')
+        print()
+        cont = input('  Continue anyway? [y/N] ').strip().lower()
+        if cont != 'y':
+            print('Aborted.')
+            sys.exit(0)
+        print()
+
+    print(f'  >>> Point the horn to:  Alt = {alt:.2f}°,  Az = {az:.2f}° <<<')
     print()
-    input('  Press Enter once the horn is pointed: ')
+    input('  Press Enter once the horn is pointed and you are ready to begin: ')
     print()
 
-    SETTLE_SEC = 120
-    print(f'  Waiting {SETTLE_SEC}s for telescope to settle...', end='', flush=True)
-    for remaining in range(SETTLE_SEC, 0, -1):
-        print(f'\r  Settling — {remaining:3d}s remaining...   ', end='', flush=True)
-        time.sleep(1)
-    print(f'\r  Settle complete.                      ')
-    print()
-
-    experiments = build_plan()
+    experiments = build_plan(alt, az)
     total = len(experiments)
 
     print(f'Starting {total} captures...')

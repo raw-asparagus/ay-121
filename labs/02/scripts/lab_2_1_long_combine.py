@@ -32,7 +32,7 @@ from ugradiolab.data import Record
 INDIR_DEFAULT  = 'data/lab_2_1_long'
 OUTDIR_DEFAULT = 'data/lab_2_1_long_combined'
 
-LO_LABELS              = ('GAL-1420', 'GAL-1421')
+LO_LABELS              = ('GAL-1421',)
 N_FILES_PER_LO         = 4
 EXPECTED_NBLOCKS_PER_FILE  = 2048
 EXPECTED_COMBINED_NBLOCKS  = N_FILES_PER_LO * EXPECTED_NBLOCKS_PER_FILE  # 8192

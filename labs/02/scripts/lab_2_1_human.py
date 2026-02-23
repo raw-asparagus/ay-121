@@ -33,8 +33,8 @@ FREQ_2 = 1421.0e6
 
 COMMON = dict(
     outdir=OUTDIR,
-    nsamples=4096,
-    nblocks=16384,
+    nsamples=8192,
+    nblocks=8192,
     direct=False,
     sample_rate=2.56e6,
     gain=0.0,
@@ -49,8 +49,9 @@ def build_plan():
     """Build several copies of (FREQ_1, FREQ_2) frequency-switched experiment list."""
     experiments = []
 
-    experiments.append(ObsExperiment(prefix='', center_freq=FREQ_1, **COMMON))
-    experiments.append(ObsExperiment(prefix='', center_freq=FREQ_2, **COMMON))
+    for i in range(2):
+        experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_1, **COMMON))
+        experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_2, **COMMON))
 
     return experiments
 
@@ -68,7 +69,15 @@ def main():
 
     print(f'  >>> Point the horn to:  Alt = {ALT:.2f}°,  Az = {AZI:.2f}° <<<')
     print()
-    input('  Press Enter once the horn is pointed and you are ready to begin: ')
+    input('  Press Enter once the horn is pointed: ')
+    print()
+
+    SETTLE_SEC = 60
+    print(f'  Waiting {SETTLE_SEC}s for telescope to settle...', end='', flush=True)
+    for remaining in range(SETTLE_SEC, 0, -1):
+        print(f'\r  Settling — {remaining:3d}s remaining...   ', end='', flush=True)
+        time.sleep(1)
+    print(f'\r  Settle complete.                      ')
     print()
 
     experiments = build_plan()

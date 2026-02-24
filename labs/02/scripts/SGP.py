@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Lab 2 high precision galactic-plane frequency-swept observation.
+"""Lab 2 high precision galactic pole frequency-swept observation.
 
   LO:   1420 – 1421 MHz in 1 MHz steps  →  HI line offset per step:
     1420 MHz  →  +0.406 MHz
     1421 MHz  →  −0.594 MHz
 
-Output files are saved to OUTDIR.
-
 Usage:
-    python lab_2_1_long.py
+    python SGP.py
 """
 
 import sys
@@ -21,15 +19,17 @@ from ugradiolab.queue import QueueRunner
 from ugradiolab.utils import compute_pointing
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab2_1_long'
+OUTDIR = 'data/lab02/SGP'
 
-GAL_L = 0.0   # degrees
-GAL_B = 120.0     # degrees
+GAL_L = 0.0    # degrees
+GAL_B = -90.0  # degrees
 
 FREQ_1 = 1420.0e6
 FREQ_2 = 1421.0e6
 
-MIN_ALT_DEG = 10.0     # elevation floor; warn below this
+MIN_ALT_DEG = 10.0  # elevation floor; warn below this
+
+ITERATIONS = 8
 
 COMMON = dict(
     outdir=OUTDIR,
@@ -48,17 +48,17 @@ def build_plan(alt_deg, az_deg):
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
     experiments = []
 
-    for i in range(8):
-        experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
+    for i in range(ITERATIONS):
+        experiments.append(ObsExperiment(prefix=f'SGP-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
                                          **pointing, **COMMON))
-        experiments.append(ObsExperiment(prefix=f'GAL-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
+        experiments.append(ObsExperiment(prefix=f'SGP-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
                                          **pointing, **COMMON))
 
     return experiments
 
 
 def main():
-    print(f'Lab 2 galactic observation — computing pointing for (l={GAL_L}°, b={GAL_B}°) ...')
+    print(f'Lab 2 galactic pole observation — computing pointing for (l={GAL_L}°, b={GAL_B}°) ...')
     print()
 
     alt, az, ra, dec, jd = compute_pointing(GAL_L, GAL_B)
@@ -93,7 +93,8 @@ def main():
     print(f'  Output: {OUTDIR}/')
     print()
 
-    sdr = SDR(direct=False, center_freq=FREQ_1, sample_rate=2.56e6, gain=0.0)
+    sdr = SDR(direct=False, center_freq=FREQ_1,
+              sample_rate=COMMON['sample_rate'], gain=COMMON['gain'])
 
     try:
         runner = QueueRunner(experiments=experiments, sdr=sdr, confirm=False)

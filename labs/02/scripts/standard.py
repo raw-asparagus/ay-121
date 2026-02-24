@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Lab 2 north-galactic pole observation at multiple frequencies.
+"""Lab 2 high precision galactic-plane frequency-swept observation.
 
-  CAL:  siggen at 1420.405751768 MHz, −80 dBm
-  LO:
-    - 1420 MHz @
-
-Output files are saved to OUTDIR and archived to a timestamped .tar.gz.
+  LO:   1420 – 1421 MHz in 1 MHz steps  →  HI line offset per step:
+    1420 MHz  →  +0.406 MHz
+    1421 MHz  →  −0.594 MHz
 
 Usage:
-    python lab_2_1.py
+    python standard.py
 """
 
 import sys
@@ -16,29 +14,26 @@ import time
 
 from ugradio.sdr import SDR
 
-from ugradiolab import SignalGenerator
-from ugradiolab.experiment import CalExperiment, ObsExperiment
+from ugradiolab.experiment import ObsExperiment
 from ugradiolab.queue import QueueRunner
 from ugradiolab.utils import compute_pointing
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab2_1'
+OUTDIR = 'data/lab02/standard'
 
-GAL_L = 120.0   # degrees
-GAL_B = 0.0     # degrees
+GAL_L = 0.0    # degrees
+GAL_B = 120.0  # degrees
 
-LO_MIN_FREQ = 1418.0e6
-LO_MAX_FREQ = 1423.0e6
-LO_STEP_FREQ = 1.0e6
+FREQ_1 = 1420.0e6
+FREQ_2 = 1421.0e6
 
-MIN_ALT_DEG = 10.0     # elevation floor; warn below this
+MIN_ALT_DEG = 10.0  # elevation floor; warn below this
 
-SIGGEN_FREQ_MHZ = 1420.405751768
-SIGGEN_AMP_DBM = -80.0
+ITERATIONS = 8
 
 COMMON = dict(
     outdir=OUTDIR,
-    nsamples=16384,
+    nsamples=32768,
     nblocks=2048,
     direct=False,
     sample_rate=2.56e6,
@@ -49,28 +44,21 @@ COMMON = dict(
 # ---------------------------------------------------------------------------
 
 def build_plan(alt_deg, az_deg):
-    """Build [CAL, LO_MIN, LO_MIN+STEP, ..., LO_MAX] experiment list."""
+    """Build several copies of (FREQ_1, FREQ_2) frequency-switched experiment list."""
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
-    cal = CalExperiment(
-        prefix='SKY-SWITCH-FREQ-CAL',
-        siggen_freq_mhz=SIGGEN_FREQ_MHZ,
-        siggen_amp_dbm=SIGGEN_AMP_DBM,
-        **pointing,
-        **COMMON,
-    )
-    experiments = [cal]
+    experiments = []
 
-    freq = LO_MIN_FREQ
-    while freq <= LO_MAX_FREQ + 0.5 * LO_STEP_FREQ:
-        label = f'GAL-{freq / 1e6:.0f}'
-        experiments.append(ObsExperiment(prefix=label, center_freq=freq, **pointing, **COMMON))
-        freq += LO_STEP_FREQ
+    for i in range(ITERATIONS):
+        experiments.append(ObsExperiment(prefix=f'GAL-l={GAL_L}-b={GAL_B}-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
+                                         **pointing, **COMMON))
+        experiments.append(ObsExperiment(prefix=f'GAL-l={GAL_L}-b={GAL_B}-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
+                                         **pointing, **COMMON))
 
     return experiments
 
 
 def main():
-    print('Lab 2 galactic observation — computing pointing for (l=120°, b=0°) ...')
+    print(f'Lab 2 galactic-plane observation — computing pointing for (l={GAL_L}°, b={GAL_B}°) ...')
     print()
 
     alt, az, ra, dec, jd = compute_pointing(GAL_L, GAL_B)
@@ -100,18 +88,16 @@ def main():
     experiments = build_plan(alt, az)
     total = len(experiments)
 
-    print(f'Starting {total} captures (CAL + {total - 1} LO steps)...')
-    print(f'  CAL:  {SIGGEN_FREQ_MHZ} MHz,  {SIGGEN_AMP_DBM} dBm')
-    print(f'  LO:   {LO_MIN_FREQ / 1e6:.0f} – {LO_MAX_FREQ / 1e6:.0f} MHz  '
-          f'in steps of {LO_STEP_FREQ / 1e6:.0f} MHz')
+    print(f'Starting {total} captures...')
+    print(f'  LO:   {FREQ_1 / 1e6:.0f} & {FREQ_2 / 1e6:.0f} MHz')
     print(f'  Output: {OUTDIR}/')
     print()
 
-    sdr = SDR(direct=False, center_freq=LO_MIN_FREQ, sample_rate=2.56e6, gain=0.0)
-    synth = SignalGenerator()
+    sdr = SDR(direct=False, center_freq=FREQ_1,
+              sample_rate=COMMON['sample_rate'], gain=COMMON['gain'])
 
     try:
-        runner = QueueRunner(experiments=experiments, sdr=sdr, synth=synth, confirm=False)
+        runner = QueueRunner(experiments=experiments, sdr=sdr, confirm=False)
         t0 = time.time()
         paths = runner.run()
         elapsed = time.time() - t0

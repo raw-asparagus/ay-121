@@ -1,29 +1,25 @@
 #!/usr/bin/env python3
-"""Lab 2 high precision galactic-plane frequency-swept observation.
+"""Lab 2 high precision human noise observation.
 
   LO:   1420 – 1421 MHz in 1 MHz steps  →  HI line offset per step:
     1420 MHz  →  +0.406 MHz
     1421 MHz  →  −0.594 MHz
 
-Output files are saved to OUTDIR.
-
 Usage:
-    python lab_2_1_human.py
+    python human.py
 """
 
-import sys
 import time
 
 from ugradio.sdr import SDR
 import ugradio.timing as timing
 
-from ugradiolab import SignalGenerator
-from ugradiolab.experiment import CalExperiment, ObsExperiment
+from ugradiolab.experiment import ObsExperiment
 from ugradiolab.queue import QueueRunner
 from ugradiolab.utils import get_unix_time
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab2_1_human'
+OUTDIR = 'data/lab02/human'
 
 ALT = 0.0  # deg
 AZI = 0.0  # deg
@@ -31,16 +27,20 @@ AZI = 0.0  # deg
 FREQ_1 = 1420.0e6
 FREQ_2 = 1421.0e6
 
+ITERATIONS = 8
+
 COMMON = dict(
     outdir=OUTDIR,
     nsamples=8192,
-    nblocks=8192,
+    nblocks=2048,
     direct=False,
     sample_rate=2.56e6,
     gain=0.0,
     alt_deg=ALT,
     az_deg=AZI
 )
+
+SETTLE_SEC = 120
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ def build_plan():
     """Build several copies of (FREQ_1, FREQ_2) frequency-switched experiment list."""
     experiments = []
 
-    for i in range(2):
+    for i in range(ITERATIONS):
         experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_1, **COMMON))
         experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_2, **COMMON))
 
@@ -57,7 +57,7 @@ def build_plan():
 
 
 def main():
-    print(f'Lab 2 human calibration, pointed horizontally ...')
+    print(f'Lab 2 human noise calibration, pointed horizontally ...')
     print()
 
     unix_t = get_unix_time()
@@ -72,12 +72,10 @@ def main():
     input('  Press Enter once the horn is pointed: ')
     print()
 
-    SETTLE_SEC = 120
-    print(f'  Waiting {SETTLE_SEC}s for telescope to settle...', end='', flush=True)
+    print(f'  Waiting {SETTLE_SEC}s...', end='', flush=True)
     for remaining in range(SETTLE_SEC, 0, -1):
-        print(f'\r  Settling — {remaining:3d}s remaining...   ', end='', flush=True)
+        print(f'\r  {remaining:3d}s remaining...   ', end='', flush=True)
         time.sleep(1)
-    print(f'\r  Settle complete.                      ')
     print()
 
     experiments = build_plan()

@@ -50,8 +50,8 @@ def build_plan():
     experiments = []
 
     for i in range(ITERATIONS):
-        experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_1, **COMMON))
-        experiments.append(ObsExperiment(prefix=f'HUMAN-{i}', center_freq=FREQ_2, **COMMON))
+        experiments.append(ObsExperiment(prefix=f'HUMAN-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1, **COMMON))
+        experiments.append(ObsExperiment(prefix=f'HUMAN-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2, **COMMON))
 
     return experiments
 

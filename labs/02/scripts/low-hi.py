@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Lab 2 high precision lockman hole frequency-swept observation.
+"""Lab 2 high precision low-hi frequency-swept observation.
 
   LO:   1420 – 1421 MHz in 1 MHz steps  →  HI line offset per step:
     1420 MHz  →  +0.406 MHz
     1421 MHz  →  −0.594 MHz
 
 Usage:
-    python lockman.py
+    python low-hi.py
 """
 
 import sys
@@ -19,10 +19,10 @@ from ugradiolab.queue import QueueRunner
 from ugradiolab.utils import compute_pointing
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab02/lockman'
+OUTDIR = 'data/lab02/low-hi'
 
-GAL_L = 148.5  # degrees
-GAL_B = 53.0   # degrees
+GAL_L = 170.0  # degrees
+GAL_B = -50.0  # degrees
 
 FREQ_1 = 1420.0e6
 FREQ_2 = 1421.0e6
@@ -49,16 +49,16 @@ def build_plan(alt_deg, az_deg):
     experiments = []
 
     for i in range(ITERATIONS):
-        experiments.append(ObsExperiment(prefix=f'LOCKMAN-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
+        experiments.append(ObsExperiment(prefix=f'LOW-HI-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
                                          **pointing, **COMMON))
-        experiments.append(ObsExperiment(prefix=f'LOCKMAN-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
+        experiments.append(ObsExperiment(prefix=f'LOW-HI-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
                                          **pointing, **COMMON))
 
     return experiments
 
 
 def main():
-    print(f'Lab 2 lockman hole observation — computing pointing for (l={GAL_L}°, b={GAL_B}°) ...')
+    print(f'Lab 2 low HI density observation — computing pointing for (l={GAL_L}°, b={GAL_B}°) ...')
     print()
 
     alt, az, ra, dec, jd = compute_pointing(GAL_L, GAL_B)

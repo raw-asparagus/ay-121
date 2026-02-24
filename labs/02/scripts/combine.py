@@ -11,8 +11,8 @@ import numpy as np
 
 from ugradiolab.data import Record
 
-INDIR_DEFAULT  = 'data/lab02/standard'
-OUTDIR_DEFAULT = 'data/lab02/standard_combined'
+INDIR_DEFAULT  = 'data/lab02/human'
+OUTDIR_DEFAULT = 'data/lab02/human_combined'
 
 LO_FREQS = ('1420', '1421')
 

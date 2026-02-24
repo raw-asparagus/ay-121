@@ -40,8 +40,6 @@ COMMON = dict(
     az_deg=AZI
 )
 
-SETTLE_SEC = 120
-
 
 # ---------------------------------------------------------------------------
 
@@ -70,12 +68,6 @@ def main():
     print(f'  >>> Point the horn to:  Alt = {ALT:.2f}°,  Az = {AZI:.2f}° <<<')
     print()
     input('  Press Enter once the horn is pointed: ')
-    print()
-
-    print(f'  Waiting {SETTLE_SEC}s...', end='', flush=True)
-    for remaining in range(SETTLE_SEC, 0, -1):
-        print(f'\r  {remaining:3d}s remaining...   ', end='', flush=True)
-        time.sleep(1)
     print()
 
     experiments = build_plan()

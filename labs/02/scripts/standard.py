@@ -21,8 +21,8 @@ from ugradiolab.utils import compute_pointing
 # ---------------------------------------------------------------------------
 OUTDIR = 'data/lab02/standard'
 
-GAL_L = 0.0    # degrees
-GAL_B = 120.0  # degrees
+GAL_L = 120.0  # degrees
+GAL_B = 0.0    # degrees
 
 FREQ_1 = 1420.0e6
 FREQ_2 = 1421.0e6

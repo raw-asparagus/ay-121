@@ -3,14 +3,12 @@ from typing import Any, Dict, List
 import numpy as np
 from scipy.signal import find_peaks as _find_peaks
 from scipy.stats import gamma as _gamma
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import savgol_filter
 
 
 class SpectrumBase:
-    """Base class providing common spectrum analysis methods.
-
-    Subclasses must expose ``psd`` (ndarray), ``freqs`` (ndarray),
-    and ``nblocks`` (int) as attributes or properties.
-    """
+    """Base class providing common spectrum analysis methods."""
 
     @property
     def freqs_mhz(self) -> np.ndarray:
@@ -54,10 +52,8 @@ class SpectrumBase:
         np.ndarray, shape (nfrequencies,)
         """
         if method == 'gaussian':
-            from scipy.ndimage import gaussian_filter1d
             return gaussian_filter1d(self.psd, sigma=kwargs.get('sigma', 32))
         elif method == 'savgol':
-            from scipy.signal import savgol_filter
             return savgol_filter(
                 self.psd,
                 window_length=kwargs.get('window_length', 129),

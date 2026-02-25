@@ -3,7 +3,7 @@
 import time
 
 DEVICE = '/dev/usbtmc0'
-WAIT = 0.25  # seconds between writes
+WAIT   = 0.25  # seconds between writes
 
 
 class SignalGenerator:
@@ -17,7 +17,7 @@ class SignalGenerator:
 
     def __init__(self, device=DEVICE):
         self._device = device
-        self._dev = open(device, 'rb+')
+        self._dev    = open(device, 'rb+')
         self._validate()
 
     def _validate(self):
@@ -67,8 +67,9 @@ class SignalGenerator:
         float
             Frequency in Hz.
         """
-        resp = self._query('FREQ:CW?')
+        resp  = self._query('FREQ:CW?')
         parts = resp.split()
+
         multiplier = {'GHz': 1e9, 'MHz': 1e6, 'kHz': 1e3, 'Hz': 1.0}
         if len(parts) >= 2 and parts[1] in multiplier:
             return float(parts[0]) * multiplier[parts[1]]
@@ -94,7 +95,7 @@ class SignalGenerator:
         float
             Amplitude in dBm.
         """
-        resp = self._query('AMPL:CW?')
+        resp  = self._query('AMPL:CW?')
         parts = resp.split()
         return float(parts[0])
 

@@ -66,7 +66,7 @@ class Record:
         data : array-like
             Raw I/Q samples from the SDR, shape (nblocks, nsamples, 2)
             where the last axis is [I, Q] as int8.  Stored internally as
-            complex128 with shape (nblocks, nsamples).
+            complex64 with shape (nblocks, nsamples).
         sdr : ugradio.sdr.SDR
             Configured SDR instance; queried for sample_rate, center_freq, gain.
         alt_deg : float
@@ -91,7 +91,7 @@ class Record:
             raise ValueError(
                 'data must have shape (nblocks, nsamples, 2)'
             )
-        iq = raw[..., 0].astype(np.float64) + 1j * raw[..., 1].astype(np.float64)
+        iq = raw[..., 0].astype(np.float32) + 1j * raw[..., 1].astype(np.float32)
 
         t = get_unix_time()
         jd = timing.julian_date(t)
@@ -159,23 +159,26 @@ class Record:
                     f'{filepath}: missing required keys: {missing}'
                 )
 
-            data = f['data']
+            raw = f['data']
             nblocks = int(f['nblocks'])
             nsamples = int(f['nsamples'])
 
-            if data.ndim != 2:
+            if raw.ndim != 3 or raw.shape[-1] != 2:
                 raise ValueError(
-                    f'{filepath}: data must be 2-D, got shape {data.shape}'
+                    f'{filepath}: data must have shape (nblocks, nsamples, 2), '
+                    f'got {raw.shape}'
                 )
-            if not np.issubdtype(data.dtype, np.complexfloating):
+            if raw.dtype != np.dtype(np.int8):
                 raise ValueError(
-                    f'{filepath}: data must be complex, got dtype {data.dtype}'
+                    f'{filepath}: data must be int8, got dtype {raw.dtype}'
                 )
-            if data.shape != (nblocks, nsamples):
+            if raw.shape[:2] != (nblocks, nsamples):
                 raise ValueError(
-                    f'{filepath}: data shape {data.shape} inconsistent with '
+                    f'{filepath}: data shape {raw.shape[:2]} inconsistent with '
                     f'nblocks={nblocks}, nsamples={nsamples}'
                 )
+
+            data = raw[..., 0].astype(np.float32) + 1j * raw[..., 1].astype(np.float32)
 
             return cls(
                 data=data,
@@ -207,7 +210,10 @@ class Record:
     def _to_npz_dict(self):
         """Convert this record to dtype-stable kwargs for ``np.savez``."""
         out = dict(
-            data=self.data,
+            data=np.stack(
+                [self.data.real.astype(np.int8), self.data.imag.astype(np.int8)],
+                axis=-1,
+            ),
             sample_rate=np.float64(self.sample_rate),
             center_freq=np.float64(self.center_freq),
             gain=np.float64(self.gain),

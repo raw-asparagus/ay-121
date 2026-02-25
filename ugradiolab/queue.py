@@ -6,12 +6,12 @@ import time
 
 def _format_experiment(exp, index, total):
     """Format experiment details for display."""
-    tag = type(exp).__name__
+    tag   = type(exp).__name__
     lines = [f'[{index}/{total}] {exp.prefix} ({tag})']
     lines.append(f'  alt={exp.alt_deg:.2f}  az={exp.az_deg:.2f}')
     lines.append(
-        f'  nsamples={exp.nsamples}  nblocks={exp.nblocks}  '
-        f'sample_rate={exp.sample_rate / 1e6:.2f} MHz'
+        f'  nsamples={exp.nsamples}  nblocks={exp.nblocks}'
+        f'  sample_rate={exp.sample_rate / 1e6:.2f} MHz'
     )
     lines.append(f'  siggen: {exp.siggen_summary()}')
     return '\n'.join(lines)
@@ -24,14 +24,14 @@ class QueueRunner:
         self,
         experiments,
         sdr,
-        synth=None,
-        confirm=True,
-        cadence_sec=None,
+        synth       = None,
+        confirm     = True,
+        cadence_sec = None,
     ):
         self.experiments = list(experiments)
-        self.sdr = sdr
-        self.synth = synth
-        self.confirm = confirm
+        self.sdr         = sdr
+        self.synth       = synth
+        self.confirm     = confirm
         self.cadence_sec = cadence_sec
 
     def run(self, archive=None):
@@ -44,7 +44,8 @@ class QueueRunner:
             path after the queue finishes.
         """
         n = len(self.experiments)
-        paths = []
+
+        paths     = []
         obs_start = None
         for i, exp in enumerate(self.experiments):
             # Sleep until next cadence boundary
@@ -55,7 +56,7 @@ class QueueRunner:
                     and obs_start is not None
             ):
                 elapsed = time.time() - obs_start
-                wait = self.cadence_sec - elapsed
+                wait    = self.cadence_sec - elapsed
                 if wait > 0:
                     print(f'  sleeping {wait:.1f}s until next cadence...')
                     time.sleep(wait)

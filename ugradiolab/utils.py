@@ -19,8 +19,8 @@ def get_unix_time() -> float:
 def compute_pointing(
     gal_l: float,
     gal_b: float,
-    lat: float = nch.lat,
-    lon: float = nch.lon,
+    lat: float          = nch.lat,
+    lon: float          = nch.lon,
     observer_alt: float = nch.alt,
 ) -> tuple[float, float, float, float, float]:
     """Return (alt_deg, az_deg, ra_deg, dec_deg, jd) for a galactic coordinate now.
@@ -39,10 +39,10 @@ def compute_pointing(
         Observer altitude in metres. Defaults to NCH.
     """
     unix_t = get_unix_time()
-    jd = timing.julian_date(unix_t)
+    jd     = timing.julian_date(unix_t)
 
-    gc = ac.SkyCoord(l=gal_l * u.deg, b=gal_b * u.deg, frame='galactic')
-    ra = gc.icrs.ra.deg
+    gc  = ac.SkyCoord(l=gal_l * u.deg, b=gal_b * u.deg, frame='galactic')
+    ra  = gc.icrs.ra.deg
     dec = gc.icrs.dec.deg
 
     alt, az = coord.get_altaz(ra, dec, jd=jd, lat=lat, lon=lon, alt=observer_alt)

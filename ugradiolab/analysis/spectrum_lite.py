@@ -130,25 +130,27 @@ class SpectrumLite(SpectrumBase):
             if missing:
                 raise ValueError(f'{filepath}: missing required keys: {missing}')
 
-            data = f['data']
+            raw = f['data']
             nblocks_stored = int(f['nblocks'])
             nsamples_stored = int(f['nsamples'])
 
-            if data.ndim != 2:
+            if raw.ndim != 3 or raw.shape[-1] != 2:
                 raise ValueError(
-                    f'{filepath}: data must be 2-D, got shape {data.shape}'
+                    f'{filepath}: data must have shape (nblocks, nsamples, 2), '
+                    f'got {raw.shape}'
                 )
-            if not np.issubdtype(data.dtype, np.complexfloating):
+            if raw.dtype != np.dtype(np.int8):
                 raise ValueError(
-                    f'{filepath}: data must be complex, got dtype {data.dtype}'
+                    f'{filepath}: data must be int8, got dtype {raw.dtype}'
                 )
-            if data.shape != (nblocks_stored, nsamples_stored):
+            if raw.shape[:2] != (nblocks_stored, nsamples_stored):
                 raise ValueError(
-                    f'{filepath}: data shape {data.shape} inconsistent with '
+                    f'{filepath}: data shape {raw.shape[:2]} inconsistent with '
                     f'nblocks={nblocks_stored}, nsamples={nsamples_stored}'
                 )
 
-            nblocks, nsamples = data.shape
+            nblocks, nsamples = raw.shape[:2]
+            data = raw[..., 0].astype(np.float32) + 1j * raw[..., 1].astype(np.float32)
             sample_rate = float(f['sample_rate'])
             center_freq = float(f['center_freq'])
 

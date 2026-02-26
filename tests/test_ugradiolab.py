@@ -5,9 +5,9 @@ from unittest import mock
 
 import numpy as np
 
-from ugradiolab.data.record import Record
-from ugradiolab.experiment import CalExperiment, ObsExperiment
-from ugradiolab.queue import QueueRunner
+from ugradiolab import Record
+from ugradiolab.run import CalExperiment, ObsExperiment
+from ugradiolab.run import QueueRunner
 
 
 class FakeSDR:
@@ -78,12 +78,12 @@ class RecordTests(unittest.TestCase):
         self.synth = FakeSynth()
         self.raw = np.zeros((3, 8, 2), dtype=np.int8)
         self.time_patch = mock.patch.multiple(
-            "ugradiolab.data.record.timing",
+            "ugradiolab.models.record.timing",
             julian_date=mock.DEFAULT,
             lst=mock.DEFAULT,
         )
         self.unix_patch = mock.patch(
-            "ugradiolab.data.record.get_unix_time", return_value=1234.5
+            "ugradiolab.models.record.get_unix_time", return_value=1234.5
         )
         patched = self.time_patch.start()
         self.unix_patch.start()
@@ -142,12 +142,12 @@ class ExperimentTests(unittest.TestCase):
         self.sdr = FakeSDR()
         self.synth = FakeSynth()
         self.time_patch = mock.patch.multiple(
-            "ugradiolab.data.record.timing",
+            "ugradiolab.models.record.timing",
             julian_date=mock.DEFAULT,
             lst=mock.DEFAULT,
         )
         self.unix_patch = mock.patch(
-            "ugradiolab.data.record.get_unix_time", return_value=1234.5
+            "ugradiolab.models.record.get_unix_time", return_value=1234.5
         )
         patched = self.time_patch.start()
         self.unix_patch.start()

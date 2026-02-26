@@ -9,10 +9,10 @@ from pathlib import Path
 
 import numpy as np
 
-from ugradiolab.data import Record
+from ugradiolab import Record
 
-INDIR_DEFAULT  = 'data/lab02/low-hi'
-OUTDIR_DEFAULT = 'data/lab02/low-hi_combined'
+INDIR_DEFAULT  = 'data/lab02/standard'
+OUTDIR_DEFAULT = 'data/lab02/standard_combined'
 
 LO_FREQS = ('1420', '1421')
 
@@ -47,9 +47,9 @@ def _combine(records):
         lst=r0.lst,
         alt=r0.alt,
         az=r0.az,
-        observer_lat=r0.observer_lat,
-        observer_lon=r0.observer_lon,
-        observer_alt=r0.observer_alt,
+        obs_lat=r0.obs_lat,
+        obs_lon=r0.obs_lon,
+        obs_alt=r0.obs_alt,
         nblocks=data.shape[0],
         nsamples=data.shape[1],
         siggen_freq=r0.siggen_freq,

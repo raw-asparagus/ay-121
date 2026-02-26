@@ -14,8 +14,8 @@ import time
 
 from ugradio.sdr import SDR
 
-from ugradiolab.experiment import ObsExperiment
-from ugradiolab.queue import QueueRunner
+from ugradiolab.run import ObsExperiment
+from ugradiolab.run import QueueRunner
 from ugradiolab.utils import compute_pointing
 
 # ---------------------------------------------------------------------------

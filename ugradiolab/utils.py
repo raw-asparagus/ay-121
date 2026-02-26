@@ -7,7 +7,7 @@ import ugradio.timing as timing
 
 
 def get_unix_time() -> float:
-    """Return current Unix time from NTP, falling back to system time."""
+    """Returns current Unix time from NTP, else system time."""
     try:
         c = ntplib.NTPClient()
         return c.request('pool.ntp.org', version=3).tx_time
@@ -19,11 +19,11 @@ def get_unix_time() -> float:
 def compute_pointing(
     gal_l: float,
     gal_b: float,
-    lat: float          = nch.lat,
-    lon: float          = nch.lon,
-    observer_alt: float = nch.alt,
+    lat: float     = nch.lat,
+    lon: float     = nch.lon,
+    obs_alt: float = nch.alt,
 ) -> tuple[float, float, float, float, float]:
-    """Return (alt_deg, az_deg, ra_deg, dec_deg, jd) for a galactic coordinate now.
+    """Converts galactic coordinates to horizontal/equatorial coordinates.
 
     Parameters
     ----------
@@ -35,15 +35,14 @@ def compute_pointing(
         Observer latitude in degrees. Defaults to NCH.
     lon : float
         Observer longitude in degrees. Defaults to NCH.
-    observer_alt : float
+    obs_alt : float
         Observer altitude in metres. Defaults to NCH.
     """
     unix_t = get_unix_time()
     jd     = timing.julian_date(unix_t)
 
-    gc  = ac.SkyCoord(l=gal_l * u.deg, b=gal_b * u.deg, frame='galactic')
-    ra  = gc.icrs.ra.deg
-    dec = gc.icrs.dec.deg
+    gc      = ac.SkyCoord(l=gal_l * u.deg, b=gal_b * u.deg, frame='galactic')
+    ra, dec = gc.icrs.ra.deg, gc.icrs.dec.deg
 
-    alt, az = coord.get_altaz(ra, dec, jd=jd, lat=lat, lon=lon, alt=observer_alt)
+    alt, az = coord.get_altaz(ra, dec, jd=jd, lat=lat, lon=lon, alt=obs_alt)
     return alt, az, ra, dec, jd

@@ -5,11 +5,11 @@ from dataclasses import dataclass
 
 import ugradio.nch as nch
 
-from .data import Record
+from ..models import Record
 
 
 def _make_path(outdir, prefix, tag):
-    """Generate a timestamped output filepath."""
+    """Generates a timestamped output filepath."""
     os.makedirs(outdir, exist_ok=True)
     ts = time.strftime('%Y%m%d_%H%M%S')
     return os.path.join(outdir, f'{prefix}_{tag}_{ts}.npz')
@@ -18,22 +18,22 @@ def _make_path(outdir, prefix, tag):
 @dataclass
 class Experiment(ABC):
     """Base experiment specification (SDR parameters + output settings)."""
-    nsamples: int = 16384
-    nblocks: int = 1
+    nsamples: int      = 32768
+    nblocks: int       = 1
     sample_rate: float = 2.56e6  # Hz
     center_freq: float = 1420e6  # Hz
-    gain: float = 0.0
-    direct: bool = False
-    outdir: str = 'data/'
-    prefix: str = 'exp'
-    alt_deg: float = 0.0
-    az_deg: float = 0.0
-    lat: float = nch.lat
-    lon: float = nch.lon
-    observer_alt: float = nch.alt
+    gain: float        = 0.0
+    direct: bool       = False
+    outdir: str        = 'data/'
+    prefix: str        = 'exp'
+    alt_deg: float     = 0.0
+    az_deg: float      = 0.0
+    lat: float         = nch.lat
+    lon: float         = nch.lon
+    obs_alt: float     = nch.alt
 
     def _configure_sdr(self, sdr):
-        """Set SDR parameters of an existing SDR object for this experiment."""
+        """Updates SDR parameters of an existing SDR for this experiment."""
         # Using the same stateful reinstantiation as in ugradio.sdr
         sdr.direct = self.direct
         if self.direct:
@@ -46,23 +46,23 @@ class Experiment(ABC):
         sdr.set_sample_rate(self.sample_rate)
 
     def _capture(self, sdr, synth=None):
-        """Capture data and build a Record.
+        """Captures data and build a Record.
 
         Discards the first block to flush stale buffer.
         """
         raw_data = sdr.capture_data(
-            nsamples=self.nsamples,
-            nblocks=self.nblocks + 1,
+            nsamples = self.nsamples,
+            nblocks  = self.nblocks + 1,
         )
         return Record.from_sdr(
             raw_data[1:],
             sdr,
-            alt_deg=self.alt_deg,
-            az_deg=self.az_deg,
-            lat=self.lat,
-            lon=self.lon,
-            observer_alt=self.observer_alt,
-            synth=synth,
+            alt_deg = self.alt_deg,
+            az_deg  = self.az_deg,
+            lat     = self.lat,
+            lon     = self.lon,
+            obs_alt = self.obs_alt,
+            synth   = synth,
         )
 
     @property
@@ -89,7 +89,7 @@ class CalExperiment(Experiment):
         Signal generator amplitude in dBm.
     """
     siggen_freq_mhz: float = 1420.405751768
-    siggen_amp_dbm: float = -80.0
+    siggen_amp_dbm: float  = -80.0
 
     @property
     def counts_for_cadence(self) -> bool:
@@ -99,13 +99,13 @@ class CalExperiment(Experiment):
         return f'{self.siggen_freq_mhz} MHz, {self.siggen_amp_dbm} dBm'
 
     def run(self, sdr, synth=None):
-        """Execute the calibration experiment.
+        """Executes the calibration experiment.
 
         Parameters
         ----------
         sdr : ugradio.sdr.SDR
             Initialized SDR (will be reconfigured to match experiment params).
-        synth : ugradio.agilent.SynthDirect
+        synth : SignalGenerator
             Connected signal generator.
 
         Returns
@@ -136,7 +136,7 @@ class ObsExperiment(Experiment):
     """Sky observation experiment."""
 
     def run(self, sdr, synth=None):
-        """Execute the sky observation experiment.
+        """Executes the sky observation experiment.
 
         Parameters
         ----------
@@ -150,7 +150,7 @@ class ObsExperiment(Experiment):
             Path to the saved .npz file.
         """
         self._configure_sdr(sdr)
+        path   = _make_path(self.outdir, self.prefix, 'obs')
         record = self._capture(sdr)
-        path = _make_path(self.outdir, self.prefix, 'obs')
         record.save(path)
         return path

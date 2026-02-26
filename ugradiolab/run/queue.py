@@ -1,24 +1,23 @@
 """Stateful queue runner for experiment execution."""
 
-import tarfile
 import time
 
 
 def _format_experiment(exp, index, total):
-    """Format experiment details for display."""
+    """Formats experiment details for display."""
     tag   = type(exp).__name__
-    lines = [f'[{index}/{total}] {exp.prefix} ({tag})']
-    lines.append(f'  alt={exp.alt_deg:.2f}  az={exp.az_deg:.2f}')
-    lines.append(
+    lines = [
+        f'[{index}/{total}] {exp.prefix} ({tag})',
+        f'  alt={exp.alt_deg:.2f}  az={exp.az_deg:.2f}',
         f'  nsamples={exp.nsamples}  nblocks={exp.nblocks}'
-        f'  sample_rate={exp.sample_rate / 1e6:.2f} MHz'
-    )
-    lines.append(f'  siggen: {exp.siggen_summary()}')
+        f'  sample_rate={exp.sample_rate / 1e6:.2f} MHz',
+        f'  siggen: {exp.siggen_summary()}'
+    ]
     return '\n'.join(lines)
 
 
 class QueueRunner:
-    """Manage and execute an ordered sequence of experiments."""
+    """Manages and executes an ordered sequence of experiments."""
 
     def __init__(
         self,
@@ -34,15 +33,8 @@ class QueueRunner:
         self.confirm     = confirm
         self.cadence_sec = cadence_sec
 
-    def run(self, archive=None):
-        """Execute the queue and return output file paths.
-
-        Parameters
-        ----------
-        archive : str, optional
-            If provided, pack all collected output files into a tar.gz at this
-            path after the queue finishes.
-        """
+    def run(self):
+        """Executes the queue and return output file paths."""
         n = len(self.experiments)
 
         paths     = []
@@ -81,11 +73,5 @@ class QueueRunner:
             path = exp.run(self.sdr, synth=self.synth)
             paths.append(path)
             print(f'  -> {path}')
-
-        if archive and paths:
-            with tarfile.open(archive, 'w:gz') as tar:
-                for p in paths:
-                    tar.add(p)
-            print(f'  archived {len(paths)} file(s) -> {archive}')
 
         return paths

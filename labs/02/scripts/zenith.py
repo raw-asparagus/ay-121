@@ -14,8 +14,8 @@ import time
 from ugradio.sdr import SDR
 import ugradio.timing as timing
 
-from ugradiolab.experiment import ObsExperiment
-from ugradiolab.queue import QueueRunner
+from ugradiolab.run import ObsExperiment
+from ugradiolab.run import QueueRunner
 from ugradiolab.utils import get_unix_time
 
 # ---------------------------------------------------------------------------

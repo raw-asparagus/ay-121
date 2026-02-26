@@ -21,19 +21,19 @@ class SignalGenerator:
         self._validate()
 
     def _validate(self):
-        """Verify the connected instrument is an Agilent/Keysight N9310A."""
+        """Verifies the connected instrument is an Agilent/Keysight N9310A."""
         resp = self._query('*IDN?')
         assert 'N9310A' in resp, f'Unexpected instrument: {resp}'
 
     def _write(self, cmd):
-        """Send a SCPI command to the instrument."""
+        """Sends a SCPI command to the instrument."""
         cmd = cmd.encode()
         self._dev.write(cmd)
         self._dev.flush()
         time.sleep(WAIT)
 
     def _read(self):
-        """Read a response from the instrument."""
+        """Reads a response from the instrument."""
         chunks = []
         while True:
             try:
@@ -43,14 +43,14 @@ class SignalGenerator:
         return b''.join(chunks).decode().strip()
 
     def _query(self, cmd):
-        """Send a SCPI query and return the response string."""
+        """Sends a SCPI query and return the response string."""
         self._write(cmd)
         return self._read()
 
     # ---- Frequency --------------------------------------------------------
 
     def set_freq_mhz(self, freq_mhz):
-        """Set CW frequency in MHz.
+        """Sets CW frequency in MHz.
 
         Parameters
         ----------
@@ -60,7 +60,7 @@ class SignalGenerator:
         self._write(f'FREQ:CW {freq_mhz} MHz')
 
     def get_freq(self):
-        """Query the current CW frequency.
+        """Queries the current CW frequency.
 
         Returns
         -------
@@ -78,7 +78,7 @@ class SignalGenerator:
     # ---- Amplitude --------------------------------------------------------
 
     def set_ampl_dbm(self, amp_dbm):
-        """Set CW amplitude in dBm.
+        """Sets CW amplitude in dBm.
 
         Parameters
         ----------
@@ -88,7 +88,7 @@ class SignalGenerator:
         self._write(f'AMPL:CW {amp_dbm} dBm')
 
     def get_ampl(self):
-        """Query the current CW amplitude.
+        """Queries the current CW amplitude.
 
         Returns
         -------
@@ -102,15 +102,15 @@ class SignalGenerator:
     # ---- RF output --------------------------------------------------------
 
     def rf_on(self):
-        """Enable RF output."""
+        """Enables RF output."""
         self._write('RFO:STAT ON')
 
     def rf_off(self):
-        """Disable RF output."""
+        """Disables RF output."""
         self._write('RFO:STAT OFF')
 
     def rf_state(self):
-        """Query RF output state.
+        """Queries RF output state.
 
         Returns
         -------

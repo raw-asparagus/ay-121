@@ -3,3 +3,5 @@ astropy
 scipy
 ntplib
 setuptools<=81.0.0
+serial
+matplotlib

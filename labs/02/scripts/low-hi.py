@@ -29,11 +29,11 @@ FREQ_2 = 1421.0e6
 
 MIN_ALT_DEG = 10.0  # elevation floor; warn below this
 
-ITERATIONS = 8
+ITERATIONS = 16
 
 COMMON = dict(
     outdir=OUTDIR,
-    nsamples=8192,
+    nsamples=32768,
     nblocks=2048,
     direct=False,
     sample_rate=2.56e6,

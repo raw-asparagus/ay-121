@@ -38,3 +38,13 @@ python labs/02/scripts/lab_2_hi_drift.py --help
 
 For real hardware tests, run on the RPi with SDR + signal generator connected and
 permissions to access `/dev/usbtmc0`.
+
+## Analysis API Migration
+
+`ugradiolab` no longer ships analysis helpers or spectrum-cache selection helpers
+as importable package APIs.
+
+- Removed package modules: `ugradiolab.io`, `ugradiolab.analysis`.
+- The corresponding workflow logic now lives in notebook-local helper cells in:
+  - `labs/02/lab_2_1.ipynb`
+  - `labs/02/lab_2_1_analysis.ipynb`

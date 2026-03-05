@@ -54,11 +54,16 @@ class _FakeDev:
 
 
 class FakeSynth:
+    instances = []
+
     def __init__(self, device=None):
         self.device = device
         self._dev = _FakeDev()
         self.freq_mhz = None
         self.amp_dbm = None
+        self.rf_on_calls = 0
+        self.rf_off_calls = 0
+        type(self).instances.append(self)
 
     def set_freq_mhz(self, value):
         self.freq_mhz = value
@@ -66,7 +71,11 @@ class FakeSynth:
     def set_ampl_dbm(self, value):
         self.amp_dbm = value
 
+    def rf_on(self):
+        self.rf_on_calls += 1
+
     def rf_off(self):
+        self.rf_off_calls += 1
         return None
 
 
@@ -81,6 +90,7 @@ class FakeSDR:
 
 class AttenuationCollectTests(unittest.TestCase):
     def setUp(self):
+        FakeSynth.instances = []
         self.mod = load_script_module()
 
     def test_next_set_id_from_manifest(self):
@@ -179,10 +189,10 @@ class AttenuationCollectTests(unittest.TestCase):
                 side_effect=[
                     "10",  # length set 1
                     "-20",  # power meter set 1
-                    "",  # run set 1
+                    "",  # switch confirm set 1
                     "10",  # length set 2 (duplicate)
                     "-21",  # power meter set 2
-                    "",  # run set 2
+                    "",  # switch confirm set 2
                     "q",  # quit at next set
                 ],
             ):
@@ -200,8 +210,12 @@ class AttenuationCollectTests(unittest.TestCase):
             self.assertEqual(rows[1]["cable_length_m"], "10.0")
             self.assertEqual(rows[0]["power_meter_dbm"], "-20.0")
             self.assertEqual(rows[1]["power_meter_dbm"], "-21.0")
+            self.assertEqual(len(FakeSynth.instances), 1)
+            synth = FakeSynth.instances[0]
+            self.assertEqual(synth.rf_on_calls, 2)
+            self.assertEqual(synth.rf_off_calls, 3)  # two set-level offs + final cleanup
 
-    def test_main_skip_does_not_capture(self):
+    def test_main_quit_before_switch_does_not_capture(self):
         with tempfile.TemporaryDirectory() as tmp:
             outdir = Path(tmp) / "raw"
             manifest = Path(tmp) / "manifest.csv"
@@ -229,8 +243,7 @@ class AttenuationCollectTests(unittest.TestCase):
                 side_effect=[
                     "5",  # length
                     "-30",  # power meter
-                    "s",  # skip
-                    "q",  # quit
+                    "q",  # quit at switch-confirm step
                 ],
             ):
                 rc = self.mod.main()
@@ -238,6 +251,10 @@ class AttenuationCollectTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             run_mock.assert_not_called()
             self.assertFalse(manifest.exists())
+            self.assertEqual(len(FakeSynth.instances), 1)
+            synth = FakeSynth.instances[0]
+            self.assertEqual(synth.rf_on_calls, 1)
+            self.assertEqual(synth.rf_off_calls, 2)  # manual step off + final cleanup
 
     def test_main_continues_set_id_from_existing_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -292,7 +309,7 @@ class AttenuationCollectTests(unittest.TestCase):
                 side_effect=[
                     "12",
                     "-25",
-                    "",
+                    "",  # switch confirm
                     "q",
                 ],
             ):
@@ -303,6 +320,10 @@ class AttenuationCollectTests(unittest.TestCase):
                 rows = list(csv.DictReader(handle))
             self.assertEqual(len(rows), 2)
             self.assertEqual(rows[1]["set_id"], "6")
+            self.assertEqual(len(FakeSynth.instances), 1)
+            synth = FakeSynth.instances[0]
+            self.assertEqual(synth.rf_on_calls, 1)
+            self.assertEqual(synth.rf_off_calls, 2)
 
 
 if __name__ == "__main__":

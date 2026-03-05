@@ -3,10 +3,10 @@
 
 Workflow per set:
 1. Enter cable length (m).
-2. Enter manual power meter reading (dBm).
-3. Confirm once to run both SDR captures.
-4. Capture LO=1420 MHz and LO=1421 MHz with signal generator at 21-cm line.
-5. Print quick QC metrics and append one row to a CSV manifest.
+2. Turn RF on and enter manual power meter reading (dBm).
+3. Turn RF off, switch cable path to SDR, and confirm.
+4. Capture LO=1420 MHz and LO=1421 MHz.
+5. Print SDR metrics and append one row to a CSV manifest.
 """
 
 from __future__ import annotations
@@ -135,6 +135,13 @@ def prompt_length_or_quit() -> tuple[float | None, bool]:
             print("  Cable length must be non-negative.")
             continue
         return value, False
+
+
+def prompt_switch_confirm_or_quit() -> bool:
+    raw = input(
+        "Switch cable to SDR path, then press Enter to capture (q to quit): "
+    ).strip().lower()
+    return raw != "q"
 
 
 def sanitize_length_tag(length_m: float) -> str:
@@ -295,7 +302,6 @@ def main() -> int:
     print()
 
     completed = 0
-    skipped = 0
 
     sdr = None
     synth = None
@@ -317,16 +323,19 @@ def main() -> int:
                 break
             assert cable_length_m is not None
 
-            power_meter_dbm = prompt_float("Manual power meter reading [dBm]: ")
-            action = input("Run this set? [Enter=run, s=skip, q=quit]: ").strip().lower()
-            if action == "q":
+            synth.rf_on()
+            try:
+                power_meter_dbm = prompt_float(
+                    "RF is ON. Manual power meter reading [dBm]: "
+                )
+            finally:
+                try:
+                    synth.rf_off()
+                except Exception:
+                    pass
+
+            if not prompt_switch_confirm_or_quit():
                 break
-            if action == "s":
-                skipped += 1
-                print("  skipped.")
-                print()
-                set_id += 1
-                continue
 
             set_start_iso = iso_now()
             path_1420 = run_capture_for_lo(
@@ -416,7 +425,6 @@ def main() -> int:
 
     print("Session complete")
     print(f"  completed sets: {completed}")
-    print(f"  skipped sets: {skipped}")
     print(f"  manifest: {manifest_path}")
     return 0
 

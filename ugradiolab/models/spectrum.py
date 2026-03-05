@@ -9,6 +9,8 @@ from scipy.signal import savgol_filter
 from .record import Record
 
 SmoothMethod = Literal['gaussian', 'savgol', 'boxcar']
+FrequencyAxis = Literal['absolute', 'baseband']
+PlotScale = Literal['linear', 'log']
 
 _REQUIRED_KEYS = frozenset({
     'psd', 'std', 'freqs',
@@ -107,9 +109,93 @@ class Spectrum:
         """Total integrated power."""
         return float(np.sum(self.psd))
 
+    @property
+    def total_power_sigma(self) -> float:
+        """Uncertainty on the total integrated power."""
+        return float(np.sqrt(np.sum(np.square(self.std))))
+
     def bin_at(self, freq_hz: float) -> int:
         """Index of the frequency bin closest to freq_hz (in Hz)."""
         return int(np.argmin(np.abs(self.freqs - freq_hz)))
+
+    def frequency_axis_mhz(
+            self,
+            mode: FrequencyAxis = 'absolute',
+    ) -> np.ndarray:
+        """Frequency axis in MHz.
+
+        Parameters
+        ----------
+        mode : {'absolute', 'baseband'}
+            ``'absolute'`` returns the sky frequency axis. ``'baseband'``
+            returns the offset from the local oscillator centre frequency.
+        """
+        if mode == 'absolute':
+            return self.freqs_mhz
+        if mode == 'baseband':
+            return (self.freqs - self.center_freq) / 1e6
+        raise ValueError(
+            f'Unknown frequency axis mode {mode!r}. '
+            f"Choose 'absolute' or 'baseband'."
+        )
+
+    def velocity_axis_kms(
+            self,
+            rest_freq_hz: float,
+            velocity_shift_kms: float = 0.0,
+    ) -> np.ndarray:
+        """Radio-definition Doppler velocity axis in km/s."""
+        c_light_kms = 2.99792458e5
+        return (
+            c_light_kms * (rest_freq_hz - self.freqs) / rest_freq_hz
+            + velocity_shift_kms
+        )
+
+    def mask_dc_bin(
+            self,
+            values: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Return a copy with the DC-centre bin masked as ``NaN``."""
+        masked = np.array(
+            self.psd if values is None else values,
+            dtype=float,
+            copy=True,
+        )
+        i0 = self.bin_at(self.center_freq)
+        masked[max(0, i0):min(masked.size, i0 + 1)] = np.nan
+        return masked
+
+    def psd_values(
+            self,
+            *,
+            smooth_kwargs: dict | None = None,
+            mask_dc: bool = False,
+    ) -> np.ndarray:
+        """Return raw or smoothed PSD values as a float array copy."""
+        if smooth_kwargs is None:
+            values = np.array(self.psd, dtype=float, copy=True)
+        else:
+            values = np.array(self.smooth(**smooth_kwargs), dtype=float, copy=True)
+        return self.mask_dc_bin(values) if mask_dc else values
+
+    def std_bounds(
+            self,
+            values: np.ndarray | None = None,
+            *,
+            floor: float | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Lower and upper one-sigma envelopes for ``values``."""
+        center = self.psd_values() if values is None else np.array(
+            values,
+            dtype=float,
+            copy=True,
+        )
+        lo = center - self.std
+        hi = center + self.std
+        if floor is not None:
+            lo = np.clip(lo, floor, None)
+            hi = np.clip(hi, floor, None)
+        return lo, hi
 
     def smooth(
             self,
@@ -146,6 +232,37 @@ class Spectrum:
             raise ValueError(
                 f"Unknown method {method!r}. "
                 f"Choose 'gaussian', 'savgol', or 'boxcar'."
+            )
+
+    def ratio_to(
+            self,
+            other: 'Spectrum',
+            *,
+            smooth_kwargs: dict | None = None,
+    ) -> np.ndarray:
+        """Return the channel-wise ratio ``self / other``."""
+        if self.psd.shape != other.psd.shape:
+            raise ValueError(
+                'Spectrum ratios require matching PSD shapes, got '
+                f'{self.psd.shape} and {other.psd.shape}.'
+            )
+        num = self.psd_values(smooth_kwargs=smooth_kwargs)
+        den = other.psd_values(smooth_kwargs=smooth_kwargs)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return num / den
+
+    def ratio_std_to(self, other: 'Spectrum') -> np.ndarray:
+        """Propagate raw-PSD SEM values into the ratio uncertainty."""
+        if self.psd.shape != other.psd.shape:
+            raise ValueError(
+                'Spectrum ratios require matching PSD shapes, got '
+                f'{self.psd.shape} and {other.psd.shape}.'
+            )
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ratio = self.psd / other.psd
+            return ratio * np.sqrt(
+                (self.std / self.psd) ** 2
+                + (other.std / other.psd) ** 2
             )
 
     @classmethod

@@ -6,7 +6,7 @@ Workflow per set:
 2. Turn RF on and enter manual power meter reading (dBm).
 3. Turn RF off, switch cable path to SDR, and confirm.
 4. Capture LO=1420 MHz and LO=1421 MHz.
-5. Print SDR metrics and append one row to a CSV manifest.
+5. Print SDR metrics, then choose to save or discard the set.
 """
 
 from __future__ import annotations
@@ -137,6 +137,16 @@ def prompt_length_or_quit() -> tuple[float | None, bool]:
         return value, False
 
 
+def prompt_yes_no(prompt: str) -> bool:
+    while True:
+        raw = input(prompt).strip().lower()
+        if raw in {"y", "yes"}:
+            return True
+        if raw in {"n", "no"}:
+            return False
+        print("  Please enter y/yes or n/no.")
+
+
 def prompt_switch_confirm_or_quit() -> bool:
     raw = input(
         "Switch cable to SDR path, then press Enter to capture (q to quit): "
@@ -253,6 +263,50 @@ def append_manifest_row(manifest_path: Path, row: dict[str, object]) -> None:
         if write_header:
             writer.writeheader()
         writer.writerow(row)
+
+
+def remove_manifest_rows_for_paths(
+    manifest_path: Path,
+    *,
+    lo1420_path: str,
+    lo1421_path: str,
+) -> int:
+    if not manifest_path.is_file():
+        return 0
+
+    with manifest_path.open("r", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames or MANIFEST_FIELDS
+        kept_rows: list[dict[str, str]] = []
+        removed = 0
+        for row in reader:
+            if (
+                row.get("lo1420_path", "") == lo1420_path
+                and row.get("lo1421_path", "") == lo1421_path
+            ):
+                removed += 1
+                continue
+            kept_rows.append(row)
+
+    if removed == 0:
+        return 0
+
+    with manifest_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(kept_rows)
+    return removed
+
+
+def delete_capture_file(path: str | Path) -> None:
+    target = Path(path)
+    if not target.exists():
+        return
+    try:
+        target.unlink()
+        print(f"  deleted {target}")
+    except OSError as exc:
+        print(f"  warning: failed to delete {target}: {exc}")
 
 
 def _ratio(num: float, den: float) -> float:
@@ -411,12 +465,24 @@ def main() -> int:
                 "lo1421_q_rms": metrics_1421["q_rms"],
                 "lo1421_q_clip_frac": metrics_1421["q_clip_frac"],
             }
-            append_manifest_row(manifest_path, row)
+            should_save = prompt_yes_no("Save this run? [y/n]: ")
+            if should_save:
+                append_manifest_row(manifest_path, row)
+                completed += 1
+                print(f"  saved set {set_id:04d}")
+                print()
+                set_id += 1
+                continue
 
-            completed += 1
-            print(f"  recorded set {set_id:04d}")
+            delete_capture_file(path_1420)
+            delete_capture_file(path_1421)
+            remove_manifest_rows_for_paths(
+                manifest_path,
+                lo1420_path=path_1420,
+                lo1421_path=path_1421,
+            )
+            print(f"  discarded set {set_id:04d}; manifest/data removed")
             print()
-            set_id += 1
     finally:
         if synth is not None:
             _close_synth(synth)

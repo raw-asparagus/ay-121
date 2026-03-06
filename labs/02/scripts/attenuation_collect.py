@@ -147,13 +147,6 @@ def prompt_yes_no(prompt: str) -> bool:
         print("  Please enter y/yes or n/no.")
 
 
-def prompt_switch_confirm_or_quit() -> bool:
-    raw = input(
-        "Switch cable to SDR path, then press Enter to capture (q to quit): "
-    ).strip().lower()
-    return raw != "q"
-
-
 def sanitize_length_tag(length_m: float) -> str:
     text = f"{length_m:.3f}"
     return text.replace("-", "m").replace(".", "p")
@@ -387,9 +380,6 @@ def main() -> int:
                     synth.rf_off()
                 except Exception:
                     pass
-
-            if not prompt_switch_confirm_or_quit():
-                break
 
             set_start_iso = iso_now()
             path_1420 = run_capture_for_lo(

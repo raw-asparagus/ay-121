@@ -381,6 +381,13 @@ def main() -> int:
                 except Exception:
                     pass
 
+            switch_confirm = input(
+                "RF is OFF. Switch cable path to SDR, then press Enter "
+                "(or q to quit): "
+            ).strip().lower()
+            if switch_confirm == "q":
+                break
+
             set_start_iso = iso_now()
             path_1420 = run_capture_for_lo(
                 set_id=set_id,

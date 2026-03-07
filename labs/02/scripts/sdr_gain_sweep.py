@@ -28,8 +28,26 @@ from ugradiolab.run import CalExperiment
 
 DEFAULT_SIGGEN_FREQ_MHZ = 1420.405751768
 DEFAULT_LO_LIST_MHZ = (1420.0, 1421.0)
-DEFAULT_SIGGEN_AMP_LIST_DBM = (-20.0, -15.0, -10.0, -5.0, 0.0)
-DEFAULT_SDR_GAIN_LIST_DB = (0.0, 10.0, 20.0, 30.0, 40.0)
+DEFAULT_SIGGEN_AMP_LIST_DBM = (
+    10.0,
+    7.5,
+    5.0,
+    2.5,
+    0.0,
+    -2.5,
+    -5.0,
+    -7.5,
+    -10.0,
+    -12.5,
+    -15.0,
+    -17.5,
+    -20.0,
+    -22.5,
+    -25.0,
+    -27.5,
+    -30.0,
+)
+DEFAULT_SDR_GAIN_LIST_DB = (0.0,)
 
 # ---------------------------------------------------------------------------
 # Session configuration

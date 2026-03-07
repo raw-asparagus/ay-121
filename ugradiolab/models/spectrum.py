@@ -105,8 +105,18 @@ class Spectrum:
         return self.freqs / 1e6
 
     @property
+    def bin_width(self) -> float:
+        """Frequency resolution per bin in Hz (sample_rate / nsamples)."""
+        return self.sample_rate / self.nsamples
+
+    @property
     def total_power(self) -> float:
-        """Total integrated power."""
+        """Total integrated power (mean square of time samples).
+
+        Computed as ``sum(psd)`` where ``psd`` is per-bin (not per-Hz), so no
+        bin-width factor is needed.  By Parseval's theorem this equals
+        ``mean(|x[n]|²)`` and is independent of ``nsamples``.
+        """
         return float(np.sum(self.psd))
 
     @property

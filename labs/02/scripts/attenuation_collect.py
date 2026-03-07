@@ -11,7 +11,6 @@ Workflow per set:
 
 from __future__ import annotations
 
-import argparse
 import csv
 import math
 from datetime import datetime
@@ -27,6 +26,19 @@ SIGGEN_FREQ_MHZ = 1420.405751768
 LO_1420_HZ = 1420.0e6
 LO_1421_HZ = 1421.0e6
 LO_FREQS_HZ = (LO_1420_HZ, LO_1421_HZ)
+
+# ---------------------------------------------------------------------------
+# Session configuration
+OUTDIR = "data/lab02/attenuation/raw"
+MANIFEST_PATH = "data/lab02/attenuation/manifest.csv"
+SIGGEN_DEVICE = "/dev/usbtmc0"
+SIGGEN_AMP_DBM: float | None = None
+SAMPLE_RATE_HZ = 2.56e6
+NSAMPLES = 8192
+NBLOCKS = 2048
+SDR_GAIN_DB = 0.0
+SDR_DIRECT = False
+START_SET_ID: int | None = None
 
 
 MANIFEST_FIELDS = [
@@ -64,49 +76,6 @@ MANIFEST_FIELDS = [
     "lo1421_q_rms",
     "lo1421_q_clip_frac",
 ]
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Collect attenuation reference sets at fixed siggen frequency "
-            "(21-cm line) with LO 1420/1421 captures."
-        )
-    )
-    parser.add_argument(
-        "--outdir",
-        default="data/lab02/attenuation/raw",
-        help="Output directory for SDR Record files.",
-    )
-    parser.add_argument(
-        "--manifest",
-        default="data/lab02/attenuation/manifest.csv",
-        help="CSV manifest path (appended if it already exists).",
-    )
-    parser.add_argument(
-        "--siggen-device",
-        default="/dev/usbtmc0",
-        help="Signal generator USBTMC device path.",
-    )
-    parser.add_argument(
-        "--siggen-amp-dbm",
-        type=float,
-        default=None,
-        help="Signal generator output amplitude in dBm. If omitted, prompt once.",
-    )
-    parser.add_argument("--sample-rate", type=float, default=2.56e6)
-    parser.add_argument("--nsamples", type=int, default=8192)
-    parser.add_argument("--nblocks", type=int, default=2048)
-    parser.add_argument("--gain", type=float, default=0.0)
-    parser.add_argument("--direct", action="store_true")
-    parser.add_argument(
-        "--start-set-id",
-        type=int,
-        default=None,
-        help="Optional explicit starting set_id (overrides manifest-derived id).",
-    )
-    return parser.parse_args()
-
 
 def iso_now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -323,16 +292,18 @@ def _close_synth(synth) -> None:
 
 
 def main() -> int:
-    args = parse_args()
-
-    outdir = Path(args.outdir)
+    outdir = Path(OUTDIR)
     outdir.mkdir(parents=True, exist_ok=True)
-    manifest_path = Path(args.manifest)
+    manifest_path = Path(MANIFEST_PATH)
 
     session_start_iso = iso_now()
-    set_id = args.start_set_id if args.start_set_id is not None else next_set_id_from_manifest(manifest_path)
+    set_id = (
+        START_SET_ID
+        if START_SET_ID is not None
+        else next_set_id_from_manifest(manifest_path)
+    )
 
-    siggen_amp_dbm = args.siggen_amp_dbm
+    siggen_amp_dbm = SIGGEN_AMP_DBM
     if siggen_amp_dbm is None:
         siggen_amp_dbm = prompt_float("Signal generator amplitude [dBm]: ")
 
@@ -340,9 +311,9 @@ def main() -> int:
     print(f"  Siggen frequency: {SIGGEN_FREQ_MHZ:.9f} MHz")
     print(f"  Siggen amplitude: {siggen_amp_dbm:.2f} dBm")
     print(
-        f"  SDR profile: sample_rate={args.sample_rate/1e6:.3f} MHz, "
-        f"nsamples={args.nsamples}, nblocks={args.nblocks}, gain={args.gain}, "
-        f"direct={args.direct}"
+        f"  SDR profile: sample_rate={SAMPLE_RATE_HZ/1e6:.3f} MHz, "
+        f"nsamples={NSAMPLES}, nblocks={NBLOCKS}, gain={SDR_GAIN_DB}, "
+        f"direct={SDR_DIRECT}"
     )
     print(f"  Output directory: {outdir}")
     print(f"  Manifest: {manifest_path}")
@@ -354,12 +325,12 @@ def main() -> int:
     synth = None
     try:
         sdr = SDR(
-            direct=args.direct,
+            direct=SDR_DIRECT,
             center_freq=LO_1420_HZ,
-            sample_rate=args.sample_rate,
-            gain=args.gain,
+            sample_rate=SAMPLE_RATE_HZ,
+            gain=SDR_GAIN_DB,
         )
-        synth = SignalGenerator(device=args.siggen_device)
+        synth = SignalGenerator(device=SIGGEN_DEVICE)
         synth.set_freq_mhz(SIGGEN_FREQ_MHZ)
         synth.set_ampl_dbm(siggen_amp_dbm)
 
@@ -394,11 +365,11 @@ def main() -> int:
                 cable_length_m=cable_length_m,
                 lo_hz=LO_1420_HZ,
                 outdir=outdir,
-                sample_rate=args.sample_rate,
-                nsamples=args.nsamples,
-                nblocks=args.nblocks,
-                gain=args.gain,
-                direct=args.direct,
+                sample_rate=SAMPLE_RATE_HZ,
+                nsamples=NSAMPLES,
+                nblocks=NBLOCKS,
+                gain=SDR_GAIN_DB,
+                direct=SDR_DIRECT,
                 siggen_amp_dbm=siggen_amp_dbm,
                 sdr=sdr,
                 synth=synth,
@@ -411,11 +382,11 @@ def main() -> int:
                 cable_length_m=cable_length_m,
                 lo_hz=LO_1421_HZ,
                 outdir=outdir,
-                sample_rate=args.sample_rate,
-                nsamples=args.nsamples,
-                nblocks=args.nblocks,
-                gain=args.gain,
-                direct=args.direct,
+                sample_rate=SAMPLE_RATE_HZ,
+                nsamples=NSAMPLES,
+                nblocks=NBLOCKS,
+                gain=SDR_GAIN_DB,
+                direct=SDR_DIRECT,
                 siggen_amp_dbm=siggen_amp_dbm,
                 sdr=sdr,
                 synth=synth,

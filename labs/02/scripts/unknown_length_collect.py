@@ -11,7 +11,6 @@ This script intentionally does not connect to or control a signal generator.
 
 from __future__ import annotations
 
-import argparse
 import csv
 import math
 import time
@@ -27,6 +26,18 @@ from ugradiolab.run import ObsExperiment
 LO_1420_HZ = 1420.0e6
 LO_1421_HZ = 1421.0e6
 LO_FREQS_HZ = (LO_1420_HZ, LO_1421_HZ)
+
+# ---------------------------------------------------------------------------
+# Session configuration
+OUTDIR = "data/lab02/unknown_length/raw"
+MANIFEST_PATH = "data/lab02/unknown_length/manifest.csv"
+SAMPLE_RATE_HZ = 2.56e6
+NSAMPLES = 8192
+NBLOCKS = 2048
+SDR_GAIN_DB = 0.0
+SDR_DIRECT = False
+SETUP_SECONDS = 300
+START_SET_ID: int | None = None
 
 
 MANIFEST_FIELDS = [
@@ -64,44 +75,6 @@ MANIFEST_FIELDS = [
     "lo1421_q_rms",
     "lo1421_q_clip_frac",
 ]
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Collect one unknown-length cable set at LO 1420/1421 using "
-            "ObsExperiment captures and no signal-generator control."
-        )
-    )
-    parser.add_argument(
-        "--outdir",
-        default="data/lab02/unknown_length/raw",
-        help="Output directory for SDR Record files.",
-    )
-    parser.add_argument(
-        "--manifest",
-        default="data/lab02/unknown_length/manifest.csv",
-        help="CSV manifest path (appended if it already exists).",
-    )
-    parser.add_argument("--sample-rate", type=float, default=2.56e6)
-    parser.add_argument("--nsamples", type=int, default=8192)
-    parser.add_argument("--nblocks", type=int, default=2048)
-    parser.add_argument("--gain", type=float, default=0.0)
-    parser.add_argument("--direct", action="store_true")
-    parser.add_argument(
-        "--setup-seconds",
-        type=int,
-        default=300,
-        help="Setup countdown duration before capture (default: 300s).",
-    )
-    parser.add_argument(
-        "--start-set-id",
-        type=int,
-        default=None,
-        help="Optional explicit set_id (overrides manifest-derived id).",
-    )
-    return parser.parse_args()
-
 
 def iso_now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -214,9 +187,7 @@ def _ratio(num: float, den: float) -> float:
 
 
 def _prompt_begin_or_quit() -> bool:
-    raw = input(
-        "Press Enter to start the 5-minute setup timer (or q to quit): "
-    ).strip().lower()
+    raw = input("Press Enter to start setup timer (or q to quit): ").strip().lower()
     return raw != "q"
 
 
@@ -233,26 +204,24 @@ def run_setup_countdown(seconds: int) -> None:
 
 
 def main() -> int:
-    args = parse_args()
-
-    outdir = Path(args.outdir)
+    outdir = Path(OUTDIR)
     outdir.mkdir(parents=True, exist_ok=True)
-    manifest_path = Path(args.manifest)
+    manifest_path = Path(MANIFEST_PATH)
 
     session_start_iso = iso_now()
     set_id = (
-        args.start_set_id
-        if args.start_set_id is not None
+        START_SET_ID
+        if START_SET_ID is not None
         else next_set_id_from_manifest(manifest_path)
     )
 
     print("Unknown-length cable capture session")
     print(
-        f"  SDR profile: sample_rate={args.sample_rate/1e6:.3f} MHz, "
-        f"nsamples={args.nsamples}, nblocks={args.nblocks}, gain={args.gain}, "
-        f"direct={args.direct}"
+        f"  SDR profile: sample_rate={SAMPLE_RATE_HZ/1e6:.3f} MHz, "
+        f"nsamples={NSAMPLES}, nblocks={NBLOCKS}, gain={SDR_GAIN_DB}, "
+        f"direct={SDR_DIRECT}"
     )
-    print(f"  Setup timer: {args.setup_seconds}s")
+    print(f"  Setup timer: {SETUP_SECONDS}s")
     print(f"  Output directory: {outdir}")
     print(f"  Manifest: {manifest_path}")
     print(f"  Set ID: {set_id:04d}")
@@ -265,16 +234,16 @@ def main() -> int:
         print(f"  manifest: {manifest_path}")
         return 0
 
-    run_setup_countdown(args.setup_seconds)
+    run_setup_countdown(SETUP_SECONDS)
 
     completed = 0
     sdr = None
     try:
         sdr = SDR(
-            direct=args.direct,
+            direct=SDR_DIRECT,
             center_freq=LO_1420_HZ,
-            sample_rate=args.sample_rate,
-            gain=args.gain,
+            sample_rate=SAMPLE_RATE_HZ,
+            gain=SDR_GAIN_DB,
         )
 
         set_start_iso = iso_now()
@@ -282,11 +251,11 @@ def main() -> int:
             set_id=set_id,
             lo_hz=LO_1420_HZ,
             outdir=outdir,
-            sample_rate=args.sample_rate,
-            nsamples=args.nsamples,
-            nblocks=args.nblocks,
-            gain=args.gain,
-            direct=args.direct,
+            sample_rate=SAMPLE_RATE_HZ,
+            nsamples=NSAMPLES,
+            nblocks=NBLOCKS,
+            gain=SDR_GAIN_DB,
+            direct=SDR_DIRECT,
             sdr=sdr,
         )
         metrics_1420 = compute_capture_metrics(path_1420)
@@ -296,11 +265,11 @@ def main() -> int:
             set_id=set_id,
             lo_hz=LO_1421_HZ,
             outdir=outdir,
-            sample_rate=args.sample_rate,
-            nsamples=args.nsamples,
-            nblocks=args.nblocks,
-            gain=args.gain,
-            direct=args.direct,
+            sample_rate=SAMPLE_RATE_HZ,
+            nsamples=NSAMPLES,
+            nblocks=NBLOCKS,
+            gain=SDR_GAIN_DB,
+            direct=SDR_DIRECT,
             sdr=sdr,
         )
         metrics_1421 = compute_capture_metrics(path_1421)

@@ -5,6 +5,9 @@ import numpy as np
 
 from .spectrum import FrequencyAxis, PlotScale, Spectrum
 
+# Sentinel: ylabel was not explicitly set, derive from normalize_per_hz.
+_YLABEL_AUTO = object()
+
 
 class SpectrumPlot(Spectrum):
     """Spectrum wrapper with reusable plotting helpers.
@@ -31,6 +34,7 @@ class SpectrumPlot(Spectrum):
             ax=None,
             title: str | None = None,
             *,
+            normalize_per_hz: bool = True,
             smooth_kwargs: dict | None = None,
             show_raw: bool = True,
             show_std: bool = False,
@@ -42,7 +46,7 @@ class SpectrumPlot(Spectrum):
             raw_label: str | None = None,
             smooth_label: str | None = None,
             xlabel: str | None = None,
-            ylabel: str | None = 'PSD (counts²/bin)',
+            ylabel=_YLABEL_AUTO,
             legend: bool = False,
             legend_fontsize: float | None = None,
             grid: bool = True,
@@ -53,19 +57,38 @@ class SpectrumPlot(Spectrum):
             smooth_alpha: float = 1.0,
             std_alpha: float = 0.15,
     ):
-        """Plot the raw and optionally smoothed PSD on ``ax``."""
+        """Plot the raw and optionally smoothed PSD on ``ax``.
+
+        Parameters
+        ----------
+        normalize_per_hz : bool, default True
+            Divide each PSD value by the bin width (``sample_rate / nsamples``)
+            so the y-axis is in counts²/Hz rather than counts²/bin.
+        """
         if ax is None:
             import matplotlib.pyplot as plt
 
             _, ax = plt.subplots(figsize=(11, 4), dpi=300)
 
+        # Scale factor: 1/Δf converts per-bin PSD to per-Hz PSD.
+        scale = 1.0 / self.bin_width if normalize_per_hz else 1.0
+
+        if ylabel is _YLABEL_AUTO:
+            ylabel = 'PSD (counts²/Hz)' if normalize_per_hz else 'PSD (counts²/bin)'
+
         x = self.frequency_axis_mhz(mode=x_mode)
         plot_func = ax.semilogy if yscale == 'log' else ax.plot
 
-        raw = self.psd_values(mask_dc=mask_dc)
+        raw = self.psd_values(mask_dc=mask_dc) * scale
         if show_std:
             floor = np.finfo(float).tiny if yscale == 'log' else None
-            lo, hi = self.std_bounds(raw, floor=floor)
+            # Scale std alongside psd; std_bounds adds/subtracts self.std so
+            # we reproduce it manually here to keep the scale consistent.
+            lo = raw - self.std * scale
+            hi = raw + self.std * scale
+            if floor is not None:
+                lo = np.clip(lo, floor, None)
+                hi = np.clip(hi, floor, None)
             ax.fill_between(x, lo, hi, color=color, alpha=std_alpha)
 
         if show_raw:
@@ -81,7 +104,7 @@ class SpectrumPlot(Spectrum):
         if smooth_kwargs is not None:
             plot_func(
                 x,
-                self.psd_values(smooth_kwargs=smooth_kwargs, mask_dc=mask_dc),
+                self.psd_values(smooth_kwargs=smooth_kwargs, mask_dc=mask_dc) * scale,
                 color=smooth_color or color,
                 lw=smooth_linewidth,
                 alpha=smooth_alpha,
@@ -114,6 +137,7 @@ class SpectrumPlot(Spectrum):
             ax=None,
             title: str | None = None,
             *,
+            normalize_per_hz: bool = True,
             labels: Sequence[str] = ('A', 'B'),
             colors: Sequence[str] = ('C0', 'C1'),
             smooth_kwargs: dict | None = None,
@@ -122,7 +146,7 @@ class SpectrumPlot(Spectrum):
             x_mode: FrequencyAxis = 'absolute',
             yscale: PlotScale = 'log',
             xlabel: str | None = None,
-            ylabel: str | None = 'PSD (counts²/bin)',
+            ylabel=_YLABEL_AUTO,
             legend: bool = True,
             legend_fontsize: float | None = 8,
             grid: bool = True,
@@ -132,7 +156,14 @@ class SpectrumPlot(Spectrum):
             smooth_linewidth: float = 1.2,
             std_alpha: float = 0.15,
     ):
-        """Overlay two spectra on a common axis."""
+        """Overlay two spectra on a common axis.
+
+        Parameters
+        ----------
+        normalize_per_hz : bool, default True
+            Divide each PSD by its own bin width before plotting so the y-axis
+            is in counts²/Hz.
+        """
         other_plot = self._coerce(other)
         if len(labels) != 2 or len(colors) != 2:
             raise ValueError('plot_compare expects two labels and two colors.')
@@ -141,8 +172,12 @@ class SpectrumPlot(Spectrum):
 
             _, ax = plt.subplots(figsize=(11, 4), dpi=300)
 
+        if ylabel is _YLABEL_AUTO:
+            ylabel = 'PSD (counts²/Hz)' if normalize_per_hz else 'PSD (counts²/bin)'
+
         self.plot_psd(
             ax=ax,
+            normalize_per_hz=normalize_per_hz,
             smooth_kwargs=smooth_kwargs,
             show_std=show_std,
             mask_dc=mask_dc,
@@ -165,6 +200,7 @@ class SpectrumPlot(Spectrum):
         )
         other_plot.plot_psd(
             ax=ax,
+            normalize_per_hz=normalize_per_hz,
             smooth_kwargs=smooth_kwargs,
             show_std=show_std,
             mask_dc=mask_dc,
@@ -177,7 +213,7 @@ class SpectrumPlot(Spectrum):
                 f'{labels[1]} (smoothed)' if smooth_kwargs is not None else None
             ),
             xlabel=xlabel,
-            ylabel=ylabel,
+            ylabel=None,  # ylabel already set by self.plot_psd above
             legend=False,
             grid=False,
             raw_linewidth=raw_linewidth,
@@ -290,6 +326,7 @@ class SpectrumPlot(Spectrum):
             axes=None,
             title: str | None = None,
             *,
+            normalize_per_hz: bool = True,
             smooth_kwargs: dict | None = None,
             show_std: bool = True,
             mask_dc: bool = False,
@@ -299,7 +336,7 @@ class SpectrumPlot(Spectrum):
             dpi: int = 300,
             color: str = 'C0',
             xlabel: str | None = None,
-            ylabel: str = 'PSD (counts²/bin)',
+            ylabel=_YLABEL_AUTO,
             panel_title_fn: Callable[['SpectrumPlot'], str] | None = None,
             panel_title_loc: str = 'left',
             raw_linewidth: float = 0.9,
@@ -312,6 +349,9 @@ class SpectrumPlot(Spectrum):
         """Plot one spectrum per row and apply shared axis limits."""
         if not spectra:
             raise ValueError('plot_stack requires at least one spectrum.')
+
+        if ylabel is _YLABEL_AUTO:
+            ylabel = 'PSD (counts²/Hz)' if normalize_per_hz else 'PSD (counts²/bin)'
 
         plots = [cls(spec) for spec in spectra]
         nplots = len(plots)
@@ -337,6 +377,7 @@ class SpectrumPlot(Spectrum):
         for ax, plot in zip(axes, plots):
             plot.plot_psd(
                 ax=ax,
+                normalize_per_hz=normalize_per_hz,
                 title=(
                     panel_title_fn(plot)
                     if panel_title_fn is not None
@@ -361,6 +402,7 @@ class SpectrumPlot(Spectrum):
 
         x_min, x_max, y_min, y_max = cls._shared_limits(
             plots,
+            normalize_per_hz=normalize_per_hz,
             smooth_kwargs=smooth_kwargs,
             show_std=show_std,
             mask_dc=mask_dc,
@@ -399,6 +441,7 @@ class SpectrumPlot(Spectrum):
             cls,
             spectra: Sequence[Spectrum],
             *,
+            normalize_per_hz: bool = True,
             smooth_kwargs: dict | None = None,
             show_std: bool = False,
             mask_dc: bool = False,
@@ -410,6 +453,7 @@ class SpectrumPlot(Spectrum):
         """Shared axis limits for one or more spectra."""
         return cls._shared_limits(
             [cls._coerce(spec) for spec in spectra],
+            normalize_per_hz=normalize_per_hz,
             smooth_kwargs=smooth_kwargs,
             show_std=show_std,
             mask_dc=mask_dc,
@@ -424,6 +468,7 @@ class SpectrumPlot(Spectrum):
             cls,
             plots: Sequence['SpectrumPlot'],
             *,
+            normalize_per_hz: bool = True,
             smooth_kwargs: dict | None,
             show_std: bool,
             mask_dc: bool,
@@ -439,17 +484,22 @@ class SpectrumPlot(Spectrum):
         y_arrays = []
         floor = np.finfo(float).tiny if yscale == 'log' else None
         for plot in plots:
-            raw = plot.psd_values(mask_dc=mask_dc)
+            scale = 1.0 / plot.bin_width if normalize_per_hz else 1.0
+            raw = plot.psd_values(mask_dc=mask_dc) * scale
             y_arrays.append(raw)
             if show_std:
-                lo, hi = plot.std_bounds(raw, floor=floor)
+                lo = raw - plot.std * scale
+                hi = raw + plot.std * scale
+                if floor is not None:
+                    lo = np.clip(lo, floor, None)
+                    hi = np.clip(hi, floor, None)
                 y_arrays.extend([lo, hi])
             if smooth_kwargs is not None:
                 y_arrays.append(
                     plot.psd_values(
                         smooth_kwargs=smooth_kwargs,
                         mask_dc=mask_dc,
-                    )
+                    ) * scale
                 )
 
         finite_x = x_all[np.isfinite(x_all)]

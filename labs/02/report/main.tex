@@ -3,367 +3,670 @@
 \usepackage{hyperref}
 \usepackage{graphicx}
 
+\newcommand{\tbd}[1]{\texttt{TBD(#1)}}
+
 \begin{document}
 
-\title{AY121 Lab 2: 21-cm Line Calibration, Velocity Referencing, and Cable Characterization}
-\author{Jun Rui Ting \\ March 5, 2026}
+\title{AY121 Lab 2: Calibration-First 21-cm Pipeline, Cable Characterization, and Provisional Results}
+\author{Jun Rui Ting \\ March 2026}
 
 \begin{abstract}
-I present an end-to-end analysis of AY121 Lab 2 using dual-LO frequency-switched observations of Galactic HI near 1420.4058 MHz and a companion transmission-line calibration experiment. For the zenith line-shape dataset, I remove instrumental bandpass structure with spectral division and fit the extracted line profile with a two-component Gaussian model plus a linear baseline. The fitted topocentric centroids are $+5.03\pm0.02$ km s$^{-1}$ and $-34.65\pm0.06$ km s$^{-1}$ in the 1420 MHz bandpass ratio profile, with reduced chi-square values of $\chi_r^2=1.52$ (1420-band profile) and $\chi_r^2=1.38$ (1421-band reciprocal profile). Applying the projected Local Standard of Rest correction $\Delta v_{\rm LSR}=-28.7377$ km s$^{-1}$ shifts these components to approximately $-23.7$ and $-63.4$ km s$^{-1}$. A hot/cold Y-factor calibration gives receiver temperatures of $T_{\rm rx}=176.84\pm0.04\,(\mathrm{meas})\pm17.40\,(\mathrm{total})$ K at 1420 MHz and $208.27\pm0.04\,(\mathrm{meas})\pm5.27\,(\mathrm{total})$ K at 1421 MHz. In a condensed Week-2 cable analysis, the shared-slope linear attenuation fit yields $\alpha=0.951\pm0.175$ dB m$^{-1}$ at 1420 MHz (95\% bootstrap CI $[0.619,1.459]$ dB m$^{-1}$), with reflection-aware ripple fits retained in the appendix for model comparison.
+This report is reorganized into a calibration-first workflow: equipment calibration experiments,
+temperature calibration experiments, then calibrated HI measurement experiments.
+The document is intentionally structured for rapid revision when new measurements are added.
+All calibration-sensitive quantitative claims are represented with explicit placeholders
+(e.g., \tbd{CABLE\_ALPHA\_DB\_PER\_M}, \tbd{LSR\_SHIFT\_KMS}, \tbd{TRX\_1420\_K})
+rather than fixed final values. The current draft therefore serves as a method-complete and
+traceable report skeleton aligned with the Lab 2 requirements in
+\texttt{src/ugradio/lab\_bighorn/bighorn.tex}, while remaining revision-ready for final data insertion.
 \end{abstract}
 
-\section{Introduction and Goals}
-\label{sec:goals_map}
+\section{Introduction and Requirement Mapping}
+\label{sec:intro_goals}
 
-This report follows the Lab 2 requirements in
+This report follows the AY121 Lab 2 requirements in
 \texttt{src/ugradio/lab\_bighorn/bighorn.tex}.
-The required deliverables are:
-(1) time and coordinate handling for reproducible observations,
-(2) calibrated 21-cm line measurements with error bars,
-(3) velocity reporting in both observing and LSR frames,
-(4) Gaussian decomposition of HI components,
-(5) transmission-line and SDR gain-scale characterization,
-and (6) an explicit statistical plus systematic uncertainty discussion.
+The lab emphasizes nine competencies:
+(1) time conversion (UTC/PST/LST/JD),
+(2) coordinate transforms for pointing,
+(3) HI spectral measurement,
+(4) absolute calibration,
+(5) Doppler correction,
+(6) Gaussian fitting,
+(7) cable termination/impedance,
+(8) propagation velocity in coax,
+and (9) statistical plus systematic error analysis.
 
-All analysis and writing here are individual.
-Data products used in this draft are from
-\texttt{data/lab02/standard\_combined},
-\texttt{data/lab02/human\_combined},
-\texttt{data/lab02/low-hi\_combined}, and
-\texttt{data/lab02/attenuation}.
+To match experiment dependencies, this draft is organized as:
+\begin{enumerate}
+\item equipment calibration experiments,
+\item temperature calibration experiments,
+\item HI measurement experiments and calibrated science outputs.
+\end{enumerate}
 
-\section{Receiver System and Data Products}
-\label{sec:system}
+All analysis and writing are individual.
 
-The signal chain is horn antenna $\rightarrow$ rooftop amplification/filtering
-$\rightarrow$ long coax run $\rightarrow$ lab amplifiers/filtering
-$\rightarrow$ RTL-SDR digital downconversion and FFT integration.
-Dual LO captures at 1420 and 1421 MHz are used so that the HI line appears
-at two different baseband offsets, enabling bandpass cancellation by ratioing.
+\section{Receiver System and Data Inventory}
+\label{sec:system_inventory}
+
+The signal chain is:
+horn antenna $\rightarrow$ rooftop amplification/filtering
+$\rightarrow$ long coax downlink
+$\rightarrow$ lab amplification/filtering
+$\rightarrow$ RTL-SDR digitization/downconversion.
 
 \begin{figure}[ht!]
 \centering
 \includegraphics[width=0.82\textwidth]{../../../src/ugradio/lab_bighorn/block_diagram.png}
-\caption{Receiver block diagram used for Lab 2 data collection and calibration workflow.}
+\caption{Receiver block diagram for Lab 2 data collection and calibration workflow.}
 \label{fig:block_diagram}
 \end{figure}
 
-Observation sets used in this report:
+Datasets currently available in this draft:
 \begin{itemize}
-\item Zenith/line-shape dataset (dual LO):
-$32768$ blocks at each LO in \texttt{standard\_combined}.
-\item Hot-load calibration dataset (human load):
-$16384$ blocks at each LO in \texttt{human\_combined}.
-\item Cold-load comparison dataset:
-$32768$ blocks at each LO in \texttt{low-hi\_combined}.
-\item Cable attenuation dataset:
-9 measured cable-length sets; 1 anomalous long-length set excluded in fitting.
+\item HI dual-LO sky observations: \texttt{standard}, \texttt{cygnus-x}, \texttt{SGP}.
+\item Combined spectral products: \texttt{standard\_combined\_spectra},
+\texttt{cygnus-x\_combined\_spectra}, \texttt{SGP\_combined\_spectra}, \texttt{human\_combined\_spectra}.
+\item Cable attenuation study: \texttt{data/lab02/attenuation} (known lengths) and
+\texttt{data/lab02/unknown\_length} (unknown-length inference set).
+\item Report figures currently included are provisional and will be regenerated after data updates.
 \end{itemize}
 
-\section{Timekeeping and Pointing Validation}
-\label{sec:time_pointing}
+\section{HI Acquisition Overview (Raw Observations)}
+\label{sec:hi_acq_overview}
 
-For velocity referencing, I track UTC/JD/LST metadata directly from stored spectra.
-For the zenith profile used in the Gaussian decomposition,
-the metadata are:
+Before calibration-specific analysis, raw observations were acquired with dual first-LO settings
+near 1420 and 1421 MHz to support frequency-switched line extraction.
+Current acquisition scripts are in \texttt{labs/02/scripts}, including:
+\texttt{standard.py}, \texttt{cygnus-x.py}, \texttt{SGP.py}, and \texttt{human.py}.
+Calibration support scripts now include
+\texttt{sdr\_gain\_sweep.py} and \texttt{termination\_matrix\_collect.py}.
+Legacy helpers \texttt{anticenter.py} and \texttt{low-hi.py} are deprecated and
+retained only for historical traceability.
+
+For reproducibility, each capture stores metadata including
+sample rate, center frequency, gain, JD/LST, and pointing (alt/az).
+These metadata are used later for Doppler projection and frame correction.
+
+\subsection{Signal-Chain Sanity Checks Before Science Integrations}
+\label{sec:pre_science_checks}
+
+Before long integrations, the acquisition workflow includes the explicit
+Lab 2 sanity checks:
 \begin{itemize}
-\item JD $=2461102.56750$,
-\item observatory latitude $\approx 37.8732^{\circ}$,
-\item pointing altitude/azimuth $\approx (49.03^{\circ}, 325.48^{\circ})$.
+\item tone-injection ``birdie'' verification (on/off, amplitude changes, and
+frequency stepping) to validate RF-to-bin mapping,
+\item sample histogram checks to verify non-clipped, non-quantized ADC behavior,
+\item gain/attenuator tuning to keep spectra in the linear regime.
+\end{itemize}
+Final insertion values:
+\tbd{BIRDIE\_FREQ\_CHECK\_SUMMARY},
+\tbd{ADC\_HISTOGRAM\_SUMMARY}, and
+\tbd{GAIN\_SETTING\_RANGE\_SUMMARY}.
+
+\section{Time and Pointing Validation}
+\label{sec:time_pointing_validation}
+
+This section directly addresses the Lab 2 requirements on time standards
+(UTC/PST/LST/JD) and coordinate transformation for pointing.
+
+\subsection{UTC/PST/LST/JD Conversion and Closure Tests}
+\label{sec:time_conversion_checks}
+
+The timestamp pipeline is
+\begin{align}
+  \mathrm{PST} &= \mathrm{UTC} - 8~\mathrm{hr},\\
+  \mathrm{PDT} &= \mathrm{UTC} - 7~\mathrm{hr},\\
+  \mathrm{JD}  &= \mathrm{julian\_date}(t_{\mathrm{unix}}),\\
+  \mathrm{LST} &= \mathrm{lst}(\mathrm{JD},\lambda_{\mathrm{obs}}),
+\end{align}
+with \texttt{ugradio.timing} as the primary implementation and
+\texttt{astropy.time} as an independent cross-check.
+
+Round-trip closure is validated using
+\begin{equation}
+  \Delta t_{\mathrm{closure}} =
+  86400\,\left|\mathrm{JD} - \mathrm{julian\_date}(\mathrm{unix\_time}(\mathrm{JD}))\right|~\mathrm{s}.
+\end{equation}
+
+\begin{table}[ht!]
+\centering
+\caption{Time-conversion validation metrics to be populated in the final revision.}
+\label{tab:time_validation}
+\begin{tabular}{lcc}
+\hline
+Metric & Placeholder & Target/interpretation \\
+\hline
+UTC$\leftrightarrow$PST residual (s) & \tbd{UTC\_PST\_RESIDUAL\_S} & Consistent timezone bookkeeping \\
+JD round-trip closure (s) & \tbd{JD\_ROUNDTRIP\_RESIDUAL\_S} & Numerical consistency check \\
+LST residual vs astropy (s) & \tbd{LST\_ASTROPY\_RESIDUAL\_S} & Independent implementation check \\
+NTP offset at acquisition (ms) & \tbd{NTP\_OFFSET\_MS} & Clock synchronization health \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Rotation-Matrix Pointing and Astropy Cross-Checks}
+\label{sec:pointing_rotation_checks}
+
+For a target with equatorial coordinates $(\alpha,\delta)$,
+hour angle $H=\mathrm{LST}-\alpha$, and observatory latitude $\phi$,
+we use direction cosines
+\begin{equation}
+\hat{n}_{\mathrm{eq}}=
+\begin{bmatrix}
+\cos\delta\cos\alpha\\
+\cos\delta\sin\alpha\\
+\sin\delta
+\end{bmatrix},
+\end{equation}
+and a rotation-matrix mapping to local horizontal coordinates
+\begin{equation}
+\hat{n}_{\mathrm{hor}} = R_y\!\left(\phi-\frac{\pi}{2}\right)R_z(H)\hat{n}_{\mathrm{eq}}.
+\end{equation}
+The commanded horizontal coordinates are then
+\begin{equation}
+\mathrm{alt}=\arcsin(\hat{n}_{\mathrm{hor},z}), \qquad
+\mathrm{az}=\mathrm{atan2}(\hat{n}_{\mathrm{hor},y},\hat{n}_{\mathrm{hor},x}).
+\end{equation}
+
+For the required Week-2 target $(l,b)=(120^\circ,0^\circ)$, the report
+will provide both the Galactic-to-equatorial conversion and the resulting
+alt/az track with a direct \texttt{astropy.coordinates} residual check.
+
+\begin{table}[ht!]
+\centering
+\caption{Pointing-validation entries for the Week-2 target field.}
+\label{tab:pointing_validation}
+\begin{tabular}{lc}
+\hline
+Quantity & Placeholder \\
+\hline
+Target equatorial coordinates from $(l,b)=(120^\circ,0^\circ)$ & \tbd{LB120\_RA\_DEC} \\
+Pointing residual (rotation matrix vs astropy) & \tbd{POINTING\_RESIDUAL\_ARCMIN} \\
+Maximum allowed pointing error used in analysis cuts & \tbd{POINTING\_CUT\_ARCMIN} \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Equipment Calibration Experiments}
+\label{sec:equipment_cal}
+
+This section is placed first because all later science interpretation depends on receiver-chain and cable calibration.
+Detailed model variants and fitting internals are moved to Appendix~\ref{sec:app_cable_models}.
+
+\subsection{Termination and Reflectometry Plan}
+\label{sec:termination_reflectometry}
+
+Required Week-2 termination diagnostics are handled as a separate analog campaign:
+open-end, $50\,\Omega$ terminated, SDR-connected-unpowered, and SDR-connected-powered
+states with square-wave reflectometry.
+
+From those traces, this report will insert:
+\begin{itemize}
+\item reflection-delay measurements $\Delta t$ with uncertainty,
+\item inferred propagation velocity in coax, $v_{\mathrm{coax}}=\tbd{VCOAX\_M\_PER\_S}$,
+\item termination-quality comparison versus state and test frequency,
+\item SDR input impedance behavior summary (qualitative + quantitative).
 \end{itemize}
 
-\subsection{Pointing Formalism and Coordinate Pipeline}
-\label{sec:pointing_formalism}
+\subsection{Cable Loss Per Meter and Unknown-Length Inference}
+\label{sec:cable_loss_main}
 
-My science targets are usually specified in Galactic coordinates $(l,b)$ because
-the measurement objective is Milky Way gas structure. I then move through
-equatorial coordinates $(\alpha,\delta)$, which are Earth-location agnostic and
-convenient for time-dependent sky referencing, before converting to local
-horizontal coordinates $(az,alt)$ required to physically point the horn.
+Using known-length attenuation sets, the primary shared-slope model is
+\begin{align}
+  y_{1420}(L) &= B_{1420} - \alpha L,\\
+  y_{1421}(L) &= B_{1421} - \alpha L,
+\end{align}
+where $y$ is normalized receive power and $L$ is known pre-split cable length.
 
-For New Campbell Hall I use the site defaults in the analysis code:
-$\phi=37.873199^\circ$ (latitude), $\lambda=-122.257063^\circ$ (longitude),
-and $h=120$ m (altitude). Pointing is time dependent through the local sidereal
-time, so the same $(l,b)$ target maps to different $(az,alt)$ at different JD.
+Main-text provisional outputs:
+\begin{itemize}
+\item attenuation slope: $\alpha = \tbd{CABLE\_ALPHA\_DB\_PER\_M}$,
+\item slope uncertainty: $\sigma_\alpha = \tbd{CABLE\_ALPHA\_SIGMA\_DB\_PER\_M}$,
+\item 95\% interval: $\tbd{CABLE\_ALPHA\_CI95}$,
+\item LO intercept difference: $\Delta B = \tbd{CABLE\_DELTA\_B\_DB}$.
+\end{itemize}
 
-The matrix method follows the coordinate handout. First map angles to a unit
-vector,
+\begin{figure}[ht!]
+\centering
+\includegraphics[width=0.86\textwidth]{figures/cable_attenuation_linear.png}
+\caption{Provisional cable attenuation summary. Final slope and uncertainty values are pending updated calibration runs.}
+\label{fig:cable_main}
+\end{figure}
+
+Unknown-length cable inference (from attenuation calibration transfer) is reported as:
 \begin{equation}
-\label{eq:point_vec}
-\mathbf{x}=
-\begin{bmatrix}
-\cos(lat)\cos(long)\\
-\cos(lat)\sin(long)\\
-\sin(lat)
-\end{bmatrix},
+  L_{\mathrm{unknown}} = \tbd{UNKNOWN\_LENGTH\_M} \pm \tbd{UNKNOWN\_LENGTH\_SIGMA\_M}.
 \end{equation}
-with $(long,lat)=(l,b)$ in the Galactic frame. Then apply the rotation chain
+
+\subsection{SDR Voltage Scale and Receiver-Chain Gain Inputs}
+\label{sec:sdr_scale_chain}
+
+The final report update will insert analog-calibrated SDR voltage scale and chain gain/loss terms:
+\begin{itemize}
+\item SDR voltage scale: \tbd{SDR\_VOLT\_SCALE\_V\_PER\_COUNT},
+\item rooftop/lab amplifier gain entries: \tbd{AMP\_GAIN\_TABLE},
+\item filter insertion loss entries: \tbd{FILTER\_LOSS\_TABLE},
+\item roof cable effective length and corresponding attenuation contribution:
+\tbd{ROOF\_CABLE\_LENGTH\_M}, \tbd{ROOF\_CABLE\_LOSS\_DB}.
+\end{itemize}
+
+\section{Temperature Calibration Experiments}
+\label{sec:temperature_cal}
+
+This section converts calibrated power observables into antenna/system temperature units.
+
+\subsection{Hot/Cold Calibration and Y-Factor Framework}
+\label{sec:yfactor_main}
+
+Using hot-load and cold-reference spectra:
 \begin{equation}
-\label{eq:point_gal2eq}
-\mathbf{x}_{eq}=R_{eq\leftarrow gal}\mathbf{x}_{gal},
+  Y = \frac{P_{\mathrm{hot}}}{P_{\mathrm{cold}}},
 \end{equation}
-where $R_{eq\leftarrow gal}=R_{gal\leftarrow eq}^{T}$ and
-$R_{gal\leftarrow eq}$ is the J2000 matrix from the lab handout. Next convert
-equatorial to hour-angle coordinates using $ha=LST-\alpha$ and
 \begin{equation}
-\label{eq:point_eq2ha}
-\mathbf{x}_{ha}=R_{(ha,\delta)\leftarrow(\alpha,\delta)}\mathbf{x}_{eq}.
+  T_{\mathrm{rx}} = \frac{T_{\mathrm{hot}} - YT_{\mathrm{cold}}}{Y-1}.
 \end{equation}
-Finally convert to horizontal coordinates with site latitude $\phi$:
+
+Provisional per-LO outputs to be filled after revision:
+\begin{itemize}
+\item $Y_{1420}=\tbd{Y1420}$, $T_{\mathrm{rx},1420}=\tbd{TRX\_1420\_K}$,
+\item $Y_{1421}=\tbd{Y1421}$, $T_{\mathrm{rx},1421}=\tbd{TRX\_1421\_K}$,
+\item systematic terms: \tbd{TEMP\_CAL\_SYSTEMATICS\_SUMMARY}.
+\end{itemize}
+
+\subsection{Temperature Scale Assumptions and Aperture-Efficiency Link}
+\label{sec:temp_scale_assumptions}
+
+The conversion from antenna temperature to inferred brightness temperature is represented as
 \begin{equation}
-\label{eq:point_ha2altaz}
-R_{(az,alt)\leftarrow(ha,\delta)}=
-\begin{bmatrix}
--\sin\phi & 0 & \cos\phi\\
-0 & -1 & 0\\
-\cos\phi & 0 & \sin\phi
-\end{bmatrix},
-\quad
-\mathbf{x}_{hor}=R_{(az,alt)\leftarrow(ha,\delta)}\mathbf{x}_{ha}.
+  T_B = \frac{T_A}{\eta_{\mathrm{ap}}\,\eta_{\mathrm{bf}}},
 \end{equation}
-Recover $(az,alt)$ from $\mathbf{x}_{hor}$ via
-$az=\operatorname{atan2}(x_1,x_0)$ and $alt=\arcsin(x_2)$.
+with provisional efficiency placeholders
+$\eta_{\mathrm{ap}}=\tbd{APERTURE\_EFFICIENCY}$ and
+$\eta_{\mathrm{bf}}=\tbd{BEAM\_FILL\_FACTOR}$.
 
-In practice this workflow is implemented in
-\texttt{ugradiolab.utils.compute\_pointing} and used by
-\texttt{labs/02/scripts/standard.py} for the lab target
-$(l,b)=(120^{\circ},0^{\circ})$. I cross-check these transforms against
-\texttt{astropy}; forward/inverse consistency is enforced through rotation-matrix
-transpose identities.
+A dedicated efficiency-constrained update will be inserted after new analog/tone-injection evidence is available.
 
-For zenith observations, RA is approximated by local sidereal angle and Dec by
-observatory latitude; this gives $\mathrm{RA}=62.897^{\circ}$ and
-$\mathrm{Dec}=37.873^{\circ}$ for the Doppler projection call.
+\section{HI Measurement Experiments and Calibrated Analysis}
+\label{sec:hi_measurement_analysis}
 
-\section{Week 1 Calibration Pipeline: Ratio, Gain Scale, and Y-Factor}
-\label{sec:week1_cal}
+All science-facing HI results are presented only after equipment and temperature calibration context.
 
-\subsection{Bandpass cancellation by spectral division}
+\subsection{Week-1 First Measurement: Zenith Requirement and SGP Control}
+\label{sec:week1_sgp}
 
-Let $s_{\rm on}(\nu)$ and $s_{\rm off}(\nu)$ be long-integration spectra with
-HI line present and shifted.
-Following the handout workflow,
+The Week-1 requirement calls for a first 21-cm measurement as a system check before the main
+science observation.
+This report therefore reserves a required zenith result block:
+\begin{itemize}
+\item zenith observation window and metadata: \tbd{ZENITH\_OBS\_JD\_LST},
+\item zenith line-shape result summary: \tbd{ZENITH\_LINE\_SUMMARY},
+\item zenith-system-noise check summary: \tbd{ZENITH\_NOISE\_FLOOR\_SUMMARY}.
+\end{itemize}
+
+As a supplemental control, a South Galactic Pole (SGP) cold-sky spectrum is also
+used for a robust low-HI baseline check.
+This is especially useful because the Berkeley zenith
+(Dec $=+37.87^\circ$) sweeps through the Galactic plane twice per sidereal day,
+spanning Galactic latitudes $|b|<10^\circ$ during two LST windows:
+
+\begin{table}[ht!]
+\centering
+\caption{Galactic latitudes at the Berkeley zenith versus LST window.
+During these windows a zenith observation is contaminated by 21-cm Galactic
+disk emission ($T_B\sim10$--$100\,$K), making a clean noise-floor measurement
+impossible without careful LST scheduling.}
+\label{tab:zenith_contamination}
+\begin{tabular}{ccc}
+\hline
+LST window (h) & Galactic direction at zenith & $b$ range \\
+\hline
+$0.0$--$2.0$   & $l\approx235^\circ$--$247^\circ$ (outer disk)      & $-6^\circ$ to $+14^\circ$ \\
+$15.0$--$16.5$ & $l\approx142^\circ$--$152^\circ$ (near standard field) & $+8^\circ$ to $-7^\circ$ \\
+\hline
+\end{tabular}
+\end{table}
+
+The SGP is the direction of minimum HI column density on the sky
+($N_{\rm HI}\lesssim1.7\times10^{20}$\,cm$^{-2}$, HI4PI survey), guaranteeing a
+nearly HI-free baseline spectrum regardless of LST and providing an unambiguous
+system-noise confirmation to complement the required zenith check.
+
+Figure~\ref{fig:sgp_ta_spectrum} shows the calibrated antenna temperature $T_A(\nu)$
+for the SGP LO1420 combined observation.
+The calibration applies the Y-factor result ($T_{\rm rx,1420}=215.0\pm10.4\,$K) and
+the frequency-dependent cold-reference profile from \texttt{calibration\_results.npz}:
 \begin{equation}
-  r_{\rm line}(\nu)=\frac{s_{\rm on}(\nu)}{s_{\rm off}(\nu)}.
+  T_A(\nu) = P_{\rm obs}(\nu)\,\frac{T_{\rm cold}+T_{\rm rx}}{P_{\rm cold,ref}(\nu)} - T_{\rm rx}.
 \end{equation}
-Because both spectra traverse the same instrumental chain,
-first-order multiplicative bandpass structure cancels in the ratio.
+The LSR velocity correction for the SGP direction ($l=0^\circ$, $b=-90^\circ$)
+at the time of observation is
+$\Delta v_{\rm LSR}=\tbd{LSR\_SGP\_KMS}$\,km\,s$^{-1}$,
+computed via \texttt{ugradio.doppler.get\_projected\_velocity}.
+No 21-cm HI emission line is detected anywhere in the spectrum, consistent with the
+near-zero column density expected at $b=-90^\circ$.
+The continuum level near $T_A\approx T_{\rm cold}=30\,$K confirms that the system
+is operating at the expected noise floor, validating the calibration chain before
+the main science observations.
+
+\begin{figure}[ht!]
+\centering
+\caption{Calibrated antenna temperature $T_A(\nu)$ for the SGP LO1420 combined
+spectrum, used as the Week-1 first measurement.
+No 21-cm HI emission line is detected, consistent with $b=-90^\circ$
+($N_{\rm HI}\lesssim1.7\times10^{20}$\,cm$^{-2}$).
+The noise floor near $T_A\approx 30\,$K confirms the system calibration.}
+\label{fig:sgp_ta_spectrum}
+\end{figure}
+
+\subsection{Week-2 Main Measurement: Galactic-Plane Field $(l,b)=(120^\circ,0^\circ)$}
+\label{sec:week2_lb120}
+
+The main Week-2 requirement is a fully calibrated HI spectrum at
+Galactic coordinates $(l,b)=(120^\circ,0^\circ)$.
+This report treats that field as the primary science target and
+will explicitly report:
+\begin{itemize}
+\item observation interval in UTC/PST/JD/LST: \tbd{LB120\_TIME\_WINDOW},
+\item converted equatorial coordinates: \tbd{LB120\_RA\_DEC},
+\item topocentric and LSR spectra from the same calibrated pipeline,
+\item best-fit Gaussian component parameters with full uncertainties.
+\end{itemize}
+
+In this draft, the \texttt{standard} dataset is reserved for this target.
+The final revision will include the metadata table that demonstrates
+coordinate and time consistency end-to-end.
+
+\subsection{Frequency Switching and Line-Shape Extraction}
+\label{sec:line_shape_main}
+
+From frequency-switched on/off spectra:
+\begin{equation}
+  r_{\mathrm{line}}(\nu)=\frac{s_{\mathrm{on}}(\nu)}{s_{\mathrm{off}}(\nu)}.
+\end{equation}
+
+Intensity-calibrated form:
+\begin{equation}
+  T_{\mathrm{line}}(\nu)=r_{\mathrm{line}}(\nu)\,G,
+\end{equation}
+with $G=\tbd{GAIN\_K\_PER\_NORM\_POWER}$.
+
+Consistent with the lab instructions, stacked spectra are compared using
+both channel-wise means and medians before adopting a final estimator:
+\begin{itemize}
+\item mean stack output: \tbd{LINE\_STACK\_MEAN\_SUMMARY},
+\item median stack output: \tbd{LINE\_STACK\_MEDIAN\_SUMMARY},
+\item adopted smoothing width in channels: \tbd{LINE\_SMOOTH\_NCHAN}.
+\end{itemize}
+The smoothing choice is constrained by the requirement not to wash out
+HI features narrower than about 1 km s$^{-1}$.
+Band-edge placement is also verified against FIR roll-off to avoid aliasing-sensitive
+channels; final evidence will be summarized by \tbd{FIR\_EDGE\_PLACEMENT\_SUMMARY}.
 
 \begin{figure}[ht!]
 \centering
 \includegraphics[width=0.90\textwidth]{figures/ratio_profile_lsr.png}
-\caption{Bandpass-calibrated HI ratio profiles in the LSR frame.
-The two LO views produce complementary peak/dip signatures from the same sky line.}
+\caption{Provisional dual-LO ratio profile for the Week-2 target field
+$(l,b)=(120^\circ,0^\circ)$. Final axis ranges and component annotations
+will be updated with revised data.}
 \label{fig:ratio_profile}
 \end{figure}
 
-\subsection{Intensity scale and receiver temperature cross-check}
+\subsection{Velocity Axes and LSR Correction}
+\label{sec:velocity_main}
 
-The lab handout gain scale is
-\begin{equation}
-  G =
-  \frac{T_{\rm sys,cal}-T_{\rm sys,cold}}
-  {\sum (s_{\rm cal}-s_{\rm cold})}
-  \sum s_{\rm cold},
-\end{equation}
-with calibrated spectrum
-\begin{equation}
-  T_{\rm line}(\nu)=r_{\rm line}(\nu)\,G.
-\end{equation}
-
-As an independent check, I compute Y-factors from hot/cold datasets.
-Results are:
-\begin{itemize}
-\item 1420 MHz: $Y=2.353705\pm0.000226$ ($3.7175\pm0.0004$ dB),
-$T_{\rm rx}=176.840\pm0.035\,(\mathrm{meas})\pm17.403\,(\mathrm{total})$ K.
-\item 1421 MHz: $Y=2.352864\pm0.000226$ ($3.7160\pm0.0004$ dB),
-$T_{\rm rx}=208.273\pm0.037\,(\mathrm{meas})\pm5.270\,(\mathrm{total})$ K.
-\end{itemize}
-
-The larger total uncertainty at 1420 MHz is dominated by assumed hot/cold
-load systematics rather than random power-estimator uncertainty.
-
-\section{Velocity Axes and LSR Correction}
-\label{sec:velocity_lsr}
-
-I use radio-definition Doppler velocity
+Radio-definition Doppler mapping:
 \begin{equation}
   v \approx c\,\frac{\nu_0-\nu}{\nu_0},
 \end{equation}
-with $\nu_0=1420.405751768$ MHz.
-The projected correction from
-\texttt{ugradio.doppler.get\_projected\_velocity} is
+with LSR correction
 \begin{equation}
-  \Delta v_{\rm LSR}=-28.7377\ \mathrm{km\ s^{-1}},
+  v_{\mathrm{LSR}}=v_{\mathrm{topo}}+\Delta v_{\mathrm{LSR}},
 \end{equation}
-so I report
-\begin{equation}
-  v_{\rm LSR}=v_{\rm topo}+\Delta v_{\rm LSR}.
-\end{equation}
+where $\Delta v_{\mathrm{LSR}}=\tbd{LSR\_SHIFT\_KMS}$ km s$^{-1}$.
 
 \begin{figure}[ht!]
 \centering
 \includegraphics[width=0.90\textwidth]{figures/tline_frequency_velocity.png}
-\caption{Calibrated line proxy shown against RF frequency and LSR velocity.
-The velocity-panel is the same spectrum after Doppler-axis transformation and
-LSR shift.}
+\caption{Provisional calibrated profile for the Week-2 target field
+$(l,b)=(120^\circ,0^\circ)$ versus RF frequency and velocity coordinates
+(topocentric and LSR).}
 \label{fig:tline_freq_vel}
 \end{figure}
 
-\section{Week 2 Science Spectrum and Gaussian Decomposition}
-\label{sec:week2_profile}
+\subsection{Baseline Removal and Gaussian Decomposition}
+\label{sec:gauss_main}
 
-I fit both ratio-derived line representations
-($R-1$ in the 1420 grid and $1/R-1$ in the 1421 grid)
-with two Gaussians plus a first-order polynomial baseline over
-$[-120,+120]$ km s$^{-1}$.
+Baseline removal uses off-line channels and low-order polynomial (or equivalent) subtraction,
+followed by multi-component Gaussian fitting.
+The default off-line fitting windows are
+$[-1.2,-0.6]$ MHz and $[0.6,1.2]$ MHz relative to line center, matching the
+Lab 2 guidance. The main implementation uses \texttt{np.polyfit}
+for baseline modeling and \texttt{gaussfit}/\texttt{gaussval}
+for component fits, with alternatives treated as sensitivity checks.
+
+Main-text provisional science outputs:
+\begin{itemize}
+\item number of adopted components: \tbd{N\_GAUSS\_FINAL},
+\item component centroids (topocentric): \tbd{VTOPO\_COMPONENTS\_KMS},
+\item component centroids (LSR): \tbd{VLSR\_COMPONENTS\_KMS},
+\item FWHM values: \tbd{FWHM\_COMPONENTS\_KMS},
+\item fit quality: $\chi_r^2=\tbd{CHI2\_RED\_FINAL}$.
+\end{itemize}
 
 \begin{figure}[ht!]
 \centering
 \includegraphics[width=0.98\textwidth]{figures/gaussian_decomposition.png}
-\caption{Two-component Gaussian decomposition with polynomial baseline and residuals,
-reported in the LSR frame.}
+\caption{Provisional Gaussian decomposition panel. Final residual diagnostics and component labels pending revised data.}
 \label{fig:baseline_gauss}
 \end{figure}
 
 \begin{table}[ht!]
 \centering
-\caption{Gaussian fit parameters from the dual-LO line profiles.}
-\label{tab:fit_params}
-\begin{tabular}{lcccc}
+\caption{Provisional HI fit summary placeholders (to be replaced after next data revision).}
+\label{tab:fit_placeholders}
+\begin{tabular}{lcc}
 \hline
-Band/Comp & $A$ & $v_{0,\rm topo}$ (km s$^{-1}$) & $v_{0,\rm LSR}$ (km s$^{-1}$) & FWHM (km s$^{-1}$) \\
+Quantity & Placeholder & Notes \\
 \hline
-1420 C1 & $0.29138\pm0.00046$ & $+5.03\pm0.02$ & $-23.70\pm0.02$ & $22.64\pm0.04$ \\
-1420 C2 & $0.15281\pm0.00028$ & $-34.65\pm0.06$ & $-63.39\pm0.06$ & $44.04\pm0.15$ \\
-1421 C1 & $0.25048\pm0.00040$ & $+4.89\pm0.02$ & $-23.84\pm0.02$ & $22.10\pm0.04$ \\
-1421 C2 & $0.13227\pm0.00025$ & $-34.86\pm0.06$ & $-63.60\pm0.06$ & $43.79\pm0.15$ \\
+Component count & \tbd{N\_GAUSS\_FINAL} & Model-selection outcome \\
+LSR shift (km s$^{-1}$) & \tbd{LSR\_SHIFT\_KMS} & Doppler projection \\
+Dominant component centers (km s$^{-1}$) & \tbd{VLSR\_COMPONENTS\_KMS} & Report with uncertainties \\
+Reduced chi-square & \tbd{CHI2\_RED\_FINAL} & Baseline+Gaussian fit quality \\
 \hline
 \end{tabular}
 \end{table}
 
-Good agreement between 1420- and 1421-band centroids indicates that the
-frequency-switching plus ratio method is internally consistent.
+\section{Unified Uncertainty Framework}
+\label{sec:uncertainty_framework}
 
-\section{Uncertainty Synthesis}
-\label{sec:error_budget}
+Uncertainty accounting in this report combines:
+\begin{itemize}
+\item per-channel thermal/statistical noise,
+\item baseline-removal model sensitivity,
+\item calibration transfer uncertainty (equipment + temperature),
+\item Doppler/frame-correction uncertainty,
+\item component-model selection uncertainty (least squares and optional MCMC variants).
+\end{itemize}
 
 \begin{table}[ht!]
 \centering
-\caption{Primary uncertainty terms included in this draft.}
-\label{tab:error_budget}
+\caption{Provisional uncertainty budget entries awaiting final values.}
+\label{tab:error_budget_placeholders}
 \begin{tabular}{lc}
 \hline
-Quantity & Uncertainty summary \\
+Term & Placeholder \\
 \hline
-1420-band profile fit quality & $\chi_r^2=1.518$ \\
-1421-band profile fit quality & $\chi_r^2=1.381$ \\
-LSR correction term & $\Delta v_{\rm LSR}=-28.7377$ km s$^{-1}$ (applied as offset) \\
-$T_{\rm rx}$ at 1420 MHz & $\pm0.035$ K (meas), $\pm17.403$ K (total) \\
-$T_{\rm rx}$ at 1421 MHz & $\pm0.037$ K (meas), $\pm5.270$ K (total) \\
-Cable attenuation slope (linear shared fit) & $0.951\pm0.175$ dB m$^{-1}$ \\
-Cable slope bootstrap 95\% CI & $[0.619,1.459]$ dB m$^{-1}$ \\
+Thermal channel noise level & \tbd{SIGMA\_THERMAL\_PER\_CHANNEL} \\
+Baseline removal systematic & \tbd{SIGMA\_BASELINE\_SYS} \\
+Temperature-scale systematic & \tbd{SIGMA\_TEMP\_SCALE\_SYS} \\
+Cable attenuation contribution & \tbd{SIGMA\_CABLE\_CAL\_SYS} \\
+Gaussian parameter covariance term & \tbd{SIGMA\_FIT\_COV} \\
 \hline
 \end{tabular}
 \end{table}
 
-Interpretation:
-fit residuals are close to the expected per-channel spread but not exactly unity,
-so low-level model mismatch remains (likely baseline shape and/or additional broad
-components).
-For thermal calibration, systematic hot/cold assumptions dominate over random
-PSD variance.
+\section{Requirement Coverage Matrix}
+\label{sec:req_coverage_matrix}
 
-\section{Condensed Cable/Termination Results (Main Text)}
-\label{sec:cable_summary}
-
-Following the Week-2 cable calibration activity,
-I estimate SDR-referenced attenuation at fixed RF frequency near the HI line.
-After excluding the known long-length anomaly ($L\approx7.925$ m),
-a shared-slope linear fit to 8 sets gives
-\begin{equation}
-  \alpha = 0.951\pm0.175\ \mathrm{dB\ m^{-1}},
-\end{equation}
-with 95\% bootstrap interval
-$[0.619,1.459]$ dB m$^{-1}$.
-The two LO intercepts differ by
-$\Delta B=-0.551\pm0.210$ dB.
-
-\begin{figure}[ht!]
+\begin{table}[ht!]
 \centering
-\includegraphics[width=0.86\textwidth]{figures/cable_attenuation_linear.png}
-\caption{Condensed attenuation summary for the fixed-tone cable-length study.
-Main-text fit is the shared-slope linear model used for reported $\alpha$.}
-\label{fig:cable_main}
-\end{figure}
-
-This slope is used as the main-text cable-loss calibration input.
-Reflection-aware ripple fits (AIC/BIC-favored for this dataset) are discussed in
-Appendix~\ref{sec:app_cable} as a model-sensitivity check.
+\caption{Direct map from Lab 2 goals in \texttt{bighorn.tex} to report evidence.}
+\label{tab:req_coverage}
+\begin{tabular}{p{0.19\textwidth}p{0.43\textwidth}p{0.30\textwidth}}
+\hline
+Goal & Evidence in this report & Final insertion target \\
+\hline
+Time (UTC/PST/LST/JD) & \S\ref{sec:time_conversion_checks}, Table~\ref{tab:time_validation} & Fill residual metrics and timestamps \\
+Pointing (rotation matrices) & \S\ref{sec:pointing_rotation_checks}, Table~\ref{tab:pointing_validation} & Insert alt/az residual statistics \\
+HI measurement & \S\ref{sec:week1_sgp}, \S\ref{sec:week2_lb120} & Final calibrated spectra and metadata table \\
+Calibration (absolute scale) & \S\ref{sec:equipment_cal}, \S\ref{sec:temperature_cal} & Replace calibration placeholders \\
+Doppler correction (LSR) & \S\ref{sec:velocity_main} & Insert projected velocity and uncertainties \\
+Gaussian fitting & \S\ref{sec:gauss_main}, Table~\ref{tab:fit_placeholders} & Final component model + $\chi_r^2$ \\
+Impedance/termination & \S\ref{sec:termination_reflectometry} & Waveform evidence by termination state \\
+Propagation speed in coax & \S\ref{sec:termination_reflectometry}, \S\ref{sec:app_reflectometry_derivation} & Final $v_{\mathrm{coax}}$ with error bars \\
+Error analysis & \S\ref{sec:uncertainty_framework} & Combined statistical + systematic budget \\
+\hline
+\end{tabular}
+\end{table}
 
 \section{Discussion}
 \label{sec:discussion}
 
-The dual-LO ratio method is effective: independent line-profile reconstructions
-agree in centroid and width, and both produce physically plausible multi-component
-HI structure.
-The LSR shift is large enough ($\sim29$ km s$^{-1}$) that reporting only topocentric
-velocities would hinder reproducibility and comparison across observing dates.
+This draft is now method-complete in calibration-first order and ready for a final data-insertion pass.
+The primary remaining blockers for strict end-state reporting are:
+\begin{enumerate}
+\item final analog termination/reflectometry measurements,
+\item updated cable and SDR gain-scale constraints,
+\item revised temperature-calibration numbers,
+\item finalized UTC/PST/LST/JD and pointing residual tables,
+\item final HI component and uncertainty summaries after data refresh.
+\end{enumerate}
 
-The largest calibration limitations in this draft are:
-(1) systematic uncertainty in absolute temperature scaling,
-(2) residual baseline mismatch not fully captured by a first-order polynomial,
-and (3) cable-model ambiguity (linear-only vs reflection-aware forms).
+Once these values are inserted, placeholders in Appendix~\ref{sec:app_placeholder_map}
+can be resolved in a single controlled update.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-This report completes the core Lab 2 deliverables:
-\begin{itemize}
-\item Frequency-switched 21-cm profiles with instrumental bandpass cancellation.
-\item Velocity reporting in both observing and LSR frames.
-\item Two-component Gaussian decomposition with explicit fit diagnostics and
-uncertainties.
-\item Receiver-noise calibration via hot/cold Y-factor estimates.
-\item Transmission-line attenuation calibration with uncertainty intervals.
-\end{itemize}
+The report has been restructured to a dependency-correct flow:
+\begin{enumerate}
+\item equipment calibration experiments,
+\item temperature calibration experiments,
+\item calibrated HI measurement experiments.
+\end{enumerate}
 
-Numerically, the dominant HI components lie near
-$v_{\rm LSR}\approx-23.8$ and $-63.5$ km s$^{-1}$,
-with reduced chi-square values near 1.4--1.5.
-Cable attenuation near 1420 MHz is constrained at
-$\alpha\approx0.95$ dB m$^{-1}$ in the shared-slope linear model,
-with model-dependent ripple alternatives documented in the appendix.
+This structure is preserved while deferring calibration-sensitive numeric claims to explicit
+placeholders. The next revision cycle only requires filling those placeholders and regenerating
+plots/tables from updated data products.
 
 \section*{Acknowledgements}
 Special thanks to my lab partners Nathaneil and Kayhan for group observations,
 and to Aaron and Ben for instructional support.
 
 \appendix
-\section{Cable Model and Sensitivity Details}
-\label{sec:app_cable}
 
-The attenuation notebook compares two families:
-\begin{align}
-  y(L) &= B - \alpha L \quad\text{(linear)}\\
-  y(L) &= B - \alpha L + A\cos(kL+\phi) \quad\text{(reflection-aware)}.
-\end{align}
+\section{Placeholder Map for Final Revision}
+\label{sec:app_placeholder_map}
 
-For SDR data, fit metrics were:
+This appendix centralizes all deferred values for the next data update.
+
 \begin{itemize}
-\item Linear: RMSE $=0.3788$ dB, AIC $=-25.067$, BIC $=-22.749$.
-\item Ripple: RMSE $=0.1245$ dB, AIC $=-50.667$, BIC $=-44.486$.
+\item Time/clock validation: \tbd{UTC\_PST\_RESIDUAL\_S}, \tbd{JD\_ROUNDTRIP\_RESIDUAL\_S},
+\tbd{LST\_ASTROPY\_RESIDUAL\_S}, \tbd{NTP\_OFFSET\_MS}.
+\item Pointing validation: \tbd{LB120\_RA\_DEC}, \tbd{POINTING\_RESIDUAL\_ARCMIN},
+\tbd{POINTING\_CUT\_ARCMIN}, \tbd{LB120\_TIME\_WINDOW}.
+\item Pre-science receiver checks: \tbd{BIRDIE\_FREQ\_CHECK\_SUMMARY},
+\tbd{ADC\_HISTOGRAM\_SUMMARY}, \tbd{GAIN\_SETTING\_RANGE\_SUMMARY},
+\tbd{FIR\_EDGE\_PLACEMENT\_SUMMARY}.
+\item Week-1 zenith requirement: \tbd{ZENITH\_OBS\_JD\_LST},
+\tbd{ZENITH\_LINE\_SUMMARY}, \tbd{ZENITH\_NOISE\_FLOOR\_SUMMARY}.
+\item Cable calibration: \tbd{CABLE\_ALPHA\_DB\_PER\_M}, \tbd{CABLE\_ALPHA\_CI95}, \tbd{CABLE\_DELTA\_B\_DB},
+\tbd{UNKNOWN\_LENGTH\_M}.
+\item Termination/propagation: \tbd{VCOAX\_M\_PER\_S}, \tbd{TERMINATION\_STATE\_COMPARISON}.
+\item SDR/chain: \tbd{SDR\_VOLT\_SCALE\_V\_PER\_COUNT}, \tbd{AMP\_GAIN\_TABLE},
+\tbd{FILTER\_LOSS\_TABLE}, \tbd{ROOF\_CABLE\_LENGTH\_M}.
+\item Temperature calibration: \tbd{Y1420}, \tbd{Y1421}, \tbd{TRX\_1420\_K}, \tbd{TRX\_1421\_K},
+\tbd{APERTURE\_EFFICIENCY}, \tbd{BEAM\_FILL\_FACTOR}.
+\item Line-shape extraction choices: \tbd{LINE\_STACK\_MEAN\_SUMMARY},
+\tbd{LINE\_STACK\_MEDIAN\_SUMMARY}, \tbd{LINE\_SMOOTH\_NCHAN}.
+\item HI science outputs: \tbd{LSR\_SGP\_KMS} (SGP LSR correction), \tbd{LSR\_SHIFT\_KMS}, \tbd{N\_GAUSS\_FINAL},
+\tbd{VLSR\_COMPONENTS\_KMS}, \tbd{FWHM\_COMPONENTS\_KMS}, \tbd{CHI2\_RED\_FINAL}.
+\item Uncertainty totals: \tbd{SIGMA\_THERMAL\_PER\_CHANNEL}, \tbd{SIGMA\_BASELINE\_SYS},
+\tbd{SIGMA\_TEMP\_SCALE\_SYS}, \tbd{SIGMA\_CABLE\_CAL\_SYS}.
 \end{itemize}
 
-Ripple-model best-fit parameters include
-$\alpha=1.355546$ dB m$^{-1}$,
-$k=7.803548$ rad m$^{-1}$,
-period $=0.8052$ m,
-and amplitudes
-$A_{1420}=1.4809$ dB,
-$A_{1421}=0.2517$ dB.
-However, bootstrap intervals on ripple parameters are wide for this small
-length set, so I keep the linear slope as the main reported calibration and
-use ripple fits as a systematic-model bracket.
+\section{Detailed Equipment Calibration Models}
+\label{sec:app_cable_models}
+
+\subsection{Known-Length Cable Models}
+\label{sec:app_known_length_models}
+
+For SDR channels at two LOs:
+\begin{equation}
+  y_i(L)=B_i-\alpha L, \qquad i\in\{1420,1421\}.
+\end{equation}
+
+Reflection-aware extension:
+\begin{equation}
+  y_i(L)=B_i-\alpha L + A_i\cos(kL+\phi_i).
+\end{equation}
+
+These alternatives are retained for sensitivity bracketing and model-risk discussion.
+
+\subsection{Unknown-Length Inversion}
+\label{sec:app_unknown_length}
+
+Given fitted intercept and slope,
+\begin{equation}
+  L_i = \frac{B_i-y_i^{\mathrm{obs}}}{\alpha}.
+\end{equation}
+
+The reported unknown length uses a combined estimate across channels and
+bootstrap confidence intervals.
+
+\subsection{Termination and Reflectometry Derivation}
+\label{sec:app_reflectometry_derivation}
+
+From a measured round-trip delay $\Delta t$ on a cable of length $L$,
+\begin{equation}
+  v_{\mathrm{coax}} = \frac{2L}{\Delta t}.
+\end{equation}
+
+Final entries in this section will include state-by-state waveform evidence,
+frequency dependence, and uncertainty propagation.
+
+\section{Detailed HI Model and Fitting Notes}
+\label{sec:app_hi_models}
+
+\subsection{Line Extraction and Calibration Chain}
+\label{sec:app_line_chain}
+
+Core chain used in analysis:
+\begin{align}
+  r_{\mathrm{line}}(\nu) &= \frac{s_{\mathrm{on}}(\nu)}{s_{\mathrm{off}}(\nu)},\\
+  T_{\mathrm{line}}(\nu) &= r_{\mathrm{line}}(\nu)\,G.
+\end{align}
+
+\subsection{Baseline and Component Fitting}
+\label{sec:app_baseline_gauss_details}
+
+Baseline models and Gaussian component fits are evaluated with least-squares diagnostics,
+then optionally cross-checked with MCMC/LOO model-selection workflows.
+Final selected model and posterior/covariance summaries will be inserted in the next revision.
+
+\section{Reproducibility Notes}
+\label{sec:app_reproducibility}
+
+Primary notebooks currently used:
+\texttt{labs/02/equipment\_calibration.ipynb},
+\texttt{labs/02/temperature\_calibration.ipynb}, and
+\texttt{labs/02/analysis.ipynb}.
+
+Data roots used:
+\texttt{data/lab02/*}.
+
+A final update pass should regenerate figures, replace all \tbd{...} placeholders,
+and recompile this document.
 
 \end{document}

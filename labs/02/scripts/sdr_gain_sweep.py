@@ -28,25 +28,7 @@ from ugradiolab.run import CalExperiment
 
 DEFAULT_SIGGEN_FREQ_MHZ = 1420.405751768
 DEFAULT_LO_LIST_MHZ = (1420.0, 1421.0)
-DEFAULT_SIGGEN_AMP_LIST_DBM = (
-    10.0,
-    7.5,
-    5.0,
-    2.5,
-    0.0,
-    -2.5,
-    -5.0,
-    -7.5,
-    -10.0,
-    -12.5,
-    -15.0,
-    -17.5,
-    -20.0,
-    -22.5,
-    -25.0,
-    -27.5,
-    -30.0,
-)
+DEFAULT_SIGGEN_AMP_LIST_DBM = tuple(18.0 - 2.5 * i for i in range(21))
 DEFAULT_SDR_GAIN_LIST_DB = (0.0,)
 
 # ---------------------------------------------------------------------------
@@ -184,11 +166,15 @@ def compute_capture_metrics(path: str | Path) -> dict[str, float]:
     }
 
 
-def print_capture_metrics(metrics: dict[str, float]) -> None:
+def print_capture_metrics(lo_mhz: float, metrics: dict[str, float]) -> None:
+    lo_label = int(round(lo_mhz))
+    print(f"  LO={lo_label} MHz metrics:")
     print(
         "    total_power={total_power:.6g} ({total_power_db:.3f} dB)  "
-        "I[rms,clip]={i_rms:.3f},{i_clip_frac:.4f}  "
-        "Q[rms,clip]={q_rms:.3f},{q_clip_frac:.4f}".format(**metrics)
+        "I[min,max,median,rms,clip]={i_min:.1f},{i_max:.1f},{i_median:.1f},{i_rms:.3f},{i_clip_frac:.4f}  "
+        "Q[min,max,median,rms,clip]={q_min:.1f},{q_max:.1f},{q_median:.1f},{q_rms:.3f},{q_clip_frac:.4f}".format(
+            **metrics
+        )
     )
 
 
@@ -507,7 +493,7 @@ def main() -> int:
             point_end_iso = iso_now()
 
             metrics = compute_capture_metrics(capture_path)
-            print_capture_metrics(metrics)
+            print_capture_metrics(lo_mhz, metrics)
 
             row = {
                 "point_id": point_id,

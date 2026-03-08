@@ -1,0 +1,2 @@
+trx_1420_k,sigma_trx_1420_k,tcold_k,baseline_offline_k,line_peak_est_k_q95,line_noise_offline_k_mad,line_sigma_total_k,tb_ref_line_k,tb_ref_line_sigma_k,eta_eff,eta_eff_sigma,eta_eff_ci95_lo,eta_eff_ci95_hi,assumptions
+215.03724597400955,10.346578445729088,30.0,-36.69635900420627,50.96463845676672,4.273351133634459,12.299884518777,80.0,30.0,0.637057980709584,0.2840955338004843,0.08023073446063478,1.1938852269585332,eta_eff = eta_ap*eta_bf; standard-field LO1420; profile-calibrated TA; line peak from center-window q95 over offline-median baseline; Tb_ref assumed 80±30 K.

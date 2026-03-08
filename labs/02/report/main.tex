@@ -80,7 +80,8 @@ near 1420 and 1421 MHz to support frequency-switched line extraction.
 Current acquisition scripts are in \texttt{labs/02/scripts}, including:
 \texttt{standard.py}, \texttt{cygnus-x.py}, \texttt{SGP.py}, and \texttt{human.py}.
 Calibration support scripts now include
-\texttt{sdr\_gain\_sweep.py} and \texttt{termination\_matrix\_collect.py}.
+\texttt{attenuation\_collect.py}, \texttt{unknown\_length\_collect.py}, and
+\texttt{sdr\_gain\_sweep.py}.
 Legacy helpers \texttt{anticenter.py} and \texttt{low-hi.py} are deprecated and
 retained only for historical traceability.
 
@@ -173,6 +174,19 @@ For the required Week-2 target $(l,b)=(120^\circ,0^\circ)$, the report
 will provide both the Galactic-to-equatorial conversion and the resulting
 alt/az track with a direct \texttt{astropy.coordinates} residual check.
 
+The matrix pipeline is packaged in \texttt{ugradiolab.pointing}
+(\texttt{galactic\_to\_equatorial\_matrix}, \texttt{equatorial\_to\_altaz\_matrix})
+and integrated via \texttt{compute\_pointing(..., backend="matrix")}.
+Backend benchmarking is run by
+\texttt{labs/02/scripts/pointing\_backend\_benchmark.py}, which writes
+\texttt{labs/02/report/pointing\_matrix\_benchmark.csv}.
+For the currently available 48 LO1420 files (standard, Cygnus-X, SGP),
+the matrix backend agrees with astropy at:
+\begin{equation}
+\max|\Delta \mathrm{alt}| = 0.1907^\circ,\qquad
+\max|\Delta \mathrm{az}| = 0.3530^\circ.
+\end{equation}
+
 \begin{table}[ht!]
 \centering
 \caption{Pointing-validation entries for the Week-2 target field.}
@@ -184,6 +198,8 @@ Quantity & Placeholder \\
 Target equatorial coordinates from $(l,b)=(120^\circ,0^\circ)$ & \tbd{LB120\_RA\_DEC} \\
 Pointing residual (rotation matrix vs astropy) & \tbd{POINTING\_RESIDUAL\_ARCMIN} \\
 Maximum allowed pointing error used in analysis cuts & \tbd{POINTING\_CUT\_ARCMIN} \\
+Benchmark max $|\Delta\mathrm{alt}|$ over existing captures & $0.1907^\circ$ (11.44 arcmin) \\
+Benchmark max $|\Delta\mathrm{az}|$ over existing captures & $0.3530^\circ$ (21.18 arcmin) \\
 \hline
 \end{tabular}
 \end{table}
@@ -251,6 +267,41 @@ The final report update will insert analog-calibrated SDR voltage scale and chai
 \tbd{ROOF\_CABLE\_LENGTH\_M}, \tbd{ROOF\_CABLE\_LOSS\_DB}.
 \end{itemize}
 
+\subsubsection{Power-Meter Voltage Cross-Check}
+\label{sec:powermeter_voltage}
+
+For a matched $50\Omega$ system, power-meter readings can be converted to
+an equivalent sinusoidal voltage scale:
+\begin{align}
+P_{\mathrm{W}} &= 10^{-3}\,10^{P_{\mathrm{dBm}}/10},\\
+V_{\mathrm{rms}} &= \sqrt{50\,P_{\mathrm{W}}},\\
+V_{\mathrm{pp}} &= 2\sqrt{2}\,V_{\mathrm{rms}}.
+\end{align}
+This conversion is used only as a consistency cross-check on the SDR voltage
+calibration, not as the sole calibration path, because it assumes:
+\begin{itemize}
+\item valid $50\Omega$ source/load matching at the measurement frequency,
+\item negligible reflection/VSWR error at the calibration point,
+\item waveform shape known well enough to map $V_{\mathrm{rms}}$ to $V_{\mathrm{pp}}$.
+\end{itemize}
+
+\subsubsection{Datasheet-Driven Chain Gains}
+\label{sec:datasheet_chain}
+
+Receiver-chain gains and losses are extracted from component datasheets
+rather than inferred from nominal block-diagram values alone.
+The current block diagram gives nominal stage targets
+(e.g., preamp stages near 26\,dB and IF amplification near 20\,dB),
+but final calibration tables in this report use exact part-number datasheet
+entries once component IDs are confirmed:
+the currently stored NPZ metadata and notebooks do not yet include rooftop/lab
+amplifier and filter part numbers, so these IDs must be logged explicitly at
+the bench for a complete datasheet table.
+\begin{equation}
+\mathrm{chain\ gain}(\nu) = \sum_i G_i^{\mathrm{datasheet}}(\nu) - \sum_j L_j^{\mathrm{datasheet}}(\nu).
+\end{equation}
+Final insertion item: \tbd{CHAIN\_DATASHEET\_TABLE\_WITH\_PART\_NUMBERS}.
+
 \section{Temperature Calibration Experiments}
 \label{sec:temperature_cal}
 
@@ -285,55 +336,48 @@ with provisional efficiency placeholders
 $\eta_{\mathrm{ap}}=\tbd{APERTURE\_EFFICIENCY}$ and
 $\eta_{\mathrm{bf}}=\tbd{BEAM\_FILL\_FACTOR}$.
 
-A dedicated efficiency-constrained update will be inserted after new analog/tone-injection evidence is available.
+From currently available data, this report also estimates an effective
+combined efficiency
+\begin{equation}
+\eta_{\mathrm{eff}} \equiv \eta_{\mathrm{ap}}\eta_{\mathrm{bf}}
+= \frac{T_{A,\mathrm{line,obs}}}{T_{B,\mathrm{line,ref}}}.
+\end{equation}
+Using \texttt{labs/02/scripts/estimate\_eta\_eff.py} and the output
+\texttt{labs/02/report/eta\_eff\_estimate.csv}, the provisional estimate is
+\begin{equation}
+\eta_{\mathrm{eff}} = 0.64 \pm 0.28\ (1\sigma),
+\qquad
+\eta_{\mathrm{eff},95\%} \in [0.08,\,1.19].
+\end{equation}
+This estimate is intentionally conservative and includes broad systematics
+(receiver-scale uncertainty, offline-baseline noise, and assumed reference
+brightness uncertainty for the $(l,b)=(120^\circ,0^\circ)$ field).
 
 \section{HI Measurement Experiments and Calibrated Analysis}
 \label{sec:hi_measurement_analysis}
 
 All science-facing HI results are presented only after equipment and temperature calibration context.
 
-\subsection{Week-1 First Measurement: Zenith Requirement and SGP Control}
+\subsection{Week-1 First Measurement: SGP Cold-Sky Substitution}
 \label{sec:week1_sgp}
 
-The Week-1 requirement calls for a first 21-cm measurement as a system check before the main
-science observation.
-This report therefore reserves a required zenith result block:
-\begin{itemize}
-\item zenith observation window and metadata: \tbd{ZENITH\_OBS\_JD\_LST},
-\item zenith line-shape result summary: \tbd{ZENITH\_LINE\_SUMMARY},
-\item zenith-system-noise check summary: \tbd{ZENITH\_NOISE\_FLOOR\_SUMMARY}.
-\end{itemize}
+The handout asks for a first system-check line measurement at zenith.
+In this report, that check is intentionally replaced by a South Galactic Pole
+(SGP) cold-sky measurement as a documented deviation from the literal zenith
+instruction.
+The reason is calibration quality: for Berkeley, zenith can pass through low-$|b|$
+Galactic emission windows during the sidereal day, while SGP is persistently
+low in HI column and therefore a cleaner $T_{\mathrm{cold}}$ reference.
 
-As a supplemental control, a South Galactic Pole (SGP) cold-sky spectrum is also
-used for a robust low-HI baseline check.
-This is especially useful because the Berkeley zenith
-(Dec $=+37.87^\circ$) sweeps through the Galactic plane twice per sidereal day,
-spanning Galactic latitudes $|b|<10^\circ$ during two LST windows:
-
-\begin{table}[ht!]
-\centering
-\caption{Galactic latitudes at the Berkeley zenith versus LST window.
-During these windows a zenith observation is contaminated by 21-cm Galactic
-disk emission ($T_B\sim10$--$100\,$K), making a clean noise-floor measurement
-impossible without careful LST scheduling.}
-\label{tab:zenith_contamination}
-\begin{tabular}{ccc}
-\hline
-LST window (h) & Galactic direction at zenith & $b$ range \\
-\hline
-$0.0$--$2.0$   & $l\approx235^\circ$--$247^\circ$ (outer disk)      & $-6^\circ$ to $+14^\circ$ \\
-$15.0$--$16.5$ & $l\approx142^\circ$--$152^\circ$ (near standard field) & $+8^\circ$ to $-7^\circ$ \\
-\hline
-\end{tabular}
-\end{table}
-
-The SGP is the direction of minimum HI column density on the sky
+The SGP is the direction of minimum HI column density
 ($N_{\rm HI}\lesssim1.7\times10^{20}$\,cm$^{-2}$, HI4PI survey), guaranteeing a
 nearly HI-free baseline spectrum regardless of LST and providing an unambiguous
-system-noise confirmation to complement the required zenith check.
+system-noise confirmation prior to the Week-2 science field.
 
 Figure~\ref{fig:sgp_ta_spectrum} shows the calibrated antenna temperature $T_A(\nu)$
-for the SGP LO1420 combined observation.
+for the SGP LO1420 combined observation
+(March 5, 2026, 12:35--12:50 PST; UTC 20:35--20:50;
+$\mathrm{JD}\approx2461105.3631$; $\mathrm{LST}\approx23.47\,\mathrm{h}$).
 The calibration applies the Y-factor result ($T_{\rm rx,1420}=215.0\pm10.4\,$K) and
 the frequency-dependent cold-reference profile from \texttt{calibration\_results.npz}:
 \begin{equation}
@@ -341,7 +385,7 @@ the frequency-dependent cold-reference profile from \texttt{calibration\_results
 \end{equation}
 The LSR velocity correction for the SGP direction ($l=0^\circ$, $b=-90^\circ$)
 at the time of observation is
-$\Delta v_{\rm LSR}=\tbd{LSR\_SGP\_KMS}$\,km\,s$^{-1}$,
+$\Delta v_{\rm LSR}\approx-7.02$\,km\,s$^{-1}$,
 computed via \texttt{ugradio.doppler.get\_projected\_velocity}.
 No 21-cm HI emission line is detected anywhere in the spectrum, consistent with the
 near-zero column density expected at $b=-90^\circ$.
@@ -352,7 +396,7 @@ the main science observations.
 \begin{figure}[ht!]
 \centering
 \caption{Calibrated antenna temperature $T_A(\nu)$ for the SGP LO1420 combined
-spectrum, used as the Week-1 first measurement.
+spectrum, used as the Week-1 first system-check measurement in this report.
 No 21-cm HI emission line is detected, consistent with $b=-90^\circ$
 ($N_{\rm HI}\lesssim1.7\times10^{20}$\,cm$^{-2}$).
 The noise floor near $T_A\approx 30\,$K confirms the system calibration.}
@@ -519,7 +563,7 @@ Goal & Evidence in this report & Final insertion target \\
 \hline
 Time (UTC/PST/LST/JD) & \S\ref{sec:time_conversion_checks}, Table~\ref{tab:time_validation} & Fill residual metrics and timestamps \\
 Pointing (rotation matrices) & \S\ref{sec:pointing_rotation_checks}, Table~\ref{tab:pointing_validation} & Insert alt/az residual statistics \\
-HI measurement & \S\ref{sec:week1_sgp}, \S\ref{sec:week2_lb120} & Final calibrated spectra and metadata table \\
+HI measurement & \S\ref{sec:week1_sgp}, \S\ref{sec:week2_lb120} & Final calibrated spectra plus explicit SGP-for-zenith deviation note \\
 Calibration (absolute scale) & \S\ref{sec:equipment_cal}, \S\ref{sec:temperature_cal} & Replace calibration placeholders \\
 Doppler correction (LSR) & \S\ref{sec:velocity_main} & Insert projected velocity and uncertainties \\
 Gaussian fitting & \S\ref{sec:gauss_main}, Table~\ref{tab:fit_placeholders} & Final component model + $\chi_r^2$ \\
@@ -537,7 +581,7 @@ This draft is now method-complete in calibration-first order and ready for a fin
 The primary remaining blockers for strict end-state reporting are:
 \begin{enumerate}
 \item final analog termination/reflectometry measurements,
-\item updated cable and SDR gain-scale constraints,
+\item exact receiver component part numbers and datasheet gain/loss table completion,
 \item revised temperature-calibration numbers,
 \item finalized UTC/PST/LST/JD and pointing residual tables,
 \item final HI component and uncertainty summaries after data refresh.
@@ -579,19 +623,23 @@ This appendix centralizes all deferred values for the next data update.
 \item Pre-science receiver checks: \tbd{BIRDIE\_FREQ\_CHECK\_SUMMARY},
 \tbd{ADC\_HISTOGRAM\_SUMMARY}, \tbd{GAIN\_SETTING\_RANGE\_SUMMARY},
 \tbd{FIR\_EDGE\_PLACEMENT\_SUMMARY}.
-\item Week-1 zenith requirement: \tbd{ZENITH\_OBS\_JD\_LST},
-\tbd{ZENITH\_LINE\_SUMMARY}, \tbd{ZENITH\_NOISE\_FLOOR\_SUMMARY}.
+\item Week-1 SGP substitution note and metadata:
+explicitly documented in \S\ref{sec:week1_sgp}
+(March 5, 2026 session metadata and $\Delta v_{\rm LSR}\approx-7.02$\,km\,s$^{-1}$).
 \item Cable calibration: \tbd{CABLE\_ALPHA\_DB\_PER\_M}, \tbd{CABLE\_ALPHA\_CI95}, \tbd{CABLE\_DELTA\_B\_DB},
 \tbd{UNKNOWN\_LENGTH\_M}.
 \item Termination/propagation: \tbd{VCOAX\_M\_PER\_S}, \tbd{TERMINATION\_STATE\_COMPARISON}.
 \item SDR/chain: \tbd{SDR\_VOLT\_SCALE\_V\_PER\_COUNT}, \tbd{AMP\_GAIN\_TABLE},
 \tbd{FILTER\_LOSS\_TABLE}, \tbd{ROOF\_CABLE\_LENGTH\_M}.
+\item Datasheet extraction: \tbd{CHAIN\_DATASHEET\_TABLE\_WITH\_PART\_NUMBERS}.
 \item Temperature calibration: \tbd{Y1420}, \tbd{Y1421}, \tbd{TRX\_1420\_K}, \tbd{TRX\_1421\_K},
 \tbd{APERTURE\_EFFICIENCY}, \tbd{BEAM\_FILL\_FACTOR}.
 \item Line-shape extraction choices: \tbd{LINE\_STACK\_MEAN\_SUMMARY},
 \tbd{LINE\_STACK\_MEDIAN\_SUMMARY}, \tbd{LINE\_SMOOTH\_NCHAN}.
-\item HI science outputs: \tbd{LSR\_SGP\_KMS} (SGP LSR correction), \tbd{LSR\_SHIFT\_KMS}, \tbd{N\_GAUSS\_FINAL},
+\item HI science outputs: \tbd{LSR\_SHIFT\_KMS}, \tbd{N\_GAUSS\_FINAL},
 \tbd{VLSR\_COMPONENTS\_KMS}, \tbd{FWHM\_COMPONENTS\_KMS}, \tbd{CHI2\_RED\_FINAL}.
+\item Effective efficiency estimate from current data:
+\texttt{labs/02/report/eta\_eff\_estimate.csv} (currently $\eta_{\mathrm{eff}}=0.64\pm0.28$).
 \item Uncertainty totals: \tbd{SIGMA\_THERMAL\_PER\_CHANNEL}, \tbd{SIGMA\_BASELINE\_SYS},
 \tbd{SIGMA\_TEMP\_SCALE\_SYS}, \tbd{SIGMA\_CABLE\_CAL\_SYS}.
 \end{itemize}
@@ -662,6 +710,10 @@ Primary notebooks currently used:
 \texttt{labs/02/equipment\_calibration.ipynb},
 \texttt{labs/02/temperature\_calibration.ipynb}, and
 \texttt{labs/02/analysis.ipynb}.
+
+Primary report-support scripts now include:
+\texttt{labs/02/scripts/pointing\_backend\_benchmark.py} and
+\texttt{labs/02/scripts/estimate\_eta\_eff.py}.
 
 Data roots used:
 \texttt{data/lab02/*}.

@@ -1,48 +1,18 @@
 import ntplib
-import astropy.coordinates as ac
-import astropy.units as u
-import ugradio.coord as coord
-import ugradio.nch as nch
 import ugradio.timing as timing
 
 
-def get_unix_time() -> float:
-    """Returns current Unix time from NTP, else system time."""
+def get_unix_time(timeout: float = 2.0) -> float:
+    """Return the current Unix time.
+
+    Tries to fetch time from an NTP server first. If that fails for any reason,
+    falls back to the local system clock.
+    """
+    client = ntplib.NTPClient()
+
     try:
-        c = ntplib.NTPClient()
-        return c.request('pool.ntp.org', version=3).tx_time
-    except ntplib.NTPException:
+        response = client.request("pool.ntp.org", version=3, timeout=timeout)
+        return response.tx_time
+    except (ntplib.NTPException, OSError):
         print("Unable to connect to NTP! Using system time.")
         return timing.unix_time()
-
-
-def compute_pointing(
-    gal_l: float,
-    gal_b: float,
-    lat: float     = nch.lat,
-    lon: float     = nch.lon,
-    obs_alt: float = nch.alt,
-) -> tuple[float, float, float, float, float]:
-    """Converts galactic coordinates to horizontal/equatorial coordinates.
-
-    Parameters
-    ----------
-    gal_l : float
-        Galactic longitude in degrees.
-    gal_b : float
-        Galactic latitude in degrees.
-    lat : float
-        Observer latitude in degrees. Defaults to NCH.
-    lon : float
-        Observer longitude in degrees. Defaults to NCH.
-    obs_alt : float
-        Observer altitude in metres. Defaults to NCH.
-    """
-    unix_t = get_unix_time()
-    jd     = timing.julian_date(unix_t)
-
-    gc      = ac.SkyCoord(l=gal_l * u.deg, b=gal_b * u.deg, frame='galactic')
-    ra, dec = gc.icrs.ra.deg, gc.icrs.dec.deg
-
-    alt, az = coord.get_altaz(ra, dec, jd=jd, lat=lat, lon=lon, alt=obs_alt)
-    return alt, az, ra, dec, jd

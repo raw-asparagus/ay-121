@@ -33,7 +33,7 @@ GAL_B   =  36.0  # degrees
 FREQ_1  = 1420.0e6
 FREQ_2  = 1421.0e6
 
-ITERATIONS = 16
+ITERATIONS = 8
 
 COMMON = dict(
     outdir=OUTDIR,

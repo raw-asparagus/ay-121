@@ -37,7 +37,7 @@ ITERATIONS = 16
 
 COMMON = dict(
     outdir=OUTDIR,
-    nsamples=32768,
+    nsamples=8192,
     nblocks=2048,
     direct=False,
     sample_rate=2.56e6,

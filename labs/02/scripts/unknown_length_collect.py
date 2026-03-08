@@ -36,7 +36,6 @@ NSAMPLES = 8192
 NBLOCKS = 2048
 SDR_GAIN_DB = 0.0
 SDR_DIRECT = False
-SETUP_SECONDS = 300
 START_SET_ID: int | None = None
 
 
@@ -191,18 +190,6 @@ def _prompt_begin_or_quit() -> bool:
     return raw != "q"
 
 
-def run_setup_countdown(seconds: int) -> None:
-    seconds = max(0, int(seconds))
-    if seconds == 0:
-        return
-
-    print(f"Starting setup timer: {seconds} seconds")
-    for remaining in range(seconds, 0, -1):
-        print(f"\r  {remaining:3d}s remaining...   ", end="", flush=True)
-        time.sleep(1)
-    print()
-
-
 def main() -> int:
     outdir = Path(OUTDIR)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -221,7 +208,6 @@ def main() -> int:
         f"nsamples={NSAMPLES}, nblocks={NBLOCKS}, gain={SDR_GAIN_DB}, "
         f"direct={SDR_DIRECT}"
     )
-    print(f"  Setup timer: {SETUP_SECONDS}s")
     print(f"  Output directory: {outdir}")
     print(f"  Manifest: {manifest_path}")
     print(f"  Set ID: {set_id:04d}")
@@ -233,8 +219,6 @@ def main() -> int:
         print("  completed sets: 0")
         print(f"  manifest: {manifest_path}")
         return 0
-
-    run_setup_countdown(SETUP_SECONDS)
 
     completed = 0
     sdr = None

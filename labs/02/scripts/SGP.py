@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 2 high precision SGP frequency-swept observation.
+"""Lab 2 cold-sky reference observation at SGP.
 
   LO:   1420 – 1421 MHz in 1 MHz steps  →  HI line offset per step:
     1420 MHz  →  +0.406 MHz
@@ -27,7 +27,7 @@ GAL_B = -90.0  # degrees
 FREQ_1 = 1420.0e6
 FREQ_2 = 1421.0e6
 
-MIN_ALT_DEG = 10.0  # elevation floor; warn below this
+MIN_ALT_DEG = 15.0  # elevation floor; warn below this
 
 ITERATIONS = 16
 

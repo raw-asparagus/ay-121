@@ -119,3 +119,23 @@ class SignalGenerator:
         """
         resp = self._query('RFO:STAT?')
         return bool(int(resp.strip()[0]))
+
+    # ---- Lifecycle --------------------------------------------------------
+
+    def close(self):
+        """Best-effort shutdown: turn RF off and close the USBTMC handle.
+
+        Safe to call multiple times.
+        """
+        dev = self._dev
+        if dev is None:
+            return
+        try:
+            self.rf_off()
+        except Exception:
+            pass
+        try:
+            dev.close()
+        except Exception:
+            pass
+        self._dev = None

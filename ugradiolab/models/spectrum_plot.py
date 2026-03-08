@@ -20,14 +20,8 @@ class SpectrumPlot(Spectrum):
     """
 
     def __init__(self, source: Spectrum):
-        object.__setattr__(self, '_source', source)
         for spec_field in fields(Spectrum):
             object.__setattr__(self, spec_field.name, getattr(source, spec_field.name))
-
-    @property
-    def source(self) -> Spectrum:
-        """Original source spectrum."""
-        return self._source
 
     def plot_psd(
             self,
@@ -36,8 +30,8 @@ class SpectrumPlot(Spectrum):
             *,
             normalize_per_hz: bool = True,
             smooth_kwargs: dict | None = None,
-            show_raw: bool = True,
-            show_std: bool = False,
+            show_raw: bool = False,
+            show_std: bool = True,
             mask_dc: bool = False,
             x_mode: FrequencyAxis = 'absolute',
             yscale: PlotScale = 'linear',
@@ -141,7 +135,7 @@ class SpectrumPlot(Spectrum):
             labels: Sequence[str] = ('A', 'B'),
             colors: Sequence[str] = ('C0', 'C1'),
             smooth_kwargs: dict | None = None,
-            show_std: bool = False,
+            show_std: bool = True,
             mask_dc: bool = False,
             x_mode: FrequencyAxis = 'absolute',
             yscale: PlotScale = 'log',
@@ -164,7 +158,7 @@ class SpectrumPlot(Spectrum):
             Divide each PSD by its own bin width before plotting so the y-axis
             is in counts²/Hz.
         """
-        other_plot = self._coerce(other)
+        other_plot = self.coerce(other)
         if len(labels) != 2 or len(colors) != 2:
             raise ValueError('plot_compare expects two labels and two colors.')
         if ax is None:
@@ -258,7 +252,7 @@ class SpectrumPlot(Spectrum):
             std_alpha: float = 0.15,
     ):
         """Plot the ratio ``self / other`` with propagated raw uncertainties."""
-        other_plot = self._coerce(other)
+        other_plot = self.coerce(other)
         if ax is None:
             import matplotlib.pyplot as plt
 
@@ -430,38 +424,6 @@ class SpectrumPlot(Spectrum):
     def coerce(cls, source: Spectrum) -> 'SpectrumPlot':
         """Return ``source`` as a ``SpectrumPlot`` instance."""
         return source if isinstance(source, cls) else cls(source)
-
-    @classmethod
-    def _coerce(cls, source: Spectrum) -> 'SpectrumPlot':
-        """Backward-compatible alias for ``coerce``."""
-        return cls.coerce(source)
-
-    @classmethod
-    def shared_limits(
-            cls,
-            spectra: Sequence[Spectrum],
-            *,
-            normalize_per_hz: bool = True,
-            smooth_kwargs: dict | None = None,
-            show_std: bool = False,
-            mask_dc: bool = False,
-            x_mode: FrequencyAxis = 'absolute',
-            yscale: PlotScale = 'linear',
-            x_pad_frac: float = 0.05,
-            y_pad_frac: float = 0.05,
-    ) -> tuple[float, float, float, float]:
-        """Shared axis limits for one or more spectra."""
-        return cls._shared_limits(
-            [cls._coerce(spec) for spec in spectra],
-            normalize_per_hz=normalize_per_hz,
-            smooth_kwargs=smooth_kwargs,
-            show_std=show_std,
-            mask_dc=mask_dc,
-            x_mode=x_mode,
-            yscale=yscale,
-            x_pad_frac=x_pad_frac,
-            y_pad_frac=y_pad_frac,
-        )
 
     @classmethod
     def _shared_limits(

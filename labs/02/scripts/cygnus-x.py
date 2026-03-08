@@ -33,7 +33,7 @@ TARGET_GAL_B_DEG = 1.0005912555
 FREQ_1 = 1420.0e6
 FREQ_2 = 1421.0e6
 
-MIN_ALT_DEG = 10.0  # elevation floor; warn below this
+MIN_ALT_DEG = 15.0  # elevation floor; warn below this
 
 ITERATIONS = 16
 
@@ -72,7 +72,6 @@ def main():
     print(f'  Target          :  {TARGET_NAME} (SIMBAD query: {TARGET_SIMBAD_QUERY})')
     print(f'  Equatorial J2000:  RA = {TARGET_RA_DEG:.4f}°,  Dec = {TARGET_DEC_DEG:.4f}°')
     print(f'  Galactic        :  l = {TARGET_GAL_L_DEG:.4f}°,  b = {TARGET_GAL_B_DEG:.4f}°')
-    print(f'  Recomputed J2000:  RA = {ra:.4f}°,  Dec = {dec:.4f}°')
     print(f'  Local alt/az    :  Alt = {alt:.2f}°,  Az = {az:.2f}°')
     print(f'  Julian date     :  {jd:.5f}')
     print()

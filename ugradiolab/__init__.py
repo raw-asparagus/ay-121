@@ -1,10 +1,7 @@
 from .drivers import SignalGenerator
 from .models import Record, Spectrum, SpectrumPlot, SmoothMethod
 from .pointing import (
-    PointingComparison,
-    compare_pointing_backends,
     compute_pointing,
-    compute_pointing_matrix,
     equatorial_to_altaz_matrix,
     galactic_to_equatorial_matrix,
     galactic_to_equatorial,

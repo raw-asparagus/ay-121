@@ -27,7 +27,7 @@ GAL_B = 0.0    # degrees
 FREQ_1 = 1420.0e6
 FREQ_2 = 1421.0e6
 
-MIN_ALT_DEG = 10.0  # elevation floor; warn below this
+MIN_ALT_DEG = 15.0  # elevation floor; warn below this
 
 ITERATIONS = 16
 

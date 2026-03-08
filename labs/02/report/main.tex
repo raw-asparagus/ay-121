@@ -105,13 +105,14 @@ Final insertion values:
 \tbd{ADC\_HISTOGRAM\_SUMMARY}, and
 \tbd{GAIN\_SETTING\_RANGE\_SUMMARY}.
 
-\section{Time and Pointing Validation}
+\section{Time and Pointing Theory}
 \label{sec:time_pointing_validation}
 
-This section directly addresses the Lab 2 requirements on time standards
-(UTC/PST/LST/JD) and coordinate transformation for pointing.
+This section summarizes the theoretical time-standard relations
+(UTC/PST/LST/JD) and coordinate transformations used for pointing.
+Residual benchmarking is intentionally omitted in this revision.
 
-\subsection{UTC/PST/LST/JD Conversion and Closure Tests}
+\subsection{UTC/PST/LST/JD Conversion Relations}
 \label{sec:time_conversion_checks}
 
 The timestamp pipeline is
@@ -121,32 +122,25 @@ The timestamp pipeline is
   \mathrm{JD}  &= \mathrm{julian\_date}(t_{\mathrm{unix}}),\\
   \mathrm{LST} &= \mathrm{lst}(\mathrm{JD},\lambda_{\mathrm{obs}}),
 \end{align}
-with \texttt{ugradio.timing} as the primary implementation and
-\texttt{astropy.time} as an independent cross-check.
-
-Round-trip closure is validated using
-\begin{equation}
-  \Delta t_{\mathrm{closure}} =
-  86400\,\left|\mathrm{JD} - \mathrm{julian\_date}(\mathrm{unix\_time}(\mathrm{JD}))\right|~\mathrm{s}.
-\end{equation}
+with \texttt{ugradio.timing} as the primary implementation.
 
 \begin{table}[ht!]
 \centering
-\caption{Time-conversion validation metrics to be populated in the final revision.}
+\caption{Time-conversion theory terms used in this report.}
 \label{tab:time_validation}
 \begin{tabular}{lcc}
 \hline
-Metric & Placeholder & Target/interpretation \\
+Quantity & Expression/placeholder & Role in analysis \\
 \hline
-UTC$\leftrightarrow$PST residual (s) & \tbd{UTC\_PST\_RESIDUAL\_S} & Consistent timezone bookkeeping \\
-JD round-trip closure (s) & \tbd{JD\_ROUNDTRIP\_RESIDUAL\_S} & Numerical consistency check \\
-LST residual vs astropy (s) & \tbd{LST\_ASTROPY\_RESIDUAL\_S} & Independent implementation check \\
-NTP offset at acquisition (ms) & \tbd{NTP\_OFFSET\_MS} & Clock synchronization health \\
+UTC$\leftrightarrow$PST & $\mathrm{PST}=\mathrm{UTC}-8~\mathrm{hr}$ & Local timestamp interpretation \\
+JD conversion & $\mathrm{JD}=\mathrm{julian\_date}(t_{\mathrm{unix}})$ & Absolute time reference \\
+LST conversion & $\mathrm{LST}=\mathrm{lst}(\mathrm{JD},\lambda_{\mathrm{obs}})$ & Sidereal pointing phase \\
+Clock sync status & \tbd{NTP\_OFFSET\_MS} & Acquisition metadata quality flag \\
 \hline
 \end{tabular}
 \end{table}
 
-\subsection{Rotation-Matrix Pointing and Astropy Cross-Checks}
+\subsection{Rotation-Matrix Pointing Formulation}
 \label{sec:pointing_rotation_checks}
 
 For a target with equatorial coordinates $(\alpha,\delta)$,
@@ -171,35 +165,23 @@ The commanded horizontal coordinates are then
 \end{equation}
 
 For the required Week-2 target $(l,b)=(120^\circ,0^\circ)$, the report
-will provide both the Galactic-to-equatorial conversion and the resulting
-alt/az track with a direct \texttt{astropy.coordinates} residual check.
+provides the Galactic-to-equatorial conversion and resulting alt/az track.
 
 The matrix pipeline is packaged in \texttt{ugradiolab.pointing}
 (\texttt{galactic\_to\_equatorial\_matrix}, \texttt{equatorial\_to\_altaz\_matrix})
-and integrated via \texttt{compute\_pointing(..., backend="matrix")}.
-Backend benchmarking is run by
-\texttt{labs/02/scripts/pointing\_backend\_benchmark.py}, which writes
-\texttt{labs/02/report/pointing\_matrix\_benchmark.csv}.
-For the currently available 48 LO1420 files (standard, Cygnus-X, SGP),
-the matrix backend agrees with astropy at:
-\begin{equation}
-\max|\Delta \mathrm{alt}| = 0.1907^\circ,\qquad
-\max|\Delta \mathrm{az}| = 0.3530^\circ.
-\end{equation}
+and the operational acquisition path is integrated via \texttt{compute\_pointing(...)}.
 
 \begin{table}[ht!]
 \centering
-\caption{Pointing-validation entries for the Week-2 target field.}
+\caption{Pointing-theory entries for the Week-2 target field.}
 \label{tab:pointing_validation}
 \begin{tabular}{lc}
 \hline
-Quantity & Placeholder \\
+Quantity & Expression/placeholder \\
 \hline
 Target equatorial coordinates from $(l,b)=(120^\circ,0^\circ)$ & \tbd{LB120\_RA\_DEC} \\
-Pointing residual (rotation matrix vs astropy) & \tbd{POINTING\_RESIDUAL\_ARCMIN} \\
+Predicted alt/az track summary for observation windows & \tbd{LB120\_ALT\_AZ\_TRACK} \\
 Maximum allowed pointing error used in analysis cuts & \tbd{POINTING\_CUT\_ARCMIN} \\
-Benchmark max $|\Delta\mathrm{alt}|$ over existing captures & $0.1907^\circ$ (11.44 arcmin) \\
-Benchmark max $|\Delta\mathrm{az}|$ over existing captures & $0.3530^\circ$ (21.18 arcmin) \\
 \hline
 \end{tabular}
 \end{table}
@@ -561,8 +543,8 @@ Gaussian parameter covariance term & \tbd{SIGMA\_FIT\_COV} \\
 \hline
 Goal & Evidence in this report & Final insertion target \\
 \hline
-Time (UTC/PST/LST/JD) & \S\ref{sec:time_conversion_checks}, Table~\ref{tab:time_validation} & Fill residual metrics and timestamps \\
-Pointing (rotation matrices) & \S\ref{sec:pointing_rotation_checks}, Table~\ref{tab:pointing_validation} & Insert alt/az residual statistics \\
+Time (UTC/PST/LST/JD) & \S\ref{sec:time_conversion_checks}, Table~\ref{tab:time_validation} & Document conversion equations and clock metadata \\
+Pointing (rotation matrices) & \S\ref{sec:pointing_rotation_checks}, Table~\ref{tab:pointing_validation} & Document matrix formulation and target track summary \\
 HI measurement & \S\ref{sec:week1_sgp}, \S\ref{sec:week2_lb120} & Final calibrated spectra plus explicit SGP-for-zenith deviation note \\
 Calibration (absolute scale) & \S\ref{sec:equipment_cal}, \S\ref{sec:temperature_cal} & Replace calibration placeholders \\
 Doppler correction (LSR) & \S\ref{sec:velocity_main} & Insert projected velocity and uncertainties \\
@@ -583,7 +565,7 @@ The primary remaining blockers for strict end-state reporting are:
 \item final analog termination/reflectometry measurements,
 \item exact receiver component part numbers and datasheet gain/loss table completion,
 \item revised temperature-calibration numbers,
-\item finalized UTC/PST/LST/JD and pointing residual tables,
+\item finalized UTC/PST/LST/JD and pointing theory tables,
 \item final HI component and uncertainty summaries after data refresh.
 \end{enumerate}
 

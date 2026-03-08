@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 """Lab 2 cold-sky reference observation at l=165°, b=36°.
 
-Fixed pointing: Alt = 50°, Az = 50°  (galactic l=165°, b=36°).
-T_sky ~ 2.3 K — clean mid-latitude field, negligible HI and continuum.
-Intended as a T_cold calibration load replacing the original SGP observation
-(which suffered from ground spillover at Alt=21°).
-
   LO:   1420 – 1421 MHz in 1 MHz steps  →  HI line offset per step:
     1420 MHz  →  +0.406 MHz
     1421 MHz  →  −0.594 MHz
@@ -17,9 +12,11 @@ Usage:
 import time
 
 from ugradio.sdr import SDR
+import ugradio.timing as timing
 
 from ugradiolab.run import ObsExperiment
 from ugradiolab.run import QueueRunner
+from ugradiolab.utils import get_unix_time
 
 # ---------------------------------------------------------------------------
 OUTDIR = 'data/lab02/cold_ref'
@@ -33,7 +30,7 @@ GAL_B   =  36.0  # degrees
 FREQ_1  = 1420.0e6
 FREQ_2  = 1421.0e6
 
-ITERATIONS = 8
+ITERATIONS = 16
 
 COMMON = dict(
     outdir=OUTDIR,
@@ -52,16 +49,24 @@ COMMON = dict(
 def build_plan():
     experiments = []
     for i in range(ITERATIONS):
-        experiments.append(ObsExperiment(prefix=f'COLD-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1, **COMMON))
-        experiments.append(ObsExperiment(prefix=f'COLD-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2, **COMMON))
+        experiments.append(ObsExperiment(prefix=f'COLD-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
+                                         **COMMON))
+        experiments.append(ObsExperiment(prefix=f'COLD-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
+                                         **COMMON))
+
     return experiments
 
 
 def main():
     print('Lab 2 cold-sky reference observation')
-    print(f'  Galactic coords :  l = {GAL_L:.1f}°,  b = {GAL_B:.1f}°')
-    print(f'  Fixed pointing  :  Alt = {ALT_DEG:.1f}°,  Az = {AZ_DEG:.1f}°')
-    print(f'  Expected T_sky  :  ~2.3 K')
+    print()
+
+    unix_t = get_unix_time()
+    jd = timing.julian_date(unix_t)
+
+    print(f'  Galactic        :  l = {GAL_L:.1f}°,  b = {GAL_B:.1f}°')
+    print(f'  Local alt/az    :  Alt = {ALT_DEG:.1f}°,  Az = {AZ_DEG:.1f}°')
+    print(f'  Julian date     :  {jd:.5f}')
     print()
 
     print(f'  >>> Point the horn to:  Alt = {ALT_DEG:.1f}°,  Az = {AZ_DEG:.1f}° <<<')

@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 """Lab 2 cold-sky reference observation at l=165°, b=36°.
 
+RF chain used for this sky observation (same chain as standard/cygnus-x/human):
+  big horn
+    -[SMA to SMA]-> Mini Circuits ZKL-33ULN-S+
+    -[SMA to SMA]-> Reactel 1420-15S11 Bandpass Filter
+    -[SMA to SMA]-> Mini Circuits ZKL-33ULN-S+
+    -[SMA to SMA]-> Mini Circuits ZKL-33ULN-S+
+    -[SMA to N]-> cable of unknown length (~35 m prior from power-loss calibration)
+    -[N to SMA]-> K&L Microwave Inc 5B120-1380/160-0 Bandpass Filter
+    -[SMA to SMA]-> Wideband RF Amplifier (~20 dB, 10-2000 MHz)
+    -[SMA to SMA]-> Narrowband RF Amplifier (~20 dB, 1-2 GHz)
+    -[SMA to SMA]-> SDR
+
   LO:   1420 – 1421 MHz in 1 MHz steps  →  HI line offset per step:
     1420 MHz  →  +0.406 MHz
     1421 MHz  →  −0.594 MHz

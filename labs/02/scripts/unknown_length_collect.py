@@ -18,8 +18,10 @@ Splitter output (2) — SDR arm:
     → [SMA] SDR
 
 Workflow:
-1. Capture all LO frequencies with ObsExperiment.
-2. Print SDR metrics and append one row to a CSV manifest.
+1. Confirm manual signal-generator settings (frequency and +20 dBm policy).
+2. Enter required manual power-meter reading.
+3. Capture all LO frequencies with ObsExperiment.
+4. Print SDR metrics and append one row to a CSV manifest.
 
 This script intentionally does not connect to or control a signal generator.
 """
@@ -46,6 +48,10 @@ OUTDIR        = "data/lab02/unknown_length/raw"
 MANIFEST_PATH = "data/lab02/unknown_length/manifest.csv"
 START_SET_ID: int | None = None
 
+REQUIRED_SIGGEN_FREQ_MHZ = 1420.405751768
+REQUIRED_SIGGEN_AMP_DBM = 20.0
+SIGGEN_AMP_TOL_DB = 1e-6
+
 COMMON_CAPTURE = dict(
     nsamples=8192,
     nblocks=2048,
@@ -55,6 +61,29 @@ COMMON_CAPTURE = dict(
     alt_deg=0.0,
     az_deg=0.0,
 )
+
+
+# ---------------------------------------------------------------------------
+# Prompt helpers
+
+def prompt_float(prompt: str) -> float:
+    while True:
+        raw = input(prompt).strip()
+        try:
+            return float(raw)
+        except ValueError:
+            print("  Invalid number, please try again.")
+
+
+def prompt_float_default(prompt: str, default: float) -> float:
+    while True:
+        raw = input(prompt).strip()
+        if raw == "":
+            return float(default)
+        try:
+            return float(raw)
+        except ValueError:
+            print("  Invalid number, please try again.")
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +108,21 @@ def main() -> int:
 
     set_id = START_SET_ID if START_SET_ID is not None else next_id_from_manifest(manifest_path, "set_id")
 
+    siggen_freq_mhz = prompt_float_default(
+        f"Signal generator frequency [MHz] (Enter for {REQUIRED_SIGGEN_FREQ_MHZ:.9f}): ",
+        REQUIRED_SIGGEN_FREQ_MHZ,
+    )
+    siggen_amp_dbm = prompt_float_default(
+        f"Signal generator amplitude [dBm] (must be +{REQUIRED_SIGGEN_AMP_DBM:.1f}; Enter for default): ",
+        REQUIRED_SIGGEN_AMP_DBM,
+    )
+    if abs(siggen_amp_dbm - REQUIRED_SIGGEN_AMP_DBM) > SIGGEN_AMP_TOL_DB:
+        raise ValueError(
+            f"Unknown-length acquisition policy requires +{REQUIRED_SIGGEN_AMP_DBM:.1f} dBm; "
+            f"got {siggen_amp_dbm:.6f} dBm."
+        )
+    power_meter_dbm = prompt_float("Manual power meter reading [dBm] (required): ")
+
     print("Unknown-length cable capture session")
     print(
         "  SDR profile: "
@@ -88,6 +132,9 @@ def main() -> int:
         f"gain={COMMON_CAPTURE['gain']}, "
         f"direct={COMMON_CAPTURE['direct']}"
     )
+    print(f"  Siggen frequency: {siggen_freq_mhz:.9f} MHz")
+    print(f"  Siggen amplitude: {siggen_amp_dbm:+.1f} dBm")
+    print(f"  Meter reading   : {power_meter_dbm:+.2f} dBm")
     print(f"  Output directory: {outdir}")
     print(f"  Manifest: {manifest_path}")
     print(f"  Set ID: {set_id:04d}")
@@ -115,6 +162,9 @@ def main() -> int:
         row = build_manifest_row(
             set_id=set_id,
             paths=paths, metrics=metrics,
+            power_meter_dbm=power_meter_dbm,
+            siggen_freq_mhz=siggen_freq_mhz,
+            siggen_amp_dbm=siggen_amp_dbm,
         )
         append_manifest_row(manifest_path, row)
         print(f"  recorded set {set_id:04d}")

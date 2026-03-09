@@ -2,8 +2,36 @@
 \usepackage{amsmath, amsfonts, amssymb}
 \usepackage{hyperref}
 \usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,shapes.geometric,calc}
 
 \newcommand{\tbd}[1]{\texttt{TBD(#1)}}
+
+% Master RF block-diagram spacing knobs.
+\newcommand{\rfRowGap}{30mm}
+\newcommand{\rfRoofGap}{20mm}
+\newcommand{\rfLabGap}{20mm}
+\newcommand{\rfCoaxGap}{6mm}
+\newcommand{\rfAmpLabelGap}{1.0mm}
+\newcommand{\rfAmpLength}{8.5mm}
+\newcommand{\rfAmpHalfHeight}{3.2mm}
+\newcommand{\rfTransitionJog}{11mm}
+
+% Reusable RF diagram node helpers.
+\newcommand{\rfendpoint}[4]{\node[endpoint,#1] (#2) {#3\\#4};}
+\newcommand{\rffilter}[5]{\node[filter,#1] (#2) {#3\\#4\\#5};}
+\newcommand{\rfcoax}[4]{\node[coax,#1] (#2) {#3\\#4};}
+\newcommand{\rfamp}[4]{%
+  \node[coordinate,#1] (#2) {};%
+  \coordinate (#2-west) at ($ (#2) + (-0.5*\rfAmpLength,0) $);%
+  \coordinate (#2-east) at ($ (#2) + (0.5*\rfAmpLength,0) $);%
+  \draw[ampdraw]
+    ($ (#2-west) + (0,-\rfAmpHalfHeight) $) --
+    ($ (#2-west) + (0,\rfAmpHalfHeight) $) --
+    (#2-east) -- cycle;%
+  \node[amplabel,above=\rfAmpLabelGap of #2] {#3};%
+  \node[amplabel,below=\rfAmpLabelGap of #2] {#4};%
+}
 
 \begin{document}
 
@@ -57,8 +85,88 @@ $\rightarrow$ RTL-SDR digitization/downconversion.
 
 \begin{figure}[ht!]
 \centering
-\includegraphics[width=0.82\textwidth]{../../../src/ugradio/lab_bighorn/block_diagram.png}
-\caption{Receiver block diagram for Lab 2 data collection and calibration workflow.}
+\begin{tikzpicture}[
+    endpoint/.style={
+      draw,
+      rounded corners,
+      align=center,
+      font=\small,
+      text width=2.15cm,
+      minimum height=1.30cm
+    },
+    filter/.style={
+      draw,
+      align=center,
+      font=\small,
+      text width=3.05cm,
+      minimum height=1.35cm
+    },
+    coax/.style={
+      draw,
+      rounded corners,
+      align=center,
+      font=\small,
+      text width=2.55cm,
+      minimum height=1.20cm
+    },
+    ampdraw/.style={draw,thick},
+    amplabel/.style={font=\small,align=center},
+    chainarrow/.style={-Latex,thick},
+    conn/.style={font=\tiny,fill=white,inner sep=0.8pt,text depth=0pt},
+    sectionbox/.style={draw,dashed,rounded corners,inner sep=6pt}
+  ]
+  % Shared row centers
+  \coordinate (roofmid) at (0,0);
+  \coordinate (coaxmid) at ($(roofmid)+(0,-\rfRowGap)$);
+  \coordinate (labmid) at ($(coaxmid)+(0,-\rfRowGap)$);
+
+  % Row 1: Roof, centered on roofmid.
+  \node[filter] (f1) at (roofmid) {F1\\BPF 1412--1428 MHz\\$-1$ dB};
+  \rfamp{left=\rfRoofGap of f1}{a1}{A1}{$+26$ dB}
+  \rfendpoint{left=\rfRoofGap of a1}{h0}{H0}{Big Horn}
+  \rfamp{right=\rfRoofGap of f1}{a2}{A2}{$+26$ dB}
+  \rfamp{right=\rfRoofGap of a2}{a3}{A3}{$+26$ dB}
+
+  % Row 2: Roof to Lab, centered on coaxmid.
+  \node[coax] (c1) at (coaxmid) {C1\\Roof-lab coax\\$L \approx 35$ m est.};
+
+  % Row 3: Lab, centered on labmid with symmetric amplifier placement.
+  \rfamp{left=\rfLabGap of labmid}{a4}{A4}{$+20$ dB}
+  \rfamp{right=\rfLabGap of labmid}{a5}{A5}{$+20$ dB}
+  \rffilter{left=\rfLabGap of a4}{f2}{F2}{BPF 1300--1460 MHz}{$-2$ dB est.}
+  \rfendpoint{right=\rfLabGap of a5}{d1}{D1}{SDR}
+
+  % Main signal-flow arrows
+  \coordinate (roofjog) at ($ (a3-east) + (\rfTransitionJog,0) $);
+  \coordinate (roofturn) at ($ (roofjog |- c1.east) $);
+  \coordinate (labjog) at ($ (f2.west) + (-\rfTransitionJog,0) $);
+  \coordinate (labturn) at ($ (labjog |- c1.west) $);
+  \coordinate (labdrop) at ($ (labjog |- f2.west) $);
+  \draw[chainarrow] (h0.east) -- node[conn,above]{SMA--SMA} (a1-west);
+  \draw[chainarrow] (a1-east) -- node[conn,above]{SMA--SMA} (f1.west);
+  \draw[chainarrow] (f1.east) -- node[conn,above]{SMA--SMA} (a2-west);
+  \draw[chainarrow] (a2-east) -- node[conn,above]{SMA--SMA} (a3-west);
+  \draw[chainarrow]
+    (a3-east) -- (roofjog)
+    -- node[conn,pos=0.55,right]{SMA--N} (roofturn)
+    -- (c1.east);
+  \draw[chainarrow]
+    (c1.west) -- (labturn)
+    -- node[conn,pos=0.55,left]{N--SMA} (labdrop)
+    -- (f2.west);
+  \draw[chainarrow] (f2.east) -- node[conn,above]{SMA--SMA} (a4-west);
+  \draw[chainarrow] (a4-east) -- node[conn,above]{SMA--SMA} (a5-west);
+  \draw[chainarrow] (a5-east) -- node[conn,above]{SMA--SMA} (d1.west);
+
+  % Section scaffolding for experiment layout mapping
+  \node[sectionbox,fit=(h0)(a1)(f1)(a2)(a3),
+        label={[font=\footnotesize\bfseries]above:Roof}] {};
+  \node[sectionbox,fit=(c1),
+        label={[font=\footnotesize\bfseries]above:Roof to Lab}] {};
+  \node[sectionbox,fit=(f2)(a4)(a5)(d1),
+        label={[font=\footnotesize\bfseries]below:Lab}] {};
+\end{tikzpicture}
+\caption{Master RF receiver chain used as the canonical scaffold for experiment-specific bench layouts, arranged as three centered section rows (Roof, Roof to Lab, Lab). Amplifiers are drawn with standard gain-triangle symbols; filters are shown as labeled RF blocks; connector transitions are annotated on the interconnects rather than drawn as separate blocks. Stage map (known manufacturer/part where available): A1/A2/A3 = Mini-Circuits ZKL-33ULN-S+ (rooftop, datasheet gain estimate $\sim +26$ dB each); F1 = Reactel 1420-15S11 (passband $\sim 1412$--$1428$ MHz, insertion-loss estimate $\sim 1$ dB); F2 = K\&L Microwave 5B120-1380/160-0 (passband $\sim 1300$--$1460$ MHz, insertion-loss estimate $\sim 2$ dB). A4/A5 are current bench amplifiers (nominally $\sim +20$ dB each), and C1 is the roof-lab coax with prior length estimate $\sim 35$ m.}
 \label{fig:block_diagram}
 \end{figure}
 

@@ -3,7 +3,7 @@
 \usepackage{hyperref}
 \usepackage{graphicx}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,fit,shapes.geometric,calc}
+\usetikzlibrary{arrows.meta,positioning,fit,calc}
 
 \newcommand{\tbd}[1]{\texttt{TBD(#1)}}
 
@@ -11,11 +11,12 @@
 \newcommand{\rfRowGap}{30mm}
 \newcommand{\rfRoofGap}{20mm}
 \newcommand{\rfLabGap}{20mm}
-\newcommand{\rfCoaxGap}{6mm}
 \newcommand{\rfAmpLabelGap}{1.0mm}
 \newcommand{\rfAmpLength}{8.5mm}
 \newcommand{\rfAmpHalfHeight}{3.2mm}
 \newcommand{\rfTransitionJog}{11mm}
+\newcommand{\rfSectionPad}{6pt}
+\newcommand{\rfConnFont}{\tiny}
 
 % Reusable RF diagram node helpers.
 \newcommand{\rfendpoint}[4]{\node[endpoint,#1] (#2) {#3\\#4};}
@@ -112,8 +113,8 @@ $\rightarrow$ RTL-SDR digitization/downconversion.
     ampdraw/.style={draw,thick},
     amplabel/.style={font=\small,align=center},
     chainarrow/.style={-Latex,thick},
-    conn/.style={font=\tiny,fill=white,inner sep=0.8pt,text depth=0pt},
-    sectionbox/.style={draw,dashed,rounded corners,inner sep=6pt}
+    conn/.style={font=\rfConnFont,fill=white,inner sep=0.8pt,text depth=0pt},
+    sectionbox/.style={draw,dashed,rounded corners,inner sep=\rfSectionPad}
   ]
   % Shared row centers
   \coordinate (roofmid) at (0,0);
@@ -121,14 +122,14 @@ $\rightarrow$ RTL-SDR digitization/downconversion.
   \coordinate (labmid) at ($(coaxmid)+(0,-\rfRowGap)$);
 
   % Row 1: Roof, centered on roofmid.
-  \node[filter] (f1) at (roofmid) {F1\\BPF 1412--1428 MHz\\$-1$ dB};
+  \rffilter{at={(roofmid)}}{f1}{F1}{BPF 1412--1428 MHz}{$-1$ dB}
   \rfamp{left=\rfRoofGap of f1}{a1}{A1}{$+26$ dB}
   \rfendpoint{left=\rfRoofGap of a1}{h0}{H0}{Big Horn}
   \rfamp{right=\rfRoofGap of f1}{a2}{A2}{$+26$ dB}
   \rfamp{right=\rfRoofGap of a2}{a3}{A3}{$+26$ dB}
 
   % Row 2: Roof to Lab, centered on coaxmid.
-  \node[coax] (c1) at (coaxmid) {C1\\Roof-lab coax\\$L \approx 35$ m est.};
+  \rfcoax{at={(coaxmid)}}{c1}{C1}{Roof-lab coax\\$L \approx 35$ m est.}
 
   % Row 3: Lab, centered on labmid with symmetric amplifier placement.
   \rfamp{left=\rfLabGap of labmid}{a4}{A4}{$+20$ dB}
@@ -162,7 +163,7 @@ $\rightarrow$ RTL-SDR digitization/downconversion.
   \node[sectionbox,fit=(h0)(a1)(f1)(a2)(a3),
         label={[font=\footnotesize\bfseries]above:Roof}] {};
   \node[sectionbox,fit=(c1),
-        label={[font=\footnotesize\bfseries]above:Roof to Lab}] {};
+        label={[font=\footnotesize\bfseries]above left:Roof to Lab}] {};
   \node[sectionbox,fit=(f2)(a4)(a5)(d1),
         label={[font=\footnotesize\bfseries]below:Lab}] {};
 \end{tikzpicture}

@@ -1,0 +1,57 @@
+\begin{thebibliography}{}
+\expandafter\ifx\csname natexlab\endcsname\relax\def\natexlab#1{#1}\fi
+\providecommand{\url}[1]{\href{#1}{#1}}
+\providecommand{\dodoi}[1]{doi:~\href{http://doi.org/#1}{\nolinkurl{#1}}}
+\providecommand{\doeprint}[1]{\href{http://ascl.net/#1}{\nolinkurl{http://ascl.net/#1}}}
+\providecommand{\doarXiv}[1]{\href{https://arxiv.org/abs/#1}{\nolinkurl{https://arxiv.org/abs/#1}}}
+
+\bibitem[{Blaauw {et~al.}(1960)Blaauw, Gum, Pawsey, \& Westerhout}]{blaauw1960}
+Blaauw, A., Gum, C.~S., Pawsey, J.~L., \& Westerhout, G. 1960, Monthly Notices of the Royal Astronomical Society, 121, 123, \dodoi{10.1093/mnras/121.2.123}
+
+\bibitem[{Dickey \& Lockman(1990)}]{dickey1990}
+Dickey, J.~M., \& Lockman, F.~J. 1990, Annual Review of Astronomy and Astrophysics, 28, 215
+
+\bibitem[{Ewen \& Purcell(1951)}]{ewen1951}
+Ewen, H.~I., \& Purcell, E.~M. 1951, Nature, 168, 356, \dodoi{10.1038/168356a0}
+
+\bibitem[{Friis(1944)}]{friis1944}
+Friis, H.~T. 1944, Proceedings of the IRE, 32, 419, \dodoi{10.1109/JRPROC.1944.232049}
+
+\bibitem[{Gottschalk {et~al.}(2012)Gottschalk, Uyan{\i}ker, Kothes, Brunt, Motte, Kramer, \& Schneider}]{gottschalk2012}
+Gottschalk, M., Uyan{\i}ker, B., Kothes, R., {et~al.} 2012, Astronomy \& Astrophysics, 541, A79, \dodoi{10.1051/0004-6361/201118600}
+
+\bibitem[{{HI4PI Collaboration} {et~al.}(2016){HI4PI Collaboration}, {Ben Bekhti}, {Fl{\"o}er}, Keller, Kerp, Lenz, Winkel, Bailin, Calabretta, Dedes, Ford, Gibson, Haud, Janowiecki, Kalberla, Lockman, {McClure-Griffiths}, Murphy, Nakanishi, Pisano, \& {Staveley-Smith}}]{hi4pi2016}
+{HI4PI Collaboration}, {Ben Bekhti}, N., {Fl{\"o}er}, L., {et~al.} 2016, Astronomy \& Astrophysics, 594, A116
+
+\bibitem[{Kalberla \& Kerp(2009)}]{kalberla2009}
+Kalberla, P. M.~W., \& Kerp, J. 2009, Annual Review of Astronomy and Astrophysics, 47, 27
+
+\bibitem[{Murray(1989)}]{murray1989}
+Murray, C.~A. 1989, Astronomy \& Astrophysics, 218, 325
+
+\bibitem[{Parsons(2024{\natexlab{a}})}]{parsons2024bighorn}
+Parsons, A. 2024{\natexlab{a}}, {AY121} Lab 2: Big Horn {HI} Lab Manual, GitHub.
+\newblock \url{https://github.com/AaronParsons/ugradio/blob/main/lab_bighorn/bighorn.pdf}
+
+\bibitem[{Parsons(2024{\natexlab{b}})}]{parsons2024calintensity}
+---. 2024{\natexlab{b}}, Calibration of Intensity, {AY121} Handout.
+\newblock \url{https://github.com/AaronParsons/ugradio/blob/main/lab_bighorn/cal_intensity.pdf}
+
+\bibitem[{Parsons(2024{\natexlab{c}})}]{parsons2024horn}
+---. 2024{\natexlab{c}}, Horn Signal Chain Test, {AY121} Handout.
+\newblock \url{https://github.com/AaronParsons/ugradio/blob/main/lab_bighorn/horn_signal_chain_test.pdf}
+
+\bibitem[{{Pasternack}(2026)}]{pasternack_rg58cu}
+{Pasternack}. 2026, {RG58C/U Coax Cable Datasheet}, Pasternack.
+\newblock \url{https://www.pasternack.com/images/productpdf/rg58c-u.pdf}
+
+\bibitem[{Schneider {et~al.}(2006)Schneider, Bontemps, Simon, Jakob, Motte, Miller, Kramer, Stutzki, \& Winnewisser}]{schneider2006}
+Schneider, N., Bontemps, S., Simon, R., {et~al.} 2006, Astronomy \& Astrophysics, 458, 855, \dodoi{10.1051/0004-6361:20065817}
+
+\bibitem[{Wenger {et~al.}(2000)Wenger, Ochsenbein, Egret, Dubois, Bonnarel, Borde, Genova, Jasniewicz, Lalo{\"e}, Lesteven, \& Monier}]{wenger2000}
+Wenger, M., Ochsenbein, F., Egret, D., {et~al.} 2000, Astronomy \& Astrophysics Supplement Series, 143, 9, \dodoi{10.1051/aas:2000332}
+
+\bibitem[{Wilson {et~al.}(2013)Wilson, Rohlfs, \& H{\"u}ttemeister}]{wilson2013}
+Wilson, T.~L., Rohlfs, K., \& H{\"u}ttemeister, S. 2013, Tools of Radio Astronomy, 6th edn. (Springer)
+
+\end{thebibliography}

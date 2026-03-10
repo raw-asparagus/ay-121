@@ -51,14 +51,7 @@ SMOOTH_NCHAN = 31  # 31-channel mean → 0.51 km/s kernel
 # Publication style
 # ---------------------------------------------------------------------------
 plt.rcParams.update({
-    'figure.dpi': 200,
-    'font.size': 11,
-    'axes.labelsize': 11,
-    'axes.titlesize': 11,
-    'xtick.labelsize': 9,
-    'ytick.labelsize': 9,
-    'legend.fontsize': 9,
-    'lines.linewidth': 1.2,
+    'figure.dpi': 300,
 })
 
 # ---------------------------------------------------------------------------
@@ -274,12 +267,13 @@ def plot_ratio_profile(std_ratio: dict, cyg_ratio: dict, outpath: Path):
                 label=f'smoothed (n={SMOOTH_NCHAN})')
         ax.axhline(0, color='gray', lw=0.7, ls='--')
         ax.set_xlim(vmin, vmax)
-        ax.set_title(title, fontsize=9)
+        ax.set_title(title)
         ax.set_ylabel(ylabel)
         ax.set_xlabel('$v_\\mathrm{LSR}$ [km/s]')
-        ax.legend(fontsize=7, loc='upper left')
+        ax.legend(loc='lower left')
         ax.xaxis.set_major_locator(mticker.MultipleLocator(100))
         ax.xaxis.set_minor_locator(mticker.MultipleLocator(25))
+        ax.grid(True, alpha=0.7)
 
     fig.savefig(outpath, bbox_inches='tight')
     plt.close(fig)
@@ -313,7 +307,8 @@ def plot_tline_calibrated(tline_data: dict, outpath: Path):
     ax.set_xlabel('$v_\\mathrm{LSR}$ [km/s]')
     ax.set_ylabel('$T_\\mathrm{line}$ [K]')
     ax.set_title(r'Calibrated HI Spectrum: Standard Field $(l,b)=(120°, 0°)$')
-    ax.legend(fontsize=8)
+    ax.legend()
+    ax.grid(True, alpha=0.7)
     ax.xaxis.set_major_locator(mticker.MultipleLocator(50))
     ax.xaxis.set_minor_locator(mticker.MultipleLocator(10))
 
@@ -325,8 +320,8 @@ def plot_tline_calibrated(tline_data: dict, outpath: Path):
     v_ticks_in = v_ticks[(v_ticks >= vmin) & (v_ticks <= vmax)]
     f_ticks = HI_REST_FREQ_HZ * (1 - v_ticks_in / C_LIGHT_KMS) / 1e6
     ax2.set_xticks(v_ticks_in)
-    ax2.set_xticklabels([f'{f:.2f}' for f in f_ticks], fontsize=8)
-    ax2.set_xlabel('Frequency [MHz]', fontsize=9)
+    ax2.set_xticklabels([f'{f:.2f}' for f in f_ticks])
+    ax2.set_xlabel('Frequency [MHz]')
 
     fig.tight_layout()
     fig.savefig(outpath, bbox_inches='tight')
@@ -425,11 +420,11 @@ def plot_pointing_track(outpath: Path):
     ax1.axhline(90, color='gray', lw=0.5, ls=':')
     ax1.set_ylim(-10, 95)
     ax1.set_ylabel('Altitude [deg]')
-    ax1.legend(fontsize=8, loc='upper right')
+    ax1.legend(loc='upper right')
     ax1.yaxis.set_major_locator(mticker.MultipleLocator(30))
     ax1.yaxis.set_minor_locator(mticker.MultipleLocator(10))
     ax1.set_title(r'Pointing Track: $(l,b)=(120°,\,0°)$ from Campbell Hall, Berkeley '
-                  r'($\phi=37.87°$N)', fontsize=10)
+                  r'($\phi=37.87°$N)')
 
     # Mark observation epochs
     obs_jd = 2461105.386  # from standard spectrum metadata
@@ -437,7 +432,7 @@ def plot_pointing_track(outpath: Path):
     obs_lst_fraction = 0.007181977903727467  # in hours (from spectrum)
     ax1.axvline(obs_lst_fraction, color='red', lw=1.5, ls='-', alpha=0.7,
                 label=f'Observation LST = {obs_lst_fraction:.2f} h')
-    ax1.legend(fontsize=8, loc='upper right')
+    ax1.legend(loc='upper right')
 
     # Azimuth
     ax2.plot(lst_h[observable], az[observable], 'C1', lw=1.3)
@@ -448,7 +443,7 @@ def plot_pointing_track(outpath: Path):
     ax2.yaxis.set_minor_locator(mticker.MultipleLocator(30))
     ax2.axvline(obs_lst_fraction, color='red', lw=1.5, ls='-', alpha=0.7,
                 label=f'Obs. LST = {obs_lst_fraction:.2f} h')
-    ax2.legend(fontsize=8)
+    ax2.legend()
 
     ax2.set_xlim(0, 24)
     ax2.xaxis.set_major_locator(mticker.MultipleLocator(4))
@@ -485,7 +480,8 @@ def plot_cygnus_x_spectrum(tline_data: dict, outpath: Path):
     ax.set_xlabel('$v_\\mathrm{LSR}$ [km/s]')
     ax.set_ylabel('$T_\\mathrm{line}$ [K]')
     ax.set_title(r'Calibrated HI Spectrum: Cygnus-X Cross-Validation Field')
-    ax.legend(fontsize=8)
+    ax.legend()
+    ax.grid(True, alpha=0.7)
     ax.xaxis.set_major_locator(mticker.MultipleLocator(50))
     ax.xaxis.set_minor_locator(mticker.MultipleLocator(10))
 
@@ -496,8 +492,8 @@ def plot_cygnus_x_spectrum(tline_data: dict, outpath: Path):
     v_ticks_in = v_ticks[(v_ticks >= vmin) & (v_ticks <= vmax)]
     f_ticks = HI_REST_FREQ_HZ * (1 - v_ticks_in / C_LIGHT_KMS) / 1e6
     ax2.set_xticks(v_ticks_in)
-    ax2.set_xticklabels([f'{f:.2f}' for f in f_ticks], fontsize=8)
-    ax2.set_xlabel('Frequency [MHz]', fontsize=9)
+    ax2.set_xticklabels([f'{f:.2f}' for f in f_ticks])
+    ax2.set_xlabel('Frequency [MHz]')
 
     fig.tight_layout()
     fig.savefig(outpath, bbox_inches='tight')

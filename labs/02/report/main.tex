@@ -1,11 +1,12 @@
-\documentclass[12pt,preprint]{aastex}
+\documentclass[10pt,preprint2]{aastex}
+\usepackage[left=0.75in,right=0.25in,top=0.75in,bottom=0.75in]{geometry}
+\AtBeginDocument{\newgeometry{left=0.75in,right=0.35in,top=0.75in,bottom=0.75in}}
 \usepackage{amsmath, amsfonts, amssymb}
 \usepackage{hyperref}
 \usepackage{graphicx}
 \usepackage{tikz}
+\usepackage{booktabs}
 \usetikzlibrary{arrows.meta,positioning,fit,calc}
-
-\newcommand{\tbd}[1]{\texttt{TBD(#1)}}
 
 % Master RF block-diagram spacing knobs.
 \newcommand{\rfRowGap}{30mm}
@@ -36,79 +37,330 @@
 
 \begin{document}
 
-\title{AY121 Lab 2: Calibration-First 21-cm Pipeline, Cable Characterization, and Provisional Results}
-\author{Jun Rui Ting \\ March 2026}
+\title{Observing the Galactic HI 21-cm Line with the Big Horn Receiver}
+\author{Jun Rui Ting \\ March 2026\vspace{-1.5\baselineskip}}
 
+%-----------------------------------------------------------------------
 \begin{abstract}
-This report is reorganized into a calibration-first workflow: equipment calibration experiments,
-temperature calibration experiments, then calibrated HI measurement experiments.
-The document is intentionally structured for rapid revision when new measurements are added.
-All calibration-sensitive quantitative claims are represented with explicit placeholders
-(e.g., \tbd{CABLE\_ALPHA\_DB\_PER\_M}, \tbd{LSR\_SHIFT\_KMS}, \tbd{TRX\_1420\_K})
-rather than fixed final values. The current draft therefore serves as a method-complete and
-traceable report skeleton aligned with the Lab 2 requirements in
-\texttt{src/ugradio/lab\_bighorn/bighorn.tex}, while remaining revision-ready for final data insertion.
+%-----------------------------------------------------------------------
+We present a complete calibration-first analysis of the Big Horn
+21-cm receiver system on the roof of New Campbell Hall, spanning equipment characterization, receiver noise temperature
+measurement, and Galactic HI line observations.
+Coaxial cable attenuation was measured as $\alpha = 0.73 \pm 0.13$\,dB/m
+(SDR) and $0.80 \pm 0.03$\,dB/m (power-meter),
+with the unknown roof--lab cable length inferred as $\approx 36$--$40$\,m.
+Transmission-line reflectometry gave a coax propagation velocity of
+$v_{\rm coax}/c = 0.54 \pm 0.10$, broadly consistent with RG-58 specifications.
+The SDR operates in a linear regime with 29\,dB of clipping headroom (RMSE = 0.098\,dB).
+Y-factor calibration with a 310\,K hot load and 30\,K cold sky yielded
+receiver noise temperatures $T_{\rm rx} = 79 \pm 4$\,K at LO\,1420\,MHz
+and $96 \pm 4$\,K at LO\,1421\,MHz, dominated by hot/cold load temperature uncertainty.
+Dual-LO ($f_{\rm LO} = 1420$, $1421$\,MHz) frequency-switched observations of
+the Galactic-plane field $(l,b) = (120^\circ, 0^\circ)$ reveal a rich, multi-component
+HI spectrum spanning $-110$ to $+20$\,km\,s$^{-1}$ in LSR velocity,
+interpreted as multiple spiral-arm crossings in the Perseus arm region.
+A Cygnus-X cross-validation field confirms a dominant feature near
+$-16$\,km\,s$^{-1}$ attributed to Local Arm material.
+
+\vspace{2\baselineskip}
 \end{abstract}
 
-\section{Introduction and Requirement Mapping}
-\label{sec:intro_goals}
+\section*{Preface}
 
-This report follows the AY121 Lab 2 requirements in
-\texttt{src/ugradio/lab\_bighorn/bighorn.tex}.
-The lab emphasizes nine competencies:
-(1) time conversion (UTC/PST/LST/JD),
-(2) coordinate transforms for pointing,
-(3) HI spectral measurement,
-(4) absolute calibration,
-(5) Doppler correction,
-(6) Gaussian fitting,
-(7) cable termination/impedance,
-(8) propagation velocity in coax,
-and (9) statistical plus systematic error analysis.
+I would like to apologize for this late work but I had a lot of fun doing it and I hope you enjoy reading it as much as I enjoyed taking data. It devolved into a passion project of sorts and I took way too long in writing it. I am sorry for giving empty promises but I will do my best to juggle this and AY-128 for the next two labs.
 
-To match experiment dependencies, this draft is organized as:
-\begin{enumerate}
-\item equipment calibration experiments,
-\item temperature calibration experiments,
-\item HI measurement experiments and calibrated science outputs.
-\end{enumerate}
 
-All analysis and writing are individual.
+%=======================================================================
+\section{Introduction}
+\label{sec:intro}
+%=======================================================================
 
-\section{Receiver System and Data Inventory}
-\label{sec:system_inventory}
+The 21-cm hyperfine line of neutral hydrogen (HI) at $\nu_0 = 1420.40575$\,MHz
+is the most widely used spectral tracer of the interstellar medium (ISM),
+first detected by \citet{ewen1951}.
+Because the Milky Way's disk is optically thin to 21-cm radiation,
+the line traces the full column of HI along any line of sight and
+encodes the radial-velocity distribution of ISM clouds through the
+Doppler shift.
+The Big Horn antenna at Campbell Hall, UC Berkeley, provides a simple
+but complete radio-astronomy signal chain for observing this line with
+a small horn and low-cost software-defined radio (RTL-SDR).
 
-The signal chain is:
-horn antenna $\rightarrow$ rooftop amplification/filtering
-$\rightarrow$ long coax downlink
-$\rightarrow$ lab amplification/filtering
-$\rightarrow$ RTL-SDR digitization/downconversion.
+This report documents a three-stage workflow, following
+\citet{parsons2024bighorn}:
+\textbf{(1)} \emph{equipment calibration} characterizing coax attenuation,
+propagation velocity, SDR linearity, and the FIR passband response;
+\textbf{(2)} \emph{temperature calibration} measuring the receiver noise temperature
+via the Y-factor method with hot and cold load references; and
+\textbf{(3)} \emph{HI observations} frequency-switched line extraction,
+absolute intensity calibration, Doppler/LSR correction, and Gaussian decomposition.
+
+%=======================================================================
+\section{Theoretical Background}
+\label{sec:theory}
+%=======================================================================
+
+\subsection{HI 21-cm Hyperfine Transition}
+\label{sec:theory_hi}
+
+The ground state of hydrogen is split by the interaction between the proton
+and electron magnetic moments into two hyperfine levels:
+the parallel-spin triplet state ($F=1$, higher energy) and the
+antiparallel-spin singlet state ($F=0$, lower energy).
+The energy splitting corresponds to a photon frequency of
+\begin{equation}
+  \nu_0 = 1\,420\,405\,751.768\;\mathrm{Hz} \approx 1420.41\;\mathrm{MHz}.
+\end{equation}
+The spontaneous emission (21-cm) Einstein $A$-coefficient is
+$A_{10} = 2.869 \times 10^{-15}$\,s$^{-1}$, corresponding to a radiative
+lifetime of $\sim 11$\,Myr.
+Despite the low transition probability, the abundance of HI ($\sim 10^{21}$\,cm$^{-2}$
+in the Galactic plane) makes the line bright.
+The line was first detected by \citealt{ewen1951} and has since become
+the premier tracer of Galactic HI structure \citep{dickey1990}.
+
+In the optically thin regime, the observed line brightness temperature is
+\begin{equation}
+  T_B(\nu) = T_s \left[1 - e^{-\tau(\nu)}\right] \approx T_s\,\tau(\nu),
+\end{equation}
+with spin temperature $T_s$ and optical depth $\tau(\nu)$.
+% The Warm Neutral Medium (WNM) is characterized by
+% $T_s \sim 5000$--$8000$\,K and $n_H \sim 0.1$--$0.5$\,cm$^{-3}$,
+% while the Cold Neutral Medium (CNM) has
+% $T_s \sim 50$--$150$\,K and $n_H \sim 10$--$100$\,cm$^{-3}$.
+% WNM components dominate the line wings and CNM appears as narrow features.
 
 \begin{figure}[ht!]
+  \centering
+  \includegraphics[width=0.5\textwidth]{figures/hyperfine.pdf}
+  \caption{Energy-level diagram of the hydrogen 21-cm hyperfine transition.
+  The triplet ($F=1$) and singlet ($F=0$) states are split by
+  $\Delta E = h\nu_0 \approx 5.87\,\mu$eV.
+  Spontaneous emission produces the 21-cm photon at $\nu_0 = 1420.41$\,MHz.}
+  \label{fig:hyperfine}
+\end{figure}
+
+\subsection{Thermal (Doppler) Line Broadening}
+\label{sec:theory_broadening}
+
+Thermal motion of hydrogen atoms at temperature $T$ broadens the line via
+the Doppler effect.
+The resulting profile is Gaussian with
+\begin{equation}
+  \sigma_v = \sqrt{\frac{k_B T}{m_H}},
+  \qquad
+  \mathrm{FWHM} = 2\sqrt{2\ln 2}\,\sigma_v,
+\end{equation}
+where $m_H = 1.673 \times 10^{-27}$\,kg.
+At $T = 100$\,K, FWHM $\approx 2.1$\,km\,s$^{-1}$; at $T = 8000$\,K,
+FWHM $\approx 19$\,km\,s$^{-1}$.
+Turbulent broadening adds in quadrature and dominates for many ISM components.
+
+% \begin{figure*}[ht!]
+%   \centering
+%   \includegraphics[width=0.72\textwidth]{figures/thermal_broadening.pdf}
+%   \caption{Doppler broadening of the HI line as a function of temperature.
+%   The Gaussian FWHM scales as $\sqrt{T}$; at 8000\,K (WNM temperature),
+%   the thermal FWHM is $\approx 19$\,km\,s$^{-1}$.}
+%   \label{fig:thermal_broadening}
+% \end{figure*}
+
+\subsection{Receiver Noise and System Temperature}
+\label{sec:theory_noise}
+
+A radiometric channel records power proportional to the system temperature:
+\begin{equation}
+  P_j = G_j\,T_{\rm sys}(\nu_j),
+  \qquad
+  T_{\rm sys} = T_{\rm rx} + T_{\rm sky},
+\end{equation}
+where $G_j$ is the total chain gain and $T_{\rm rx}$ is the
+(frequency-dependent) receiver contribution.
+For a single-channel noise measurement, the radiometer equation gives
+the thermal fluctuation \citealt{wilson2013}
+\begin{equation}
+  \delta T_{\rm chan} = \frac{T_{\rm sys}}{\sqrt{\Delta\nu\,\tau}},
+\end{equation}
+with channel bandwidth $\Delta\nu$ and integration time $\tau$.
+For this system: $\Delta\nu = 78.125$\,Hz (SDR, 32768-bin grid),
+$\Delta\nu_{\rm cal} = 312.5$\,Hz (8192-bin grid),
+$\tau = 419.43$\,s (combined-spectrum integration).
+
+\subsection{Y-Factor Calibration}
+\label{sec:theory_yfactor}
+
+The Y-factor method measures $T_{\rm rx}$ by comparing power outputs
+when the receiver is fed with two known-temperature sources
+\citep{friis1944}:
+\begin{equation}
+  Y = \frac{P_{\rm hot}}{P_{\rm cold}}
+    = \frac{T_{\rm hot} + T_{\rm rx}}{T_{\rm cold} + T_{\rm rx}},
+\end{equation}
+solving for
+\begin{equation}
+  T_{\rm rx} = \frac{T_{\rm hot} - Y\,T_{\rm cold}}{Y - 1}.
+  \label{eq:trx}
+\end{equation}
+Error propagation through Equation~\eqref{eq:trx} gives
+\begin{align}
+  \sigma_{T_{\rm rx}}^2 &=
+    \left(\frac{\partial T_{\rm rx}}{\partial T_{\rm hot}}\right)^2\!\sigma_{T_h}^2
+    + \left(\frac{\partial T_{\rm rx}}{\partial T_{\rm cold}}\right)^2\!\sigma_{T_c}^2
+    + \left(\frac{\partial T_{\rm rx}}{\partial Y}\right)^2\!\sigma_Y^2.
+\end{align}
+The three contributions are measurement, load-temperature, and
+hardware-systematic terms, which are decomposed individually in
+Section~\ref{sec:temp_cal_results}.
+
+\subsection{Frequency Switching and Bandpass Removal}
+\label{sec:theory_freqswitch}
+
+Frequency switching removes the slowly varying receiver bandpass $G_j(\nu)$
+by dividing on-source and off-source spectra taken at two LO settings
+\citep{parsons2024calintensity}:
+\begin{equation}
+  R(\nu_k) = \frac{P_{1420}(\nu_k)}{P_{1421}(\nu_k)},
+  \qquad
+  y_R = R - 1.
+\end{equation}
+Since the bandpass shape is approximately the same at both LO settings
+(same receiver chain), the ratio $R$ cancels $G_j$ and isolates the
+spectral line relative to the continuum.
+The inverse-ratio variant
+\begin{equation}
+  y_{\rm inv} = \frac{1}{R} - 1
+    = \frac{P_{1421}}{P_{1420}} - 1
+\end{equation}
+recovers the same line information with a sign flip.
+Absolute intensity scale is restored by multiplying $y_R$ by the
+system temperature reference computed from the cold-sky spectrum:
+\begin{equation}
+  T_{\rm line}(\nu_k) = y_R(\nu_k)\,T_{\rm sys,ref}(\nu_k),
+\end{equation}
+\begin{equation}
+  T_{\rm sys,ref}(\nu_k) = P_{\rm obs}(\nu_k)
+  \frac{T_{\rm cold} + T_{\rm rx}}{P_{\rm cold,ref}(\nu_k)}.
+\end{equation}
+
+\subsection{Transmission-Line Theory}
+\label{sec:theory_tline}
+
+A coaxial cable is a two-conductor transmission line with
+characteristic impedance $Z_0 = 50\,\Omega$ \citep{parsons2024horn}.
+When a traveling wave reaches a load impedance $Z_L \neq Z_0$,
+a reflection is generated with voltage reflection coefficient
+\begin{equation}
+  \Gamma = \frac{Z_L - Z_0}{Z_L + Z_0}.
+\end{equation}
+For an open circuit ($Z_L \to \infty$): $\Gamma = +1$ (full reflection, same polarity);
+for a short circuit ($Z_L = 0$): $\Gamma = -1$ (full reflection, inverted);
+for a matched load ($Z_L = Z_0$): $\Gamma = 0$ (no reflection).
+The round-trip delay for a cable of length $L$ and propagation velocity $v_p$:
+\begin{equation}
+  \Delta t = \frac{2L}{v_p},
+  \qquad
+  v_p = \frac{2L}{\Delta t}.
+\end{equation}
+Cable attenuation is modeled as a linear function of length $L$ at fixed frequency:
+\begin{equation}
+  P_{\rm rx}(L) = B - \alpha L \quad [\mathrm{dB}],
+\end{equation}
+where $\alpha$ is the attenuation coefficient (dB/m) and $B$ is an intercept.
+An unknown-length cable can be inferred from a measured power loss:
+\begin{equation}
+  L_{\rm unknown} = \frac{B - P_{\rm obs}}{\alpha}.
+\end{equation}
+
+\subsection{Coordinate Frames and Pointing}
+\label{sec:theory_coords}
+
+Target positions in Galactic coordinates $(l, b)$ are converted to
+equatorial J2000 $(\alpha, \delta)$ using the IAU 1958 Galactic convention
+of \citet{blaauw1960}, carried to the FK5/J2000 equator and equinox
+following \citet{murray1989}:
+\begin{equation}
+  \hat{n}_{\rm eq} = M_{\rm G\to J2000}\,\hat{n}_{\rm gal},
+\end{equation}
+where $\hat{n}_{\rm gal} = (\cos b \cos l,\; \cos b \sin l,\; \sin b)^{\mathsf T}$
+and $M_{\rm G\to J2000}$,
+\begin{equation}
+  \begin{bmatrix}
+    -0.05487554 &  \phantom{-}0.49410945 & -0.86766614 \\
+    -0.87343710 & -0.44482959            & -0.19807639 \\
+    -0.48383499 &  \phantom{-}0.74698225 &  \phantom{-}0.45598379
+  \end{bmatrix}.
+\end{equation}
+The corresponding FK5/J2000 pole parameters are
+$(\alpha_{\rm NGP}, \delta_{\rm NGP}) = (192.85948^\circ, 27.12825^\circ)$
+and $l_\Omega = 32.93192^\circ$ (equivalently
+$l_{\rm NCP} = 122.93192^\circ$).
+
+Given Local Sidereal Time (LST) at longitude $\lambda$, the hour angle is
+$H = \mathrm{LST} - \alpha$, and the topocentric altitude and azimuth are
+\begin{align}
+  \sin(\mathrm{Alt}) &= \sin\delta\sin\phi + \cos\delta\cos\phi\cos H,\\
+  \mathrm{Az}
+    &= \arctan\!\left(
+      \frac{-\cos\delta\sin H}
+           {\sin\delta\cos\phi - \cos\delta\cos H\sin\phi}
+    \right),
+\end{align}
+where $\phi = 37.873^\circ$N is the observatory latitude.
+The time-standard pipeline is
+\begin{equation}
+  t_{\rm unix} \xrightarrow{\rm JD} \mathrm{JD} \xrightarrow{\rm GMST}
+  \mathrm{GMST} + \lambda \xrightarrow{} \mathrm{LST}.
+\end{equation}
+Implementations use \texttt{ugradio.timing} for JD/LST conversion.
+
+\subsection{Doppler Effect and LSR Frame}
+\label{sec:theory_lsr}
+
+The radio-definition Doppler velocity is
+\begin{equation}
+  v_{\rm radio} = c\,\frac{\nu_0 - \nu}{\nu_0}.
+\end{equation}
+Observed velocities are topocentric; to convert to the Local Standard of Rest (LSR),
+we subtract the projection of the Sun's peculiar velocity onto the line of sight:
+\begin{equation}
+  v_{\rm LSR} = v_{\rm topo} + \Delta v_{\rm LSR},
+\end{equation}
+where $\Delta v_{\rm LSR}$ is computed from the IAU-standard solar apex
+($l = 56^\circ$, $b = 23^\circ$, $v = 20$\,km\,s$^{-1}$) and the
+pointing metadata via\newline \texttt{ugradio.doppler.get\_projected\_velocity}.
+
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=0.5\textwidth]{figures/lsr_geometry.pdf}
+  \caption{Geometry of the LSR velocity correction.
+  The Sun's motion relative to the LSR projects onto the line of sight to the target,
+  adding a systematic offset that depends on the pointing direction and observation epoch.}
+  \label{fig:lsr_geometry}
+\end{figure}
+
+%=======================================================================
+\section{Instrument Description}
+\label{sec:instrument}
+%=======================================================================
+
+The Big Horn receiver chain (Figure~\ref{fig:block_diagram}) consists of
+three stages: a rooftop RF front-end, a coaxial transmission line,
+and a laboratory back-end with SDR digitization.
+
+\begin{figure*}[ht!]
 \centering
 \begin{tikzpicture}[
     endpoint/.style={
-      draw,
-      rounded corners,
-      align=center,
-      font=\small,
-      text width=2.15cm,
-      minimum height=1.30cm
+      draw, rounded corners, align=center, font=\small,
+      text width=2.15cm, minimum height=1.30cm
     },
     filter/.style={
-      draw,
-      align=center,
-      font=\small,
-      text width=3.05cm,
-      minimum height=1.35cm
+      draw, align=center, font=\small,
+      text width=3.05cm, minimum height=1.35cm
     },
     coax/.style={
-      draw,
-      rounded corners,
-      align=center,
-      font=\small,
-      text width=2.55cm,
-      minimum height=1.20cm
+      draw, rounded corners, align=center, font=\small,
+      text width=2.55cm, minimum height=1.20cm
     },
     ampdraw/.style={draw,thick},
     amplabel/.style={font=\small,align=center},
@@ -116,37 +368,36 @@ $\rightarrow$ RTL-SDR digitization/downconversion.
     conn/.style={font=\rfConnFont,fill=white,inner sep=0.8pt,text depth=0pt},
     sectionbox/.style={draw,dashed,rounded corners,inner sep=\rfSectionPad}
   ]
-  % Shared row centers
   \coordinate (roofmid) at (0,0);
   \coordinate (coaxmid) at ($(roofmid)+(0,-\rfRowGap)$);
   \coordinate (labmid) at ($(coaxmid)+(0,-\rfRowGap)$);
 
-  % Row 1: Roof, centered on roofmid.
+  % Row 1: Roof
   \rffilter{at={(roofmid)}}{f1}{F1}{BPF 1412--1428 MHz}{$-1$ dB}
   \rfamp{left=\rfRoofGap of f1}{a1}{A1}{$+26$ dB}
   \rfendpoint{left=\rfRoofGap of a1}{h0}{H0}{Big Horn}
   \rfamp{right=\rfRoofGap of f1}{a2}{A2}{$+26$ dB}
   \rfamp{right=\rfRoofGap of a2}{a3}{A3}{$+26$ dB}
 
-  % Row 2: Roof to Lab, centered on coaxmid.
-  \rfcoax{at={(coaxmid)}}{c1}{C1}{Roof-lab coax\\$L \approx 35$ m est.}
+  % Row 2: Coax
+  \rfcoax{at={(coaxmid)}}{c1}{C1}{Roof-lab coax\\$L \approx 36$--$40$ m}
 
-  % Row 3: Lab, centered on labmid with symmetric amplifier placement.
+  % Row 3: Lab
   \rfamp{left=\rfLabGap of labmid}{a4}{A4}{$+20$ dB}
   \rfamp{right=\rfLabGap of labmid}{a5}{A5}{$+20$ dB}
   \rffilter{left=\rfLabGap of a4}{f2}{F2}{BPF 1300--1460 MHz}{$-2$ dB est.}
   \rfendpoint{right=\rfLabGap of a5}{d1}{D1}{SDR}
 
-  % Main signal-flow arrows
+  % Arrows
   \coordinate (roofjog) at ($ (a3-east) + (\rfTransitionJog,0) $);
   \coordinate (roofturn) at ($ (roofjog |- c1.east) $);
   \coordinate (labjog) at ($ (f2.west) + (-\rfTransitionJog,0) $);
   \coordinate (labturn) at ($ (labjog |- c1.west) $);
   \coordinate (labdrop) at ($ (labjog |- f2.west) $);
-  \draw[chainarrow] (h0.east) -- node[conn,above]{SMA--SMA} (a1-west);
-  \draw[chainarrow] (a1-east) -- node[conn,above]{SMA--SMA} (f1.west);
-  \draw[chainarrow] (f1.east) -- node[conn,above]{SMA--SMA} (a2-west);
-  \draw[chainarrow] (a2-east) -- node[conn,above]{SMA--SMA} (a3-west);
+  \draw[chainarrow] (h0.east) -- node[conn,above]{SMA} (a1-west);
+  \draw[chainarrow] (a1-east) -- node[conn,above]{SMA} (f1.west);
+  \draw[chainarrow] (f1.east) -- node[conn,above]{SMA} (a2-west);
+  \draw[chainarrow] (a2-east) -- node[conn,above]{SMA} (a3-west);
   \draw[chainarrow]
     (a3-east) -- (roofjog)
     -- node[conn,pos=0.55,right]{SMA--N} (roofturn)
@@ -155,11 +406,10 @@ $\rightarrow$ RTL-SDR digitization/downconversion.
     (c1.west) -- (labturn)
     -- node[conn,pos=0.55,left]{N--SMA} (labdrop)
     -- (f2.west);
-  \draw[chainarrow] (f2.east) -- node[conn,above]{SMA--SMA} (a4-west);
-  \draw[chainarrow] (a4-east) -- node[conn,above]{SMA--SMA} (a5-west);
-  \draw[chainarrow] (a5-east) -- node[conn,above]{SMA--SMA} (d1.west);
+  \draw[chainarrow] (f2.east) -- node[conn,above]{SMA} (a4-west);
+  \draw[chainarrow] (a4-east) -- node[conn,above]{SMA} (a5-west);
+  \draw[chainarrow] (a5-east) -- node[conn,above]{SMA} (d1.west);
 
-  % Section scaffolding for experiment layout mapping
   \node[sectionbox,fit=(h0)(a1)(f1)(a2)(a3),
         label={[font=\footnotesize\bfseries]above:Roof}] {};
   \node[sectionbox,fit=(c1),
@@ -167,649 +417,1012 @@ $\rightarrow$ RTL-SDR digitization/downconversion.
   \node[sectionbox,fit=(f2)(a4)(a5)(d1),
         label={[font=\footnotesize\bfseries]below:Lab}] {};
 \end{tikzpicture}
-\caption{Master RF receiver chain used as the canonical scaffold for experiment-specific bench layouts, arranged as three centered section rows (Roof, Roof to Lab, Lab). Amplifiers are drawn with standard gain-triangle symbols; filters are shown as labeled RF blocks; connector transitions are annotated on the interconnects rather than drawn as separate blocks. Stage map (known manufacturer/part where available): A1/A2/A3 = Mini-Circuits ZKL-33ULN-S+ (rooftop, datasheet gain estimate $\sim +26$ dB each); F1 = Reactel 1420-15S11 (passband $\sim 1412$--$1428$ MHz, insertion-loss estimate $\sim 1$ dB); F2 = K\&L Microwave 5B120-1380/160-0 (passband $\sim 1300$--$1460$ MHz, insertion-loss estimate $\sim 2$ dB). A4/A5 are current bench amplifiers (nominally $\sim +20$ dB each), and C1 is the roof-lab coax with prior length estimate $\sim 35$ m.}
+\caption{RF signal chain from the Big Horn antenna to the RTL-SDR.
+Rooftop section: Big Horn $\to$ A1/A2/A3 (Mini-Circuits ZKL-33ULN-S+,
+$\approx +26$\,dB each) $\to$ F1 (Reactel 1420-15S11,
+passband 1412--1428\,MHz, $\approx -1$\,dB).
+Transmission line: roof--lab coaxial cable, $L \approx 36$--$40$\,m
+(Section~\ref{sec:cable_attenuation}).
+Lab section: F2 (K\&L Microwave, passband 1300--1460\,MHz, $\approx -2$\,dB) $\to$
+A4/A5 (lab amplifiers, $\approx +20$\,dB each) $\to$ RTL-SDR.
+Net bench gain Horn$\to$SDR: $-6.0$\,dB.}
 \label{fig:block_diagram}
-\end{figure}
+\end{figure*}
 
-Datasets currently available in this draft:
-\begin{itemize}
-\item HI dual-LO sky observations: \texttt{standard}, \texttt{cygnus-x}, \texttt{SGP}.
-\item Combined spectral products: \texttt{standard\_combined\_spectra},
-\texttt{cygnus-x\_combined\_spectra}, \texttt{SGP\_combined\_spectra}, \texttt{human\_combined\_spectra}.
-\item Cable attenuation study: \texttt{data/lab02/attenuation} (known lengths) and
-\texttt{data/lab02/unknown\_length} (unknown-length inference set).
-\item Report figures currently included are provisional and will be regenerated after data updates.
-\end{itemize}
+The horn antenna has aperture dimensions estimated to be roughly $0.80\,\mathrm{m} \times 0.90\,\mathrm{m}$
+(area $= 0.72$\,m$^2$). Following the lab handout's rule-of-thumb for a reasonably
+well-matched horn \citep{parsons2024bighorn}, we adopt a provisional aperture
+efficiency $\eta_{\rm ap} \approx 0.6$--$0.7$; this is an assumed prior rather than
+a direct measurement.
+The RTL-SDR (RTL2832U chipset) digitizes at 2.56\,MS/s, producing either an
+8192-channel FFT grid at $\Delta\nu = 312.5$\,Hz resolution or a 32768-channel
+grid at $\Delta\nu = 78.125$\,Hz over the same 2.56\,MHz bandwidth.
+The per-observation integration time is 104.86\,s.
+The RTL2832U applies a 32-tap symmetric FIR filter as part of its internal
+decimation chain to suppress aliasing before FFT channelization; combined with
+the firmware's channel-summing operation, this produces a frequency-dependent
+passband that rolls off toward the band edges. As such, for line analysis we focus on the flatter central region
+within roughly $\pm 0.8$\,MHz of the LO.
 
-\section{HI Acquisition Overview (Raw Observations)}
-\label{sec:hi_acq_overview}
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/signal_chain.pdf}
+  \caption{Cumulative signal chain gain/loss from horn to SDR, showing
+  contributions of each component. The net gain measured at the bench
+  (Horn$\to$SDR, 2026-03-07) is $-6.0$\,dB,
+  reflecting the combined effect of three rooftop amplifiers, two filters,
+  two lab amplifiers, and approximately 36--40\,m of roof--lab coax.}
+  \label{fig:signal_chain}
+\end{figure*}
 
-Before calibration-specific analysis, raw observations were acquired with dual first-LO settings
-near 1420 and 1421 MHz to support frequency-switched line extraction.
-Current acquisition scripts are in \texttt{labs/02/scripts}, including:
-\texttt{standard.py}, \texttt{cygnus-x.py}, \texttt{SGP.py}, and \texttt{human.py}.
-Calibration support scripts now include
-\texttt{attenuation\_collect.py}, \texttt{unknown\_length\_collect.py}, and
-\texttt{sdr\_gain\_sweep.py}.
-Legacy helpers \texttt{anticenter.py} and \texttt{low-hi.py} are deprecated and
-retained only for historical traceability.
+A Mini-Circuits ZFSC-2-372-S+ two-way splitter in the bench configuration introduces
+Port\,1 loss of 3.374\,dB and Port\,2 loss of 3.348\,dB at 1420\,MHz.
+The SDR internal attenuator was set to 3.0\,dB during observations.
 
-For reproducibility, each capture stores metadata including
-sample rate, center frequency, gain, JD/LST, and pointing (alt/az).
-These metadata are used later for Doppler projection and frame correction.
-
-\subsection{Signal-Chain Sanity Checks Before Science Integrations}
-\label{sec:pre_science_checks}
-
-Before long integrations, the acquisition workflow includes the explicit
-Lab 2 sanity checks:
-\begin{itemize}
-\item tone-injection ``birdie'' verification (on/off, amplitude changes, and
-frequency stepping) to validate RF-to-bin mapping,
-\item sample histogram checks to verify non-clipped, non-quantized ADC behavior,
-\item gain/attenuator tuning to keep spectra in the linear regime.
-\end{itemize}
-Final insertion values:
-\tbd{BIRDIE\_FREQ\_CHECK\_SUMMARY},
-\tbd{ADC\_HISTOGRAM\_SUMMARY}, and
-\tbd{GAIN\_SETTING\_RANGE\_SUMMARY}.
-
-\section{Time and Pointing Theory}
-\label{sec:time_pointing_validation}
-
-This section summarizes the theoretical time-standard relations
-(UTC/PST/LST/JD) and coordinate transformations used for pointing.
-Residual benchmarking is intentionally omitted in this revision.
-
-\subsection{UTC/PST/LST/JD Conversion Relations}
-\label{sec:time_conversion_checks}
-
-The timestamp pipeline is
-\begin{align}
-  \mathrm{PST} &= \mathrm{UTC} - 8~\mathrm{hr},\\
-  \mathrm{PDT} &= \mathrm{UTC} - 7~\mathrm{hr},\\
-  \mathrm{JD}  &= \mathrm{julian\_date}(t_{\mathrm{unix}}),\\
-  \mathrm{LST} &= \mathrm{lst}(\mathrm{JD},\lambda_{\mathrm{obs}}),
-\end{align}
-with \texttt{ugradio.timing} as the primary implementation.
-
-\begin{table}[ht!]
-\centering
-\caption{Time-conversion theory terms used in this report.}
-\label{tab:time_validation}
-\begin{tabular}{lcc}
-\hline
-Quantity & Expression/placeholder & Role in analysis \\
-\hline
-UTC$\leftrightarrow$PST & $\mathrm{PST}=\mathrm{UTC}-8~\mathrm{hr}$ & Local timestamp interpretation \\
-JD conversion & $\mathrm{JD}=\mathrm{julian\_date}(t_{\mathrm{unix}})$ & Absolute time reference \\
-LST conversion & $\mathrm{LST}=\mathrm{lst}(\mathrm{JD},\lambda_{\mathrm{obs}})$ & Sidereal pointing phase \\
-Clock sync status & \tbd{NTP\_OFFSET\_MS} & Acquisition metadata quality flag \\
-\hline
-\end{tabular}
-\end{table}
-
-\subsection{Rotation-Matrix Pointing Formulation}
-\label{sec:pointing_rotation_checks}
-
-For a target with equatorial coordinates $(\alpha,\delta)$,
-hour angle $H=\mathrm{LST}-\alpha$, and observatory latitude $\phi$,
-we use direction cosines
-\begin{equation}
-\hat{n}_{\mathrm{eq}}=
-\begin{bmatrix}
-\cos\delta\cos\alpha\\
-\cos\delta\sin\alpha\\
-\sin\delta
-\end{bmatrix},
-\end{equation}
-and a rotation-matrix mapping to local horizontal coordinates
-\begin{equation}
-\hat{n}_{\mathrm{hor}} = R_y\!\left(\phi-\frac{\pi}{2}\right)R_z(H)\hat{n}_{\mathrm{eq}}.
-\end{equation}
-The commanded horizontal coordinates are then
-\begin{equation}
-\mathrm{alt}=\arcsin(\hat{n}_{\mathrm{hor},z}), \qquad
-\mathrm{az}=\mathrm{atan2}(\hat{n}_{\mathrm{hor},y},\hat{n}_{\mathrm{hor},x}).
-\end{equation}
-
-For the required Week-2 target $(l,b)=(120^\circ,0^\circ)$, the report
-provides the Galactic-to-equatorial conversion and resulting alt/az track.
-
-The matrix pipeline is packaged in \texttt{ugradiolab.pointing}
-(\texttt{galactic\_to\_equatorial\_matrix}, \texttt{equatorial\_to\_altaz\_matrix})
-and the operational acquisition path is integrated via \texttt{compute\_pointing(...)}.
-
-\begin{table}[ht!]
-\centering
-\caption{Pointing-theory entries for the Week-2 target field.}
-\label{tab:pointing_validation}
-\begin{tabular}{lc}
-\hline
-Quantity & Expression/placeholder \\
-\hline
-Target equatorial coordinates from $(l,b)=(120^\circ,0^\circ)$ & \tbd{LB120\_RA\_DEC} \\
-Predicted alt/az track summary for observation windows & \tbd{LB120\_ALT\_AZ\_TRACK} \\
-Maximum allowed pointing error used in analysis cuts & \tbd{POINTING\_CUT\_ARCMIN} \\
-\hline
-\end{tabular}
-\end{table}
-
-\section{Equipment Calibration Experiments}
+%=======================================================================
+\section{Equipment Calibration}
 \label{sec:equipment_cal}
+%=======================================================================
 
-This section is placed first because all later science interpretation depends on receiver-chain and cable calibration.
-Detailed model variants and fitting internals are moved to Appendix~\ref{sec:app_cable_models}.
+\subsection{Observation Geometry and Pointing}
+\label{sec:pointing}
 
-\subsection{Termination and Reflectometry Plan}
-\label{sec:termination_reflectometry}
+The primary science target is $(l,b) = (120^\circ, 0^\circ)$.
+Applying the Galactic$\to$J2000 rotation matrix
+from Section~\ref{sec:theory_coords} gives equatorial coordinates
+$(\alpha, \delta) = (96.45^\circ, 62.73^\circ)$ in J2000.
+For the observation epoch (JD $= 2461105.386$, LST $= 0.0072$\,h),
+the topocentric coordinates are Alt $= 64.68^\circ$, Az $= 7.03^\circ$,
+confirming that the target is well above the horizon and near transit.
 
-Required Week-2 termination diagnostics are handled as a separate analog campaign:
-open-end, $50\,\Omega$ terminated, SDR-connected-unpowered, and SDR-connected-powered
-states with square-wave reflectometry.
-
-From those traces, this report will insert:
-\begin{itemize}
-\item reflection-delay measurements $\Delta t$ with uncertainty,
-\item inferred propagation velocity in coax, $v_{\mathrm{coax}}=\tbd{VCOAX\_M\_PER\_S}$,
-\item termination-quality comparison versus state and test frequency,
-\item SDR input impedance behavior summary (qualitative + quantitative).
-\end{itemize}
-
-\subsection{Cable Loss Per Meter and Unknown-Length Inference}
-\label{sec:cable_loss_main}
-
-Using known-length attenuation sets, the primary shared-slope model is
+Time-standard conversions used throughout:
 \begin{align}
-  y_{1420}(L) &= B_{1420} - \alpha L,\\
-  y_{1421}(L) &= B_{1421} - \alpha L,
+  \mathrm{PST} &= \mathrm{UTC} - 8\;\mathrm{hr},\\
+  \mathrm{JD}  &= \texttt{ugradio.timing.julian\_date}(t_{\rm unix}),\\
+  \mathrm{LST} &= \texttt{ugradio.timing.lst}(\mathrm{JD},\,\lambda_{\rm obs}),
 \end{align}
-where $y$ is normalized receive power and $L$ is known pre-split cable length.
+with observatory coordinates\newline $(\phi_{\rm obs}, \lambda_{\rm obs}, h_{\rm obs})
+= (37.873^\circ\mathrm{N}, -122.257^\circ, \approx 101\,\mathrm{m})$ above sea level.
+The pointing was validated by comparing \texttt{ugradio} outputs
+against \texttt{astropy} for the same JD; agreement was within numerical precision.
 
-Main-text provisional outputs:
-\begin{itemize}
-\item attenuation slope: $\alpha = \tbd{CABLE\_ALPHA\_DB\_PER\_M}$,
-\item slope uncertainty: $\sigma_\alpha = \tbd{CABLE\_ALPHA\_SIGMA\_DB\_PER\_M}$,
-\item 95\% interval: $\tbd{CABLE\_ALPHA\_CI95}$,
-\item LO intercept difference: $\Delta B = \tbd{CABLE\_DELTA\_B\_DB}$.
-\end{itemize}
+% \begin{figure*}[ht!]
+%   \centering
+%   \includegraphics[width=0.86\textwidth]{figures/pointing_track.pdf}
+%   \caption{Altitude and azimuth of $(l,b) = (120^\circ, 0^\circ)$
+%   as a function of LST for the Berkeley observatory ($\phi = 37.87^\circ$N).
+%   The red vertical line marks the observation epoch (LST $\approx 0.007$\,h).
+%   The target is observable for roughly 11\,h per sidereal day, with peak altitude
+%   $\approx 88^\circ$ near transit.}
+%   \label{fig:pointing_track}
+% \end{figure*}
 
-\begin{figure}[ht!]
-\centering
-\includegraphics[width=0.86\textwidth]{figures/cable_attenuation_linear.png}
-\caption{Provisional cable attenuation summary. Final slope and uncertainty values are pending updated calibration runs.}
-\label{fig:cable_main}
-\end{figure}
+\subsection{Cable Attenuation Characterization}
+\label{sec:cable_attenuation}
 
-Unknown-length cable inference (from attenuation calibration transfer) is reported as:
+\subsubsection{Experimental Setup}
+
+To characterize the coaxial cable attenuation coefficient $\alpha$ (dB/m),
+power measurements were made through known-length RG-58 cable segments
+at both LO frequencies (1420 and 1421\,MHz)
+(bench layout: Appendix~\ref{fig:bench_attenuation}).
+A shared-slope linear model was fit jointly to both LO datasets:
 \begin{equation}
-  L_{\mathrm{unknown}} = \tbd{UNKNOWN\_LENGTH\_M} \pm \tbd{UNKNOWN\_LENGTH\_SIGMA\_M}.
+  P_{{\rm rx},i}(L) = B_i - \alpha L, \quad i \in \{1420, 1421\},
 \end{equation}
+where $B_i$ is a frequency-dependent intercept and $\alpha$ is shared.
+One outlier cable run was removed during quality screening
+(8 of 9 runs retained based on residual diagnostics).
 
-\subsection{SDR Voltage Scale and Receiver-Chain Gain Inputs}
-\label{sec:sdr_scale_chain}
+\subsubsection{Results: SDR Method}
 
-The final report update will insert analog-calibrated SDR voltage scale and chain gain/loss terms:
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/cable_attenuation_lo.pdf}
+  \caption{Normalized SDR power versus cable length for the LO\,1420 and LO\,1421
+  bench measurements. The dotted lines show fits using all cable runs, while the
+  dashed lines show the adopted shared-slope fit after omitting the 26-ft cable
+  outlier marked with $\times$. Dash-dotted lines give representative RG-58
+  reference attenuation trends for comparison. The lower two panels show the
+  corresponding residuals for the two fit choices. Notably, the fit omitting the
+  strong outlier matches well with an RG-58 weather-resistant reference attenuation.}
+  \label{fig:cable_attenuation_lo}
+\end{figure*}
+
+The SDR-path fit gives:
+\begin{equation}
+  \alpha_{\rm SDR} = 0.73 \pm 0.13\;\mathrm{dB/m},
+\end{equation}
+with a 95\% confidence interval of $[0.47, 0.99]$\,dB/m. 
+
+\subsubsection{Cross-Check: Power-Meter Method}
+
+An independent power-meter measurement of the same cable set yields:
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/cable_attenuation_power_meter.pdf}
+  \caption{Cable attenuation cross-check using a calibrated power meter.
+  The fitted slope $\alpha_{\rm meter} = 0.80 \pm 0.03$\,dB/m is
+  statistically consistent with the SDR estimate within $\sim 0.6\sigma$.}
+  \label{fig:cable_attenuation_pm}
+\end{figure*}
+
+\begin{equation}
+  \alpha_{\rm meter} = 0.80 \pm 0.03\;\mathrm{dB/m},
+\end{equation}
+with a 95\% confidence interval of $[0.74, 0.86]$\,dB/m.
+The two estimates differ by $0.07$\,dB/m ($0.6\sigma$), consistent
+within uncertainties.
+The power-meter value is substantially more precise due to its direct,
+analog calibrated measurement versus the SDR's indirect spectral ratio.
+
+\subsubsection{Unknown Roof--Lab Cable Length}
+
+Using the fitted SDR intercept, the unknown roof--lab cable length is inferred as
+(Appendix~\ref{fig:bench_unknown_length}):
+\begin{equation}
+  L_{\rm SDR} = 40 \pm 7\;\mathrm{m}.
+\end{equation}
+Independent estimates are: $L_{\rm meter} = 36 \pm 1$\,m (power-meter intercept)
+and $L_{\rm bench} = 36 \pm 1$\,m (bench analog measurement).
+The bench and meter estimates are in excellent agreement, while the SDR estimate is
+$\sim 0.55\sigma$ higher.
+We adopt $L \approx 36$--$40$\,m as a conservative range,
+with $L = 36$\,m as the best point estimate from the more precise analog measurements.
+
+The total attenuation contribution of the 36\,m roof--lab cable at 1420\,MHz is
+approximately $36 \times 0.80 \approx 29$\,dB, which is partially compensated
+by the three rooftop and two lab amplifiers.
+
+\subsection{Termination States and Coax Propagation Velocity}
+\label{sec:reflectometry}
+
+\subsubsection{Reflectometry Measurement}
+
+A square-wave generator was connected to one end of a coaxial cable
+of known length $L = 40$\,m (primary reflectometry branch;
+bench layout: Appendix~\ref{fig:bench_reflectometry}).
+The reflected echo is observed with a modular edge separation
+\begin{equation}
+  \Delta t_{\rm mod} = 98.0\;\mathrm{ns}.
+\end{equation}
+Because the drive waveform is a 2.5\,MHz square wave with period
+$T = 400.0$\,ns, the physical round-trip delay is branch-resolved as
+\begin{equation}
+  \Delta t_{\rm round\text{-}trip}
+    = \Delta t_{\rm mod} + nT
+    = 498.0\;\mathrm{ns},
+\end{equation}
+where the $n=1$ branch is the smallest solution consistent with a
+coax-like propagation speed for a 40\,m cable.
+The coax propagation velocity is therefore
+\begin{equation}
+  v_{\rm coax} = \frac{2L}{\Delta t}
+    = 1.609 \times 10^8\;\mathrm{m/s},
+\end{equation}
+corresponding to a velocity factor
+\begin{equation}
+  v_{\rm coax}/c = 0.54 \pm 0.10.
+\end{equation}
+For the Pasternack RG58C/U cable used here, the nominal velocity factor is
+$v/c = 0.659$ \citep{pasternack_rg58cu};
+our measurement is $\sim 1.2\sigma$ below this, but still consistent
+within uncertainty.
+
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/reflectometry.pdf}
+  \caption{Square-wave reflectometry trace showing the incident signal
+  and reflected pulse from the open cable end ($\Gamma = +1$).
+  The measured modular edge separation is $\Delta t_{\rm mod} = 98.0$\,ns;
+  with the 2.5\,MHz square-wave period $T = 400.0$\,ns and branch $n=1$,
+  this gives the physical round-trip delay $\Delta t = 498.0$\,ns and
+  $v_{\rm coax}/c = 0.54 \pm 0.10$.}
+  \label{fig:reflectometry}
+\end{figure*}
+
+\subsubsection{Termination States}
+
+The cable was tested in four states to characterize impedance behavior:
+\textit{open end} ($\Gamma = +1$, full positive reflection),
+\textit{50\,$\Omega$ matched termination} ($\Gamma \approx 0$, minimal reflection),
+\textit{SDR-connected unpowered}, and
+\textit{SDR-connected powered}.
+The terminated state showed the expected near-zero reflection, confirming
+proper 50\,$\Omega$ source impedance.
+The SDR input impedance in both powered and unpowered states showed small
+but non-negligible reflections, indicating slight impedance mismatch at 1420\,MHz
+even though the SMA connector on the SDR is designed for 50\,$\Omega$ impedance.
+
+\subsection{SDR Characterization}
+\label{sec:sdr_char}
+
+\subsubsection{Gain Linearity}
+
+The RTL-SDR gain response was swept over a range of input power levels
+to characterize the linear operating regime
+(bench layout: Appendix~\ref{fig:bench_gain_sweep}).
+The key results are:
 \begin{itemize}
-\item SDR voltage scale: \tbd{SDR\_VOLT\_SCALE\_V\_PER\_COUNT},
-\item rooftop/lab amplifier gain entries: \tbd{AMP\_GAIN\_TABLE},
-\item filter insertion loss entries: \tbd{FILTER\_LOSS\_TABLE},
-\item roof cable effective length and corresponding attenuation contribution:
-\tbd{ROOF\_CABLE\_LENGTH\_M}, \tbd{ROOF\_CABLE\_LOSS\_DB}.
+  \item Highest unclipped gain setpoint: 13.0\,dBm
+  \item First clipped setpoint: 15.5\,dBm
+  \item Clipping headroom: 29.0\,dB (from the observed sky power level)
+  \item Linearity RMSE in linear regime: 0.1\,dB
+\end{itemize}
+As such, sky observations should operate well within a linear gain response.
+
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/sdr_gain_response_clipping.pdf}
+  \caption{SDR power response as a function of input setpoint.
+  The linear regime (solid line) transitions to saturation/clipping above 13.0\,dBm.
+  Sky observations at the current gain setting have 29\,dB of headroom below
+  the clipping threshold.}
+  \label{fig:sdr_linearity}
+\end{figure*}
+
+\subsubsection{FIR Passband Response}
+
+The RTL2832U digitizer includes a 32-tap symmetric FIR decimation filter.
+Rather than measuring this response with a swept tone, we constructed a
+synthetic hardware-response diagnostic from the published FIR coefficients,
+then multiplied by a symmetric model of the undocumented summing stage and
+applied the combined response to a noise input on the output-frequency grid.
+Figure~\ref{fig:sdr_fir} compares two summing coefficients: Aaron Parsons's
+guessed coefficients and a regression-optimized set fit to flatten the
+observed passband.
+Key diagnostic results:
+\begin{itemize}
+  \item FIR-only edge/center response ratio: 0.237
+        (i.e., edge channels have $\sim 6.2$\,dB lower gain)
+  \item Science analysis should be safe to focus on the flatter central region
+        within $\pm 0.8$\,MHz of the LO
 \end{itemize}
 
-\subsubsection{Power-Meter Voltage Cross-Check}
-\label{sec:powermeter_voltage}
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/sdr_fir_summing_correction.pdf}
+  \caption{Synthetic FIR+summing diagnostic across the RTL-SDR passband.
+  The blue trace is a normalized noise-input realization, the orange curve
+  applies the published FIR coefficients plus Aaron Parsons's guessed
+  summing coefficients, and the green curve uses regression-optimized
+  summing coefficients on top of the same FIR model.}
+  \label{fig:sdr_fir}
+\end{figure*}
 
-For a matched $50\Omega$ system, power-meter readings can be converted to
-an equivalent sinusoidal voltage scale:
+%=======================================================================
+\section{Temperature Calibration}
+\label{sec:temp_cal}
+%=======================================================================
+
+\subsection{Calibration Procedure}
+\label{sec:temp_cal_procedure}
+
+The Y-factor method \citep{friis1944} was used to measure
+the receiver noise temperature using two calibration loads
+(setup: Appendix~\ref{fig:bench_yfactor}):
+\begin{itemize}
+  \item \textbf{Hot load:} A human body (hand blocking the horn aperture) at
+        $T_{\rm hot} = 310 \pm 5$\,K.
+  \item \textbf{Cold load:} Cold sky pointed toward a low HI column region
+        ($l \approx 165^\circ$, $b \approx 36^\circ$) assumed at
+        $T_{\rm cold} = 30 \pm 2$\,K.
+\end{itemize}
+The cold reference was observed just before hot measurements to minimize
+gain drift or sky variability due to weather.
+Per-channel $T_{\rm rx}(\nu)$ profiles were computed by applying
+Equation~\eqref{eq:trx} to each spectral channel independently,
+then averaged to obtain the broadband
+$T_{\rm rx}$ values.
+
+\subsection{RFI Screening}
+\label{sec:rfi_screening}
+
+Before computing Y-factors, both hot and cold spectra were screened
+for radio-frequency interference (RFI) using an iterative sigma-clipping
+procedure with $n_\sigma = 5$.
+The resulting common mask retains 8186 channels (LO\,1420) and 8187 channels (LO\,1421)
+out of 8192 total --- more than 99.9\% of channels pass the screening.
+
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/sigma_masking.pdf}
+  \caption{RFI sigma-clipping mask for the temperature calibration spectra.
+  Blue channels are retained; masked channels (red) correspond to RFI spikes
+  and hardware response edges.
+  More than 99.9\% of channels pass the combined $n_\sigma = 5$ and
+  hardware-response-support cuts.}
+  \label{fig:sigma_masking}
+\end{figure*}
+
+\subsection{Y-Factor Results}
+\label{sec:temp_cal_results}
+
+Table~\ref{tab:yfactor} summarizes the Y-factor measurement results.
+
+\begin{table}[ht!]
+\centering
+\caption{Y-factor calibration results at both LO settings.
+The $\sigma$ column is decomposed into two contributions: hot/cold load temperatures (load), and
+hardware-response systematic (hw).}
+\label{tab:yfactor}
+\begin{tabular}{lcccccc}
+\hline\hline
+LO & $Y$& $T_{\rm rx}$ (K) & $\sigma_{\rm load}$ (K) & $\sigma_{\rm hw}$ (K) \\
+\hline
+1420\,MHz & 3.56 & $79 \pm 4$ & 3 & 1 \\
+1421\,MHz & 3.22 & $96 \pm 4$ & 3 & 1 \\
+\hline\hline
+\end{tabular}
+\end{table}
+
+The LO\,1421 receiver temperature is $17$\,K higher than LO\,1420
+($96$ vs.\ $79$\,K).
+This could be due to gain variations of the receiver chain with frequency,
+as the bandpass response differs slightly at the two LO settings.
+
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/per_frequency_trx.pdf}
+  \caption{Per-channel receiver noise temperature $T_{\rm rx}(\nu)$ for both
+  LO settings, computed channel-by-channel from the Y-factor.
+  The frequency dependence indicates non-uniform gain across the passband,
+  particularly near the band edges where the FIR response drops.}
+  \label{fig:per_freq_trx}
+\end{figure*}
+
+\subsection{System Temperature and Thermal Noise}
+\label{sec:tsys}
+
+The total system temperature includes sky and receiver contributions:
+\begin{equation}
+  T_{\rm sys}(1420) \approx T_{\rm rx} + T_{\rm sky} \approx 79 + 30 = 109\;\mathrm{K},
+\end{equation}
+\begin{equation}
+  T_{\rm sys}(1421) \approx 96 + 30 = 126\;\mathrm{K},
+\end{equation}
+where $T_{\rm sky} \approx 30$\,K is the adopted sky-temperature estimate
+for the diffuse background at 1420\,MHz in the standard field direction.
+
+The per-channel thermal noise (radiometer equation) for the combined spectrum
+($\tau = 419.43$\,s, $\Delta\nu = 78.125$\,Hz for 32768-channel spectra;
+equivalent to $\Delta\nu = 312.5$\,Hz for the 8192-channel calibration grid) is:
 \begin{align}
-P_{\mathrm{W}} &= 10^{-3}\,10^{P_{\mathrm{dBm}}/10},\\
-V_{\mathrm{rms}} &= \sqrt{50\,P_{\mathrm{W}}},\\
-V_{\mathrm{pp}} &= 2\sqrt{2}\,V_{\mathrm{rms}}.
+  \delta T_{\rm chan}(1420) &= 603.2 \pm 19.4\;\mathrm{mK},\\
+  \delta T_{\rm chan}(1421) &= 697.6 \pm 21.2\;\mathrm{mK}.
 \end{align}
-This conversion is used only as a consistency cross-check on the SDR voltage
-calibration, not as the sole calibration path, because it assumes:
-\begin{itemize}
-\item valid $50\Omega$ source/load matching at the measurement frequency,
-\item negligible reflection/VSWR error at the calibration point,
-\item waveform shape known well enough to map $V_{\mathrm{rms}}$ to $V_{\mathrm{pp}}$.
-\end{itemize}
 
-\subsubsection{Datasheet-Driven Chain Gains}
-\label{sec:datasheet_chain}
+%=======================================================================
+\section{HI 21-cm Line Observations and Analysis}
+\label{sec:hi_analysis}
+%=======================================================================
 
-Receiver-chain gains and losses are extracted from component datasheets
-rather than inferred from nominal block-diagram values alone.
-The current block diagram gives nominal stage targets
-(e.g., preamp stages near 26\,dB and IF amplification near 20\,dB),
-but final calibration tables in this report use exact part-number datasheet
-entries once component IDs are confirmed:
-the currently stored NPZ metadata and notebooks do not yet include rooftop/lab
-amplifier and filter part numbers, so these IDs must be logged explicitly at
-the bench for a complete datasheet table.
+\subsection{Observation Overview}
+\label{sec:obs_overview}
+
+Two sky fields were observed \citep{parsons2024bighorn}:
+\begin{enumerate}
+  \item \textbf{Standard field}: $(l,b) = (120^\circ, 0^\circ)$ ---
+        primary science target in the Galactic plane,
+        Perseus arm direction.
+        Observed on 2026-03-07, JD $= 2461105.386$, LST $= 0.007$\,h,
+        Alt $= 64.68^\circ$, Az $= 7.03^\circ$.
+  \item \textbf{Cygnus-X field}: observed for cross-validation,
+        at the SIMBAD-resolved Cygnus X position \citep{wenger2000}
+        $(l,b) = (79.50^\circ, 1.00^\circ)$, providing an independent
+        sight line through the Galactic plane.
+        Observed 2026-03-07, JD $= 2461105.400$, LST $= 0.092$\,h.
+\end{enumerate}
+Both fields were observed with dual-LO (1420 and 1421\,MHz) frequency switching.
+
+\subsection{Frequency Switching and Ratio Profiles}
+\label{sec:ratio_profiles}
+
+Following the theory in Section~\ref{sec:theory_freqswitch}
+\citep{parsons2024calintensity}, the
+frequency-switched ratio $R(\nu_k) = P_{1420}(\nu_k)/P_{1421}(\nu_k)$
+removes the slowly varying receiver bandpass.
+The ratio profiles $y_R = R-1$ and $y_{\rm inv} = 1/R - 1$ were computed
+channel by channel after RFI masking, then smoothed with a 31-channel
+running mean ($\approx 0.51$\,km/s kernel).
+A representative smoothing comparison is shown in Figure~\ref{fig:mean_vs_median},
+where 9-channel sliding mean and median filters are applied to a normalized
+LO\,1420 PSD. The two estimators track each other closely across the usable
+band; the median is slightly more resistant to small fluctuations, while the
+mean follows narrow spectral structure somewhat more closely. Because explicit
+RFI masking is applied before line extraction, the final science profiles use
+the running mean.
+
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/mean_vs_median.pdf}
+  \caption{Comparison of sliding mean and sliding median smoothing on a
+  representative normalized LO\,1420 PSD. The top panel shows the raw PSD
+  together with 9-channel sliding-median and sliding-mean estimates; the lower
+  panel shows their difference, Mean$-$Median. Over the central passband the
+  two smoothed curves are nearly indistinguishable, with only noticeable deviations
+  only near isolated excursions and edge channels.}
+  \label{fig:mean_vs_median}
+\end{figure*}
+
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/ratio_profile.pdf}
+  \caption{Frequency-switched ratio profiles for both fields.
+  Top row: standard field $(l,b) = (120^\circ, 0^\circ)$.
+  Bottom row: Cygnus-X field.
+  Left column: $R-1 = P_{1420}/P_{1421} - 1$ plotted against LO\,1420 LSR velocity.
+  Right column: $1/R-1 = P_{1421}/P_{1420} - 1$ plotted against LO\,1421 LSR velocity.
+  Both panels show the raw profile (pale) and 31-channel smoothed profile (solid).
+  The dominant HI emission feature near $-10$ to $+20$\,km\,s$^{-1}$ LSR
+  is clearly detected in both fields.}
+  \label{fig:ratio_profile}
+\end{figure*}
+
+LSR corrections were applied independently to each spectrum
+using \texttt{ugradio.doppler} with
+the pointing direction and observation epoch:
 \begin{equation}
-\mathrm{chain\ gain}(\nu) = \sum_i G_i^{\mathrm{datasheet}}(\nu) - \sum_j L_j^{\mathrm{datasheet}}(\nu).
-\end{equation}
-Final insertion item: \tbd{CHAIN\_DATASHEET\_TABLE\_WITH\_PART\_NUMBERS}.
-
-\section{Temperature Calibration Experiments}
-\label{sec:temperature_cal}
-
-This section converts calibrated power observables into antenna/system temperature units.
-
-\subsection{Hot/Cold Calibration and Y-Factor Framework}
-\label{sec:yfactor_main}
-
-Using hot-load and cold-reference spectra:
-\begin{equation}
-  Y = \frac{P_{\mathrm{hot}}}{P_{\mathrm{cold}}},
-\end{equation}
-\begin{equation}
-  T_{\mathrm{rx}} = \frac{T_{\mathrm{hot}} - YT_{\mathrm{cold}}}{Y-1}.
-\end{equation}
-
-Provisional per-LO outputs to be filled after revision:
-\begin{itemize}
-\item $Y_{1420}=\tbd{Y1420}$, $T_{\mathrm{rx},1420}=\tbd{TRX\_1420\_K}$,
-\item $Y_{1421}=\tbd{Y1421}$, $T_{\mathrm{rx},1421}=\tbd{TRX\_1421\_K}$,
-\item systematic terms: \tbd{TEMP\_CAL\_SYSTEMATICS\_SUMMARY}.
-\end{itemize}
-
-\subsection{Temperature Scale Assumptions and Aperture-Efficiency Link}
-\label{sec:temp_scale_assumptions}
-
-The conversion from antenna temperature to inferred brightness temperature is represented as
-\begin{equation}
-  T_B = \frac{T_A}{\eta_{\mathrm{ap}}\,\eta_{\mathrm{bf}}},
-\end{equation}
-with provisional efficiency placeholders
-$\eta_{\mathrm{ap}}=\tbd{APERTURE\_EFFICIENCY}$ and
-$\eta_{\mathrm{bf}}=\tbd{BEAM\_FILL\_FACTOR}$.
-
-From currently available data, this report also estimates an effective
-combined efficiency
-\begin{equation}
-\eta_{\mathrm{eff}} \equiv \eta_{\mathrm{ap}}\eta_{\mathrm{bf}}
-= \frac{T_{A,\mathrm{line,obs}}}{T_{B,\mathrm{line,ref}}}.
-\end{equation}
-Using \texttt{labs/02/scripts/estimate\_eta\_eff.py} and the output
-\texttt{labs/02/report/eta\_eff\_estimate.csv}, the provisional estimate is
-\begin{equation}
-\eta_{\mathrm{eff}} = 0.64 \pm 0.28\ (1\sigma),
-\qquad
-\eta_{\mathrm{eff},95\%} \in [0.08,\,1.19].
-\end{equation}
-This estimate is intentionally conservative and includes broad systematics
-(receiver-scale uncertainty, offline-baseline noise, and assumed reference
-brightness uncertainty for the $(l,b)=(120^\circ,0^\circ)$ field).
-
-\section{HI Measurement Experiments and Calibrated Analysis}
-\label{sec:hi_measurement_analysis}
-
-All science-facing HI results are presented only after equipment and temperature calibration context.
-
-\subsection{Week-1 First Measurement: SGP Cold-Sky Substitution}
-\label{sec:week1_sgp}
-
-The handout asks for a first system-check line measurement at zenith.
-In this report, that check is intentionally replaced by a South Galactic Pole
-(SGP) cold-sky measurement as a documented deviation from the literal zenith
-instruction.
-The reason is calibration quality: for Berkeley, zenith can pass through low-$|b|$
-Galactic emission windows during the sidereal day, while SGP is persistently
-low in HI column and therefore a cleaner $T_{\mathrm{cold}}$ reference.
-
-The SGP is the direction of minimum HI column density
-($N_{\rm HI}\lesssim1.7\times10^{20}$\,cm$^{-2}$, HI4PI survey), guaranteeing a
-nearly HI-free baseline spectrum regardless of LST and providing an unambiguous
-system-noise confirmation prior to the Week-2 science field.
-
-Figure~\ref{fig:sgp_ta_spectrum} shows the calibrated antenna temperature $T_A(\nu)$
-for the SGP LO1420 combined observation
-(March 5, 2026, 12:35--12:50 PST; UTC 20:35--20:50;
-$\mathrm{JD}\approx2461105.3631$; $\mathrm{LST}\approx23.47\,\mathrm{h}$).
-The calibration applies the Y-factor result ($T_{\rm rx,1420}=215.0\pm10.4\,$K) and
-the frequency-dependent cold-reference profile from \texttt{calibration\_results.npz}:
-\begin{equation}
-  T_A(\nu) = P_{\rm obs}(\nu)\,\frac{T_{\rm cold}+T_{\rm rx}}{P_{\rm cold,ref}(\nu)} - T_{\rm rx}.
-\end{equation}
-The LSR velocity correction for the SGP direction ($l=0^\circ$, $b=-90^\circ$)
-at the time of observation is
-$\Delta v_{\rm LSR}\approx-7.02$\,km\,s$^{-1}$,
-computed via \texttt{ugradio.doppler.get\_projected\_velocity}.
-No 21-cm HI emission line is detected anywhere in the spectrum, consistent with the
-near-zero column density expected at $b=-90^\circ$.
-The continuum level near $T_A\approx T_{\rm cold}=30\,$K confirms that the system
-is operating at the expected noise floor, validating the calibration chain before
-the main science observations.
-
-\begin{figure}[ht!]
-\centering
-\caption{Calibrated antenna temperature $T_A(\nu)$ for the SGP LO1420 combined
-spectrum, used as the Week-1 first system-check measurement in this report.
-No 21-cm HI emission line is detected, consistent with $b=-90^\circ$
-($N_{\rm HI}\lesssim1.7\times10^{20}$\,cm$^{-2}$).
-The noise floor near $T_A\approx 30\,$K confirms the system calibration.}
-\label{fig:sgp_ta_spectrum}
-\end{figure}
-
-\subsection{Week-2 Main Measurement: Galactic-Plane Field $(l,b)=(120^\circ,0^\circ)$}
-\label{sec:week2_lb120}
-
-The main Week-2 requirement is a fully calibrated HI spectrum at
-Galactic coordinates $(l,b)=(120^\circ,0^\circ)$.
-This report treats that field as the primary science target and
-will explicitly report:
-\begin{itemize}
-\item observation interval in UTC/PST/JD/LST: \tbd{LB120\_TIME\_WINDOW},
-\item converted equatorial coordinates: \tbd{LB120\_RA\_DEC},
-\item topocentric and LSR spectra from the same calibrated pipeline,
-\item best-fit Gaussian component parameters with full uncertainties.
-\end{itemize}
-
-In this draft, the \texttt{standard} dataset is reserved for this target.
-The final revision will include the metadata table that demonstrates
-coordinate and time consistency end-to-end.
-
-\subsection{Frequency Switching and Line-Shape Extraction}
-\label{sec:line_shape_main}
-
-From frequency-switched on/off spectra:
-\begin{equation}
-  r_{\mathrm{line}}(\nu)=\frac{s_{\mathrm{on}}(\nu)}{s_{\mathrm{off}}(\nu)}.
+  \Delta v_{\rm LSR}(1420) = -14.12\;\mathrm{km\,s}^{-1}.
 \end{equation}
 
-Intensity-calibrated form:
+\subsection{Intensity Calibration and Temperature Profile}
+\label{sec:tline_calibration}
+
+The calibrated line temperature is computed via Path B
+(temperature-domain calibration):
 \begin{equation}
-  T_{\mathrm{line}}(\nu)=r_{\mathrm{line}}(\nu)\,G,
+  T_{\rm line}(\nu_k) = (R-1)\,T_{\rm sys,ref}(\nu_k),
 \end{equation}
-with $G=\tbd{GAIN\_K\_PER\_NORM\_POWER}$.
+where $T_{\rm sys,ref}(\nu_k)$ is determined from the cold-reference spectrum
+and the measured $T_{\rm rx}$.
+The synthetic FIR+summing hardware response is divided out channel by channel.
 
-Consistent with the lab instructions, stacked spectra are compared using
-both channel-wise means and medians before adopting a final estimator:
-\begin{itemize}
-\item mean stack output: \tbd{LINE\_STACK\_MEAN\_SUMMARY},
-\item median stack output: \tbd{LINE\_STACK\_MEDIAN\_SUMMARY},
-\item adopted smoothing width in channels: \tbd{LINE\_SMOOTH\_NCHAN}.
-\end{itemize}
-The smoothing choice is constrained by the requirement not to wash out
-HI features narrower than about 1 km s$^{-1}$.
-Band-edge placement is also verified against FIR roll-off to avoid aliasing-sensitive
-channels; final evidence will be summarized by \tbd{FIR\_EDGE\_PLACEMENT\_SUMMARY}.
+% \begin{figure*}[ht!]
+%   \centering
+%   \includegraphics[width=0.86\textwidth]{figures/tline_calibrated.pdf}
+%   \caption{Calibrated antenna temperature $T_{\rm line}$ vs.\ LSR velocity
+%   for the standard field $(l,b) = (120^\circ, 0^\circ)$.
+%   The secondary x-axis shows the corresponding RF frequency in MHz.
+%   Multiple velocity components are visible spanning $-110$ to $+20$\,km/s LSR.
+%   The dominant component peaks near $-10$ to $+20$\,km/s ($T_{\rm line} \approx 11$--$14$\,K).}
+%   \label{fig:tline_calibrated}
+% \end{figure*}
 
-\begin{figure}[ht!]
-\centering
-\includegraphics[width=0.90\textwidth]{figures/ratio_profile_lsr.png}
-\caption{Provisional dual-LO ratio profile for the Week-2 target field
-$(l,b)=(120^\circ,0^\circ)$. Final axis ranges and component annotations
-will be updated with revised data.}
-\label{fig:ratio_profile}
-\end{figure}
+\subsection{Joint Baseline and Gaussian Decomposition}
+\label{sec:gaussian_fits}
 
-\subsection{Velocity Axes and LSR Correction}
-\label{sec:velocity_main}
-
-Radio-definition Doppler mapping:
+A multi-component Gaussian models were fit jointly with a low-order
+polynomial baseline to both the $R$-branch ($y_R$ profile) and the
+$R_{\rm inv}$ branch ($y_{\rm inv}$ profile) for each field.
+The model is
 \begin{equation}
-  v \approx c\,\frac{\nu_0-\nu}{\nu_0},
+  y(v) = \sum_{k=1}^{N} A_k \exp\!\left[-\frac{(v-\mu_k)^2}{2\sigma_k^2}\right]
+         + \sum_{m=0}^{M} c_m\,(v/100)^m,
 \end{equation}
-with LSR correction
-\begin{equation}
-  v_{\mathrm{LSR}}=v_{\mathrm{topo}}+\Delta v_{\mathrm{LSR}},
-\end{equation}
-where $\Delta v_{\mathrm{LSR}}=\tbd{LSR\_SHIFT\_KMS}$ km s$^{-1}$.
+with FWHM $= 2\sqrt{2\ln 2}\,\sigma_k$, constrained to
+$3\,\mathrm{km/s} \leq \mathrm{FWHM} \leq 35\,\mathrm{km/s}$.
+Additionally, to prevent fitting unphysical solutions, component amplitudes were
+required to remain non-negative, centroids were confined to the adopted
+velocity fit window, and widths were bounded to the range above. This
+trades a formally lower-$\chi^2_\nu$ unconstrained solution for one whose
+peak amplitudes, centroid velocities, and FWHM values remain physically
+interpretable as HI components.
+The model grid included $N \in \{2,3,4\}$ components and polynomial orders
+$M \in \{1,2\}$. All selected solutions used four Gaussian components.
+Path A selected $M=2$ in all four cases, while Path B selected $M=1$ for the
+Cygnus-X $R$ branch and $M=2$ elsewhere.
+Figures~\ref{fig:gaussian_fits_standard} and~\ref{fig:gaussian_fits_cyg} show
+the selected joint Gaussian+baseline decompositions for the standard and
+Cygnus-X fields, respectively.
 
-\begin{figure}[ht!]
-\centering
-\includegraphics[width=0.90\textwidth]{figures/tline_frequency_velocity.png}
-\caption{Provisional calibrated profile for the Week-2 target field
-$(l,b)=(120^\circ,0^\circ)$ versus RF frequency and velocity coordinates
-(topocentric and LSR).}
-\label{fig:tline_freq_vel}
-\end{figure}
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/standard_fits.pdf}
+  \caption{Gaussian decomposition fits for the standard field
+  $(l,b)=(120^\circ,0^\circ)$.
+  Each panel shows the smoothed velocity profile (circles), the best-fit joint
+  Gaussian+baseline model (solid line), individual Gaussian components (dashed),
+  and fit residuals for the calibrated hardware-fit path. Monte Carlo
+  perturbations of the selected fit parameters give effective profile
+  centroid/FWHM uncertainties of about $5.6/5.2$\,km\,s$^{-1}$ for the
+  $R$ branch and $0.42/0.65$\,km\,s$^{-1}$ for $R_{\rm inv}$,
+  indicating likely component degeneracy in the standard-field
+  $R$ solution.}
+  \label{fig:gaussian_fits_standard}
+\end{figure*}
 
-\subsection{Baseline Removal and Gaussian Decomposition}
-\label{sec:gauss_main}
+\begin{figure*}[ht!]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/cygnus-x_fits.pdf}
+  \caption{Gaussian decomposition fits for the Cygnus-X cross-validation field.
+  Each panel shows the smoothed velocity profile (circles), the best-fit joint
+  Gaussian+baseline model (solid line), individual Gaussian components (dashed),
+  and fit residuals for the calibrated hardware-fit path. Monte Carlo
+  perturbations give effective profile centroid/FWHM uncertainties of about
+  $0.07/0.11$\,km\,s$^{-1}$ for the selected $R$ solution and
+  $0.97/1.94$\,km\,s$^{-1}$ for $R_{\rm inv}$, consistent with the visibly
+  tighter constraint in the $R$ branch.}
+  \label{fig:gaussian_fits_cyg}
+\end{figure*}
 
-Baseline removal uses off-line channels and low-order polynomial (or equivalent) subtraction,
-followed by multi-component Gaussian fitting.
-The default off-line fitting windows are
-$[-1.2,-0.6]$ MHz and $[0.6,1.2]$ MHz relative to line center, matching the
-Lab 2 guidance. The main implementation uses \texttt{np.polyfit}
-for baseline modeling and \texttt{gaussfit}/\texttt{gaussval}
-for component fits, with alternatives treated as sensitivity checks.
-
-Main-text provisional science outputs:
-\begin{itemize}
-\item number of adopted components: \tbd{N\_GAUSS\_FINAL},
-\item component centroids (topocentric): \tbd{VTOPO\_COMPONENTS\_KMS},
-\item component centroids (LSR): \tbd{VLSR\_COMPONENTS\_KMS},
-\item FWHM values: \tbd{FWHM\_COMPONENTS\_KMS},
-\item fit quality: $\chi_r^2=\tbd{CHI2\_RED\_FINAL}$.
-\end{itemize}
-
-\begin{figure}[ht!]
-\centering
-\includegraphics[width=0.98\textwidth]{figures/gaussian_decomposition.png}
-\caption{Provisional Gaussian decomposition panel. Final residual diagnostics and component labels pending revised data.}
-\label{fig:baseline_gauss}
-\end{figure}
+Tables~\ref{tab:fits_std} list the best-fit parameters
+for the selected four-component joint models.
 
 \begin{table}[ht!]
 \centering
-\caption{Provisional HI fit summary placeholders (to be replaced after next data revision).}
-\label{tab:fit_placeholders}
-\begin{tabular}{lcc}
+\caption{Gaussian component fits for the standard field $(l,b) = (120^\circ, 0^\circ)$.
+Components with FWHM $= 35$\,km/s hit the upper bound constraint.
+$\chi^2_{\rm red}$ refers to the fit over the full profile window.}
+\label{tab:fits_std}
+\begin{tabular}{llcccc}
+\hline\hline
+Field & Comp & $A$ (K) & $v_0$ (km/s) & FWHM.  \\
+      &      &         &              & (km/s) \\
 \hline
-Quantity & Placeholder & Notes \\
+Standard & 1 & 1.37  & $-108.8$ & 24.8 \\
+$R$.     & 2 & 2.87  & $-71.2$  & 35.0* \\
+         & 3 & 5.94  & $-53.0$  & 35.0* \\
+         & 4 & 11.79 & $-16.0$  & 23.8 \\
+\multicolumn{2}{l}{$\chi^2_{\rm red} = 7.14$} & & & & \\
 \hline
-Component count & \tbd{N\_GAUSS\_FINAL} & Model-selection outcome \\
-LSR shift (km s$^{-1}$) & \tbd{LSR\_SHIFT\_KMS} & Doppler projection \\
-Dominant component centers (km s$^{-1}$) & \tbd{VLSR\_COMPONENTS\_KMS} & Report with uncertainties \\
-Reduced chi-square & \tbd{CHI2\_RED\_FINAL} & Baseline+Gaussian fit quality \\
+Standard        & 1 & 2.27  & $-90.5$  & 28.7 \\
+$R_{\rm inv}$   & 2 & 4.67  & $-36.1$  & 23.4 \\
+                & 3 & 3.04  & $+0.8$   & 13.2 \\
+                & 4 & 14.16 & $+18.2$  & 35.0* \\
+\multicolumn{2}{l}{$\chi^2_{\rm red} = 6.14$} & & & & \\
 \hline
+Cygnus-X & 1 & 3.14  & $-91.9$ & 33.2 \\
+$R$      & 2 & 3.25  & $-52.3$ & 35.0* \\
+         & 3 & 13.39 & $-16.2$ & 26.0 \\
+         & 4 & 4.91  & $-6.8$  & 11.2 \\
+\multicolumn{2}{l}{$\chi^2_{\rm red} = 2.10$} & & & & \\
+\hline\hline
 \end{tabular}
+\tablecomments{*FWHM $= 35$\,km/s upper bound.}
 \end{table}
 
-\section{Unified Uncertainty Framework}
-\label{sec:uncertainty_framework}
+Monte Carlo perturbations of the selected calibrated-fit solutions provide a
+model uncertainty estimate. For the standard field, the effective profile centroid and
+width are comparatively unstable in the $R$ branch
+($\sigma_{\rm cent} \approx 5.6$\,km\,s$^{-1}$,
+$\sigma_{\rm FWHM,eff} \approx 5.2$\,km\,s$^{-1}$) because the broad
+negative-velocity components are partially degenerate and two widths sit at the
+35\,km\,s$^{-1}$ upper bound. The $R_{\rm inv}$ branch is internally much
+tighter ($0.42$ and $0.65$\,km\,s$^{-1}$), but its centroid shifts
+substantially relative to $R$.
 
-Uncertainty accounting in this report combines:
-\begin{itemize}
-\item per-channel thermal/statistical noise,
-\item baseline-removal model sensitivity,
-\item calibration transfer uncertainty (equipment + temperature),
-\item Doppler/frame-correction uncertainty,
-\item component-model selection uncertainty (least squares and optional MCMC variants).
-\end{itemize}
+\subsection{Cygnus-X Cross-Validation}
+\label{sec:cygnus_x}
 
-\begin{table}[ht!]
-\centering
-\caption{Provisional uncertainty budget entries awaiting final values.}
-\label{tab:error_budget_placeholders}
-\begin{tabular}{lc}
-\hline
-Term & Placeholder \\
-\hline
-Thermal channel noise level & \tbd{SIGMA\_THERMAL\_PER\_CHANNEL} \\
-Baseline removal systematic & \tbd{SIGMA\_BASELINE\_SYS} \\
-Temperature-scale systematic & \tbd{SIGMA\_TEMP\_SCALE\_SYS} \\
-Cable attenuation contribution & \tbd{SIGMA\_CABLE\_CAL\_SYS} \\
-Gaussian parameter covariance term & \tbd{SIGMA\_FIT\_COV} \\
-\hline
-\end{tabular}
-\end{table}
+% \begin{figure*}[ht!]
+%   \centering
+%   \includegraphics[width=0.86\textwidth]{figures/cygnus_x_spectrum.pdf}
+%   \caption{Calibrated HI spectrum for the Cygnus-X cross-validation field.
+%   The dominant emission feature peaks near $-16$\,km/s LSR, near the
+%   negative-velocity side of the Cygnus-X cloud complex reported in
+%   molecular surveys \citep{schneider2006,gottschalk2012}.
+%   The better fit quality ($\chi^2_{\rm red} = 2.10$ vs.\ 6--7 for the standard field)
+%   reflects a simpler kinematic structure and less blending between components.}
+%   \label{fig:cygnus_spectrum}
+% \end{figure*}
 
-\section{Requirement Coverage Matrix}
-\label{sec:req_coverage_matrix}
+The Cygnus-X field shows a dominant HI component at $v_0 = -16.2$\,km/s LSR
+(FWHM $= 26.0$\,km/s, $A = 13.4$\,K),
+consistent with the standard field dominant feature at $-16.0$\,km/s and is
+broadly consistent with the negative-velocity Cygnus-X North / DR21 layer
+resolved in higher-angular-resolution CO surveys
+\citep{schneider2006,gottschalk2012}. Within the selected $R$ model, Monte
+Carlo perturbations give effective whole-profile uncertainties of
+$\sigma_{\rm cent} \approx 0.07$\,km\,s$^{-1}$ and
+$\sigma_{\rm FWHM,eff} \approx 0.11$\,km\,s$^{-1}$, while the dominant
+$-16.2$\,km\,s$^{-1}$ component itself has fitted parameter uncertainties of
+about $\sigma_{v_0} \approx 0.03$\,km\,s$^{-1}$ and
+$\sigma_{\rm FWHM} \approx 0.03$\,km\,s$^{-1}$. The alternative
+$R_{\rm inv}$ Cygnus-X solution is noticeably less stable
+($\sigma_{\rm cent} \approx 0.97$\,km\,s$^{-1}$,
+$\sigma_{\rm FWHM,eff} \approx 1.94$\,km\,s$^{-1}$). Thus, we choose the $R$ branch as the cleaner decomposition.
 
-\begin{table}[ht!]
-\centering
-\caption{Direct map from Lab 2 goals in \texttt{bighorn.tex} to report evidence.}
-\label{tab:req_coverage}
-\begin{tabular}{p{0.19\textwidth}p{0.43\textwidth}p{0.30\textwidth}}
-\hline
-Goal & Evidence in this report & Final insertion target \\
-\hline
-Time (UTC/PST/LST/JD) & \S\ref{sec:time_conversion_checks}, Table~\ref{tab:time_validation} & Document conversion equations and clock metadata \\
-Pointing (rotation matrices) & \S\ref{sec:pointing_rotation_checks}, Table~\ref{tab:pointing_validation} & Document matrix formulation and target track summary \\
-HI measurement & \S\ref{sec:week1_sgp}, \S\ref{sec:week2_lb120} & Final calibrated spectra plus explicit SGP-for-zenith deviation note \\
-Calibration (absolute scale) & \S\ref{sec:equipment_cal}, \S\ref{sec:temperature_cal} & Replace calibration placeholders \\
-Doppler correction (LSR) & \S\ref{sec:velocity_main} & Insert projected velocity and uncertainties \\
-Gaussian fitting & \S\ref{sec:gauss_main}, Table~\ref{tab:fit_placeholders} & Final component model + $\chi_r^2$ \\
-Impedance/termination & \S\ref{sec:termination_reflectometry} & Waveform evidence by termination state \\
-Propagation speed in coax & \S\ref{sec:termination_reflectometry}, \S\ref{sec:app_reflectometry_derivation} & Final $v_{\mathrm{coax}}$ with error bars \\
-Error analysis & \S\ref{sec:uncertainty_framework} & Combined statistical + systematic budget \\
-\hline
-\end{tabular}
-\end{table}
+% %=======================================================================
+% \section{Uncertainty Analysis}
+% \label{sec:uncertainties}
+% %=======================================================================
 
+% Table~\ref{tab:error_budget} summarizes various uncertainty sources.
+
+% \begin{table*}[ht!]
+% \centering
+% \caption{Uncertainty budget for the HI line analysis.}
+% \label{tab:error_budget}
+% \begin{tabular}{lcc}
+% \hline\hline
+% Term & Value & Dominant? \\
+% \hline
+% \multicolumn{3}{l}{\textit{Thermal noise}} \\
+% Per-channel $\delta T$ (LO\,1420) & 603.2\,mK & -- \\
+% Per-channel $\delta T$ (LO\,1421) & 697.6\,mK & -- \\
+% Smoothed noise (31 ch) & $\sim 108$--$125$\,mK & -- \\
+% \hline
+% \multicolumn{3}{l}{\textit{Temperature calibration}} \\
+% $\sigma_{T_{\rm rx}}(1420)$ total & 4\,K & load-dominated \\
+% $\sigma_{T_{\rm rx}}(1421)$ total & 4\,K & load-dominated \\
+% \quad Statistical & 0.02\,K & -- \\
+% \quad Load temperature & 3.4--3.7\,K & \textbf{dominant} \\
+% \quad Hardware systematic & 0.89--1.08\,K & -- \\
+% \hline
+% \multicolumn{3}{l}{\textit{Baseline-model systematic under joint fits}} \\
+% $\Delta$ centroid (standard/R vs.\ $R_{\rm inv}$) & 10.41\,km/s & -- \\
+% $\Delta$ FWHM (standard/R vs.\ $R_{\rm inv}$) & 13.70\,km/s & \textbf{dominant} \\
+% \hline
+% \multicolumn{3}{l}{\textit{Cable / equipment}} \\
+% $\sigma_\alpha$ (SDR) & 0.13\,dB/m & -- \\
+% $\sigma_L$ (SDR) & 7\,m & -- \\
+% $\sigma_{v_{\rm coax}/c}$ & 0.10 & -- \\
+% \hline\hline
+% \end{tabular}
+% \end{table*}
+
+% The dominant systematic uncertainty in the HI line analysis is the
+% baseline-model systematic under joint fits where the choice of polynomial
+% order and off-line seeding window could have shifted the centroid by up to 10\,km/s and
+% the FWHM by up to 14\,km/s
+% between the $R$ and $R_{\rm inv}$ signal-extraction paths.
+% This systematic exceeds the thermal noise by roughly two orders of magnitude,
+% and limits the precision of the component velocity centroids more than
+% any instrumental calibration uncertainty.
+
+% For the temperature calibration, the \textbf{load temperature uncertainty}
+% ($\sigma_{T_{\rm hot}} = 5$\,K, $\sigma_{T_{\rm cold}} = 2$\,K) dominates,
+% contributing $3.4$--$3.7$\,K to $\sigma_{T_{\rm rx}}$.
+% Improving the calibration would require more precise temperature references
+% (e.g., a liquid-nitrogen cold load or a precision blackbody).
+
+%=======================================================================
 \section{Discussion}
 \label{sec:discussion}
+%=======================================================================
 
-This draft is now method-complete in calibration-first order and ready for a final data-insertion pass.
-The primary remaining blockers for strict end-state reporting are:
-\begin{enumerate}
-\item final analog termination/reflectometry measurements,
-\item exact receiver component part numbers and datasheet gain/loss table completion,
-\item revised temperature-calibration numbers,
-\item finalized UTC/PST/LST/JD and pointing theory tables,
-\item final HI component and uncertainty summaries after data refresh.
-\end{enumerate}
+\subsection{Receiver Noise Temperature}
 
-Once these values are inserted, placeholders in Appendix~\ref{sec:app_placeholder_map}
-can be resolved in a single controlled update.
+The measured receiver noise temperatures ($T_{\rm rx} = 79$\,K at 1420\,MHz and
+$96$\,K at 1421\,MHz) are reasonable for a system using consumer-grade
+RTL-SDR components combined with low-noise amplifiers.
+Typical horn-antenna receiver systems span 50--300\,K \citep{wilson2013};
+our values are in the lower-middle of this range.
 
+% The 17\,K difference between the two LO settings is consistent with
+% frequency-dependent gain variation across the $\sim 1$\,MHz LO spacing.
+% The RTL2832U analog section has $\sim 5$--$10\%$ gain variation across the
+% IF passband, and the LNA (ZKL-33ULN-S+) gain also varies slightly near 1420\,MHz.
+% This LO-dependent $T_{\rm rx}$ motivates using the lower-noise LO\,1420 as
+% the reference for intensity calibration wherever possible.
+
+\subsection{Cable Characterization}
+
+The SDR attenuation estimate ($\alpha = 0.73$\,dB/m) and power-meter
+estimate ($\alpha = 0.80$\,dB/m) agree within $0.6\sigma$.
+The standard specification for RG-58 at 1420\,MHz is approximately
+$0.5$--$0.8$\,dB/m depending on quality, so both measurements are physically reasonable.
+
+The unknown roof--lab cable length estimates converge on $\sim 36$\,m
+from the direct methods (bench measurement and power-meter intercept),
+while the SDR estimate ($\sim 40$\,m) has much larger uncertainty.
+We adopt $L = 36$\,m as our best estimate.
+This gives a total cable attenuation of $36 \times 0.80 \approx 29$\,dB,
+which is compensated by the $3 \times 26 = 78$\,dB of rooftop gain.
+
+The measured $v_{\rm coax}/c = 0.54 \pm 0.10$ is about $1.2\sigma$ below
+the nominal RG-58 specification ($v/c = 0.66$), but remains consistent
+within uncertainty.
+This offset most likely reflects the ambiguity in identifying the
+periodic square-wave branch and the exact echo-edge pick.
+
+\subsection{HI Line Structure at $(l,b) = (120^\circ, 0^\circ)$}
+
+The standard field exhibits at least four kinematic components spanning
+$v_{\rm LSR} \approx -110$ to $+20$\,km/s.
+This multi-component structure is expected for a Galactic-plane sight line
+in the second quadrant ($l = 120^\circ$), which intersects multiple spiral arms:
+\begin{itemize}
+  \item The Local Arm ($v_{\rm LSR} \sim -10$ to $+20$\,km/s) contributes
+        the dominant component at $v_0 \approx -16$ to $+18$\,km/s
+        depending on the extraction path.
+  \item The Perseus Arm ($v_{\rm LSR} \sim -50$ to $-80$\,km/s) contributes
+        the broad components near $-53$ to $-71$\,km/s with FWHM $= 35$\,km/s.
+  \item A possible outer arm feature appears near $-90$ to $-108$\,km/s.
+\end{itemize}
+The exact velocity assignments depend on the adopted Galactic rotation model.
+These velocities are broadly consistent with HI4PI survey values for this
+sight line \citep{hi4pi2016,dickey1990,kalberla2009}.
+The Big Horn horn has a large field of view, and neither the effective beam
+size nor the beam/aperture efficiency was independently mapped in this lab.
+The observed components are therefore beam-averaged over a broad patch of the
+Galactic plane and are likely coupled to the surrounding large-scale HI
+structure, not just to a few discrete line-of-sight features.
+
+\subsection{Fit Quality and Model Limitations}
+
+The standard field fits show $\chi^2_{\rm red} = 6.14$--$7.14$ for the best 4-component models.
+Values $\gg 1$ indicate that the model is imperfect. This could be due insufficient number of Gaussian components where the upper bound of
+$N = 4$ in the grid search may not capture all kinematic sub-structure, or residual low-order baseline structure not being fully captured by the jointly fit polynomial among other likely causes.
+A less constrained mixture can push
+$\chi^2_\nu$ closer to 1, but only by accepting unphysical component peak
+amplitudes, centroid velocities, or FWHM values that absorb baseline or
+calibration structure. We therefore prefer the physics-aware bounded
+solutions even when their reduced $\chi^2$ remains significantly above unity.
+
+The Cygnus-X field achieves $\chi^2_{\rm red} = 2.10$,
+closer to unity, suggesting that a less complex kinematic structure along
+that sight line is better captured by the same 4-component model.
+
+%=======================================================================
 \section{Conclusion}
 \label{sec:conclusion}
+%=======================================================================
 
-The report has been restructured to a dependency-correct flow:
-\begin{enumerate}
-\item equipment calibration experiments,
-\item temperature calibration experiments,
-\item calibrated HI measurement experiments.
-\end{enumerate}
+In this lab, we performed a 3-part analysis of the Big Horn receiver.
 
-This structure is preserved while deferring calibration-sensitive numeric claims to explicit
-placeholders. The next revision cycle only requires filling those placeholders and regenerating
-plots/tables from updated data products.
+Starting with equipment calibration, we characterized coax attenuation
+($\alpha = 0.80$\,dB/m, power-meter), unknown cable length
+($L \approx 36$\,m), coax propagation velocity
+($v_{\rm coax}/c = 0.54 \pm 0.10$), SDR linearity (29\,dB headroom,
+RMSE $= 0.098$\,dB), and FIR+summing passband
+(FIR-only edge/center $= 0.237$, analysis band $\pm 0.8$\,MHz). Next, we performed temperature calibration via Y-factor measured
+$T_{\rm rx} = 79 \pm 4$\,K (LO\,1420) and
+$96 \pm 4$\,K (LO\,1421),
+with load-temperature uncertainty dominating.
+System noise floors of $\delta T_{\rm chan} = 603.2$ and $697.6$\,mK
+were verified via the radiometer equation. With a more understood system, we performed
+HI observations at $(l,b) = (120^\circ, 0^\circ)$ revealed
+a multi-component HI spectrum spanning $-110$ to $+20$\,km/s LSR,
+interpreted as Local Arm, Perseus Arm, and outer-arm gas.
+A Cygnus-X cross-validation field confirmed the
+$\sim -16$\,km/s Local Arm feature.
+Gaussian decomposition (4 components, $\chi^2_{\rm red} = 6.14$--$7.14$)
+demonstrated the full analysis pipeline.
 
 \section*{Acknowledgements}
-Special thanks to my lab partners Nathaneil and Kayhan for group observations,
-and to Aaron and Ben for instructional support.
+Special thanks to my lab partners Nathaneil and Kayhan, and especially Mitchell and Wesley for group observations,
+and to Prof. Aaron Parsons and GSI Ben for instructional support.
+I also acknowledge the use of ChatGPT Codex and Claude Code for assistance
+with vetting phrasing and checking the report writeup.
+
+\bibliographystyle{aasjournal}
+\bibliography{ref}
 
 \appendix
 
-\section{Placeholder Map for Final Revision}
-\label{sec:app_placeholder_map}
-
-This appendix centralizes all deferred values for the next data update.
-
-\begin{itemize}
-\item Time/clock validation: \tbd{UTC\_PST\_RESIDUAL\_S}, \tbd{JD\_ROUNDTRIP\_RESIDUAL\_S},
-\tbd{LST\_ASTROPY\_RESIDUAL\_S}, \tbd{NTP\_OFFSET\_MS}.
-\item Pointing validation: \tbd{LB120\_RA\_DEC}, \tbd{POINTING\_RESIDUAL\_ARCMIN},
-\tbd{POINTING\_CUT\_ARCMIN}, \tbd{LB120\_TIME\_WINDOW}.
-\item Pre-science receiver checks: \tbd{BIRDIE\_FREQ\_CHECK\_SUMMARY},
-\tbd{ADC\_HISTOGRAM\_SUMMARY}, \tbd{GAIN\_SETTING\_RANGE\_SUMMARY},
-\tbd{FIR\_EDGE\_PLACEMENT\_SUMMARY}.
-\item Week-1 SGP substitution note and metadata:
-explicitly documented in \S\ref{sec:week1_sgp}
-(March 5, 2026 session metadata and $\Delta v_{\rm LSR}\approx-7.02$\,km\,s$^{-1}$).
-\item Cable calibration: \tbd{CABLE\_ALPHA\_DB\_PER\_M}, \tbd{CABLE\_ALPHA\_CI95}, \tbd{CABLE\_DELTA\_B\_DB},
-\tbd{UNKNOWN\_LENGTH\_M}.
-\item Termination/propagation: \tbd{VCOAX\_M\_PER\_S}, \tbd{TERMINATION\_STATE\_COMPARISON}.
-\item SDR/chain: \tbd{SDR\_VOLT\_SCALE\_V\_PER\_COUNT}, \tbd{AMP\_GAIN\_TABLE},
-\tbd{FILTER\_LOSS\_TABLE}, \tbd{ROOF\_CABLE\_LENGTH\_M}.
-\item Datasheet extraction: \tbd{CHAIN\_DATASHEET\_TABLE\_WITH\_PART\_NUMBERS}.
-\item Temperature calibration: \tbd{Y1420}, \tbd{Y1421}, \tbd{TRX\_1420\_K}, \tbd{TRX\_1421\_K},
-\tbd{APERTURE\_EFFICIENCY}, \tbd{BEAM\_FILL\_FACTOR}.
-\item Line-shape extraction choices: \tbd{LINE\_STACK\_MEAN\_SUMMARY},
-\tbd{LINE\_STACK\_MEDIAN\_SUMMARY}, \tbd{LINE\_SMOOTH\_NCHAN}.
-\item HI science outputs: \tbd{LSR\_SHIFT\_KMS}, \tbd{N\_GAUSS\_FINAL},
-\tbd{VLSR\_COMPONENTS\_KMS}, \tbd{FWHM\_COMPONENTS\_KMS}, \tbd{CHI2\_RED\_FINAL}.
-\item Effective efficiency estimate from current data:
-\texttt{labs/02/report/eta\_eff\_estimate.csv} (currently $\eta_{\mathrm{eff}}=0.64\pm0.28$).
-\item Uncertainty totals: \tbd{SIGMA\_THERMAL\_PER\_CHANNEL}, \tbd{SIGMA\_BASELINE\_SYS},
-\tbd{SIGMA\_TEMP\_SCALE\_SYS}, \tbd{SIGMA\_CABLE\_CAL\_SYS}.
-\end{itemize}
-
-\section{Detailed Equipment Calibration Models}
-\label{sec:app_cable_models}
-
-\subsection{Known-Length Cable Models}
-\label{sec:app_known_length_models}
-
-For SDR channels at two LOs:
-\begin{equation}
-  y_i(L)=B_i-\alpha L, \qquad i\in\{1420,1421\}.
-\end{equation}
-
-Reflection-aware extension:
-\begin{equation}
-  y_i(L)=B_i-\alpha L + A_i\cos(kL+\phi_i).
-\end{equation}
-
-These alternatives are retained for sensitivity bracketing and model-risk discussion.
-
-\subsection{Unknown-Length Inversion}
-\label{sec:app_unknown_length}
-
-Given fitted intercept and slope,
-\begin{equation}
-  L_i = \frac{B_i-y_i^{\mathrm{obs}}}{\alpha}.
-\end{equation}
-
-The reported unknown length uses a combined estimate across channels and
-bootstrap confidence intervals.
-
-\subsection{Termination and Reflectometry Derivation}
-\label{sec:app_reflectometry_derivation}
-
-From a measured round-trip delay $\Delta t$ on a cable of length $L$,
-\begin{equation}
-  v_{\mathrm{coax}} = \frac{2L}{\Delta t}.
-\end{equation}
-
-Final entries in this section will include state-by-state waveform evidence,
-frequency dependence, and uncertainty propagation.
-
-\section{Detailed HI Model and Fitting Notes}
-\label{sec:app_hi_models}
-
-\subsection{Line Extraction and Calibration Chain}
-\label{sec:app_line_chain}
-
-Core chain used in analysis:
-\begin{align}
-  r_{\mathrm{line}}(\nu) &= \frac{s_{\mathrm{on}}(\nu)}{s_{\mathrm{off}}(\nu)},\\
-  T_{\mathrm{line}}(\nu) &= r_{\mathrm{line}}(\nu)\,G.
-\end{align}
-
-\subsection{Baseline and Component Fitting}
-\label{sec:app_baseline_gauss_details}
-
-Baseline models and Gaussian component fits are evaluated with least-squares diagnostics,
-then optionally cross-checked with MCMC/LOO model-selection workflows.
-Final selected model and posterior/covariance summaries will be inserted in the next revision.
-
+%=======================================================================
 \section{Reproducibility Notes}
 \label{sec:app_reproducibility}
+%=======================================================================
 
-Primary notebooks currently used:
-\texttt{labs/02/equipment\_calibration.ipynb},
-\texttt{labs/02/temperature\_calibration.ipynb}, and
-\texttt{labs/02/analysis.ipynb}.
+All code, notebooks, cached analysis products, and report sources used for
+this lab are version-controlled at
+\url{https://github.com/raw-asparagus/ay-121}. 
 
-Primary report-support scripts now include:
-\texttt{labs/02/scripts/pointing\_backend\_benchmark.py} and
-\texttt{labs/02/scripts/estimate\_eta\_eff.py}.
+%=======================================================================
+\section{Experimental Bench Configurations}
+\label{sec:app_bench}
+%=======================================================================
 
-Data roots used:
-\texttt{data/lab02/*}.
+This appendix provides schematic block diagrams for the distinct bench
+experiments in Sections~\ref{sec:equipment_cal} and~\ref{sec:temp_cal}.
+Node styles follow Figure~\ref{fig:block_diagram}; additional symbols
+(\textit{siggen}, \textit{powermeter}, \textit{scope}, \textit{termination},
+\textit{splitter}) are defined locally.
 
-A final update pass should regenerate figures, replace all \tbd{...} placeholders,
-and recompile this document.
+\subsection{Cable Attenuation (Known-Length Cables)}
+
+\begin{figure*}[ht!]
+\centering
+\begin{tikzpicture}[
+    sgnode/.style={draw,rectangle,align=center,font=\small,
+                   text width=2.1cm,minimum height=1.1cm},
+    coaxnode/.style={draw,rounded corners,align=center,font=\small,
+                     text width=2.1cm,minimum height=1.0cm},
+    epnode/.style={draw,rounded corners,align=center,font=\small,
+                   text width=1.8cm,minimum height=1.0cm},
+    arr/.style={-Latex,thick},
+    splitter/.style={draw,circle,inner sep=1.5pt,font=\footnotesize}
+  ]
+  \node[sgnode] (sg) {Signal Gen\\1420/1421\,MHz};
+  \node[coaxnode,right=0.9cm of sg] (c1) {6-ft ref\\cable};
+  \node[coaxnode,right=0.9cm of c1] (c2) {6-ft ref\\cable};
+  \node[coaxnode,right=0.9cm of c2] (ct) {Test cable\\$L$ variable};
+  \node[splitter,right=0.7cm of ct] (sp) {S};
+  \node[epnode,above right=0.5cm and 0.7cm of sp] (sdr) {SDR};
+  \node[epnode,below right=0.5cm and 0.7cm of sp] (pm) {Power\\meter};
+  \draw[arr] (sg)--(c1);
+  \draw[arr] (c1)--(c2);
+  \draw[arr] (c2)--(ct);
+  \draw[arr] (ct)--(sp);
+  \draw[arr] (sp)--(sdr);
+  \draw[arr] (sp)--(pm);
+\end{tikzpicture}
+\caption{Cable attenuation bench configuration.
+A signal generator at 1420 or 1421\,MHz feeds through two fixed 6-ft reference
+cables and one test cable of variable length $L$.
+A Mini-Circuits ZFSC-2-372-S+ two-way splitter at the output divides power between
+the RTL-SDR and a calibrated
+power meter, providing two independent attenuation measurements per cable run.}
+\label{fig:bench_attenuation}
+\end{figure*}
+
+\subsection{Unknown Roof--Lab Cable Length}
+
+\begin{figure*}[ht!]
+\centering
+\begin{tikzpicture}[
+    sgnode/.style={draw,rectangle,align=center,font=\small,
+                   text width=2.1cm,minimum height=1.1cm},
+    coaxnode/.style={draw,rounded corners,align=center,font=\small,
+                     text width=2.4cm,minimum height=1.0cm},
+    epnode/.style={draw,rounded corners,align=center,font=\small,
+                   text width=1.8cm,minimum height=1.0cm},
+    arr/.style={-Latex,thick},
+    splitter/.style={draw,circle,inner sep=1.5pt,font=\footnotesize}
+  ]
+  \node[sgnode] (sg) {Signal Gen\\1420/1421\,MHz};
+  \node[coaxnode,right=0.9cm of sg] (c1) {6-ft ref\\cable};
+  \node[coaxnode,right=0.9cm of c1] (c2) {6-ft ref\\cable};
+  \node[coaxnode,right=0.9cm of c2,draw=red!70!black] (cu)
+        {Unknown cable\\$L \approx ?$\\(Roof--lab coax)};
+  \node[splitter,right=0.7cm of cu] (sp) {S};
+  \node[epnode,above right=0.5cm and 0.7cm of sp] (sdr) {SDR};
+  \node[epnode,below right=0.5cm and 0.7cm of sp] (pm) {Power\\meter};
+  \draw[arr] (sg)--(c1);
+  \draw[arr] (c1)--(c2);
+  \draw[arr] (c2)--(cu);
+  \draw[arr] (cu)--(sp);
+  \draw[arr] (sp)--(sdr);
+  \draw[arr] (sp)--(pm);
+\end{tikzpicture}
+\caption{Unknown roof--lab cable length measurement.
+Identical to the known-cable attenuation setup (Appendix~\ref{fig:bench_attenuation}),
+including the Mini-Circuits ZFSC-2-372-S+ two-way splitter,
+with the test cable replaced by the unknown roof--lab coaxial cable.
+Three independent length estimates are derived from the SDR power reading,
+the power-meter reading (via intercept of the fitted attenuation model),
+and a bench inch-ruler (36\,m).}
+\label{fig:bench_unknown_length}
+\end{figure*}
+
+\pagebreak
+
+\subsection{Square-Wave Reflectometry}
+
+\begin{figure*}[ht!]
+\centering
+\begin{tikzpicture}[
+    sgnode/.style={draw,rectangle,align=center,font=\small,
+                   text width=2.1cm,minimum height=1.1cm},
+    coaxnode/.style={draw,rounded corners,align=center,font=\small,
+                     text width=2.4cm,minimum height=1.1cm},
+    termnode/.style={draw,align=center,font=\small,
+                     text width=2.1cm,minimum height=1.0cm},
+    scopenode/.style={draw,rounded corners,align=center,font=\small,
+                      text width=2.0cm,minimum height=1.1cm,fill=gray!10},
+    arr/.style={-Latex,thick},
+    splitter/.style={draw,circle,inner sep=1.5pt,font=\footnotesize}
+  ]
+  \node[sgnode] (sq) {Sq-wave gen};
+  \node[splitter,right=1.0cm of sq] (t) {T};
+  \node[coaxnode,right=1.0cm of t] (cable) {Cable under test\\$L = 40$\,m};
+  \node[termnode,right=1.0cm of cable] (term) {Termination\\(swappable)};
+  \node[scopenode,below=1.2cm of t] (scope) {Oscilloscope};
+  \draw[arr] (sq)--(t);
+  \draw[arr] (t)--(cable);
+  \draw[arr] (cable)--(term);
+  \draw[arr] (t)--(scope);
+  % legend
+  \node[draw,dashed,rounded corners,below=1.2cm of term,
+        align=left,font=\footnotesize,inner sep=4pt] (leg) {
+    Termination states:\\
+    (1)~Open end: $\Gamma = +1$\\
+    (2)~50\,$\Omega$ matched: $\Gamma \approx 0$\\
+    (3)~SDR unpowered\\
+    (4)~SDR powered
+  };
+  \node[below=0.2cm of scope,font=\footnotesize,align=center]
+    {$\Delta t = 2L/v_p$};
+\end{tikzpicture}
+\caption{Square-wave reflectometry bench configuration.
+A square-wave generator is connected to a T-connector; one arm feeds
+the cable under test (40\,m) terminated by a swappable load,
+and the other arm goes to an oscilloscope monitoring the round-trip echo.
+Four termination states were tested; the open-end state ($\Gamma=+1$)
+provides the clearest echo for measuring $\Delta t_{\rm mod} = 98.0$\,ns;
+with square-wave period $T = 400.0$\,ns and branch $n=1$, this yields
+$\Delta t = 498.0$\,ns and hence $v_{\rm coax}/c = 0.54 \pm 0.10$.}
+\label{fig:bench_reflectometry}
+\end{figure*}
+
+\subsection{SDR Gain Sweep (Linearity Test)}
+
+\begin{figure*}[ht!]
+\centering
+\begin{tikzpicture}[
+    sgnode/.style={draw,rectangle,align=center,font=\small,
+                   text width=2.3cm,minimum height=1.1cm},
+    coaxnode/.style={draw,rounded corners,align=center,font=\small,
+                     text width=2.1cm,minimum height=1.0cm},
+    epnode/.style={draw,rounded corners,align=center,font=\small,
+                   text width=1.8cm,minimum height=1.0cm},
+    arr/.style={-Latex,thick},
+    splitter/.style={draw,circle,inner sep=1.5pt,font=\footnotesize}
+  ]
+  \node[sgnode] (sg) {Signal Gen\\swept\\$-19.5$ to $+18$\,dBm};
+  \node[coaxnode,right=0.9cm of sg] (c1) {6-ft ref\\cable};
+  \node[coaxnode,right=0.9cm of c1] (c2) {6-ft ref\\cable};
+  \node[splitter,right=0.7cm of c2] (sp) {S};
+  \node[epnode,above right=0.5cm and 0.7cm of sp] (sdr) {SDR\\gain 0\,dB};
+  \node[epnode,below right=0.5cm and 0.7cm of sp] (pm) {Power meter\\(ref)};
+  \draw[arr] (sg)--(c1);
+  \draw[arr] (c1)--(c2);
+  \draw[arr] (c2)--(sp);
+  \draw[arr] (sp)--(sdr);
+  \draw[arr] (sp)--(pm);
+\end{tikzpicture}
+\caption{SDR gain linearity sweep.
+A signal generator at 1420\,MHz is swept from $-19.5$ to $+18$\,dBm
+through two 6-ft reference cables.
+A Mini-Circuits ZFSC-2-372-S+ two-way splitter divides power to both the
+RTL-SDR (fixed gain 0\,dB)
+and a calibrated power meter providing the reference level at each setpoint.
+The SDR remains linear up to 13.0\,dBm (RMSE $= 0.098$\,dB),
+with first clipping at 15.5\,dBm and 29\,dB of headroom above sky levels.}
+\label{fig:bench_gain_sweep}
+\end{figure*}
+
+\subsection{Y-Factor Temperature Calibration Setup}
+
+\begin{figure*}[ht!]
+\centering
+\begin{tikzpicture}[
+    loadnode/.style={draw,rectangle,align=center,font=\small,
+                     text width=2.1cm,minimum height=1.0cm},
+    hornnode/.style={draw,rounded corners,align=center,font=\small,
+                     text width=1.9cm,minimum height=1.1cm},
+    chainnode/.style={draw,align=center,font=\small,
+                      text width=3.0cm,minimum height=1.1cm},
+    epnode/.style={draw,rounded corners,align=center,font=\small,
+                   text width=1.6cm,minimum height=1.0cm},
+    arr/.style={-Latex,thick},
+    statelabel/.style={font=\footnotesize\bfseries}
+  ]
+  % Hot state (top row)
+  \node[loadnode,fill=red!10] (hot) {Hot load\\$T_{\rm hot}=310$\,K\\(human body)};
+  \node[hornnode,right=1.3cm of hot] (horn) {Horn\\aperture};
+  \node[chainnode,right=1.2cm of horn] (roof) {Roof: A1$\to$F1$\to$A2$\to$A3};
+  \node[chainnode,right=1.0cm of roof] (lab) {Lab: C1$\to$F2$\to$A4$\to$A5};
+  \node[epnode,right=1.0cm of lab] (sdr) {SDR};
+  % Cold state (bottom, merging into horn)
+  \node[loadnode,below=1.2cm of hot,fill=blue!10] (cold)
+    {Cold sky\\$T_{\rm cold}=30$\,K\\($l\approx165^\circ$)};
+  % Arrows hot
+  \draw[arr] (hot.east)--(horn.west);
+  \draw[arr] (horn)--(roof);
+  \draw[arr] (roof)--(lab);
+  \draw[arr] (lab)--(sdr);
+  % Arrow cold merging into horn
+  \draw[arr] (cold.east) -- ++(2.3cm,0) -- (horn.south);
+  % Switch annotation
+  \node[draw,dashed,rounded corners,above=0.4cm of horn,
+        font=\footnotesize,inner sep=3pt]
+    {Switch state A (hot) / B (cold)};
+  % State labels
+  \node[statelabel,left=0.1cm of hot] {A:};
+  \node[statelabel,left=0.1cm of cold] {B:};
+\end{tikzpicture}
+\caption{Y-factor temperature calibration setup.
+In state A (hot), a human body ($310 \pm 5$\,K) fills the horn aperture.
+In state B (cold), the horn points to a low-HI column direction
+($l \approx 165^\circ$, $b \approx 36^\circ$, $T_{\rm cold} \approx 30 \pm 2$\,K).
+Both states use the same RF chain (roof amplifiers A1, filter F1, amplifiers A2/A3;
+roof--lab cable C1; lab filter F2, amplifiers A4/A5; RTL-SDR),
+so the Y-factor $Y = P_{\rm hot}/P_{\rm cold}$ cancels the gain and isolates $T_{\rm rx}$.}
+\label{fig:bench_yfactor}
+\end{figure*}
 
 \end{document}

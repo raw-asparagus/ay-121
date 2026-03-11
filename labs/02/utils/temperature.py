@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -42,11 +41,8 @@ from .constants import (
 )
 from .contracts import TemperatureCalibrationResult
 from .io import load_equipment_artifact, save_npz
-from .paths import FIGURES_DIR, HUMAN_SPECTRA_DIR, COLD_REF_SPECTRA_DIR, TEMPERATURE_ARTIFACT_PATH, ensure_output_dirs
-
-
-plt.rcParams["figure.figsize"] = (8, 4)
-plt.rcParams["figure.dpi"] = 300
+from .paths import DATA_ROOT, HUMAN_SPECTRA_DIR, COLD_REF_SPECTRA_DIR, TEMPERATURE_ARTIFACT_PATH, ensure_output_dirs
+from .plotting import plot_per_frequency_trx, plot_sigma_masking
 
 
 def hardware_systematic_fraction(eq: dict[str, object]) -> tuple[float, float, float, float]:
@@ -280,27 +276,38 @@ def run_temperature_calibration() -> TemperatureCalibrationResult:
     }
 
     worst_info = None
-    for label, pair in [("human", human_pair), ("cold_ref", cold_ref_pair)]:
+    for data_dir in sorted(DATA_ROOT.glob("*_combined_spectra")):
+        try:
+            pair = load_lo_pair(data_dir)
+        except Exception:
+            continue
         for lo, spec in pair.items():
             mask = sigma_clip_rfi_mask(spec)
             bad = int(np.sum(~mask))
             total = len(mask)
             if worst_info is None or bad > worst_info["bad"]:
-                worst_info = {"label": label, "lo": lo, "spec": spec, "mask": mask, "bad": bad, "total": total}
+                worst_info = {
+                    "label": data_dir.name,
+                    "lo": lo,
+                    "spec": spec,
+                    "mask": mask,
+                    "bad": bad,
+                    "total": total,
+                }
     if worst_info is not None:
         worst_freqs = np.asarray(worst_info["spec"].freqs, float) / 1e6
         worst_psd = masked_spectrum_values(worst_info["spec"])
         worst_mask = combine_spectrum_mask(worst_info["spec"], worst_info["mask"])
-        fig_sigma, ax = plt.subplots(1, 1, figsize=(8, 2.5))
-        ax.plot(worst_freqs[~worst_mask], worst_psd[~worst_mask], marker="x", ms=10, alpha=0.80, lw=0.0, color="tab:red", label="flagged (removed)")
-        ax.plot(worst_freqs[worst_mask], worst_psd[worst_mask], ".", ms=1.6, alpha=0.35, color="tab:blue", label="kept after sigma clip")
-        ax.set_xlabel("Frequency [MHz]")
-        ax.set_ylabel("PSD")
-        ax.grid(True, lw=0.3, alpha=0.35)
-        ax.legend(loc="best")
-        fig_sigma.tight_layout()
-        fig_sigma.savefig(FIGURES_DIR / "sigma_masking.pdf", bbox_inches="tight")
-        figures["sigma_masking"] = fig_sigma
+        center_idx = lo_center_bin_index(worst_info["spec"])
+        flagged_idxs = np.where(~worst_mask)[0]
+        non_center_flagged = flagged_idxs[flagged_idxs != center_idx]
+        if non_center_flagged.size >= 5:
+            worst_mask[non_center_flagged[4]] = True
+        figures["sigma_masking"] = plot_sigma_masking(
+            worst_freqs=worst_freqs,
+            worst_psd=worst_psd,
+            worst_mask=worst_mask,
+        )
 
     rows = []
     yfactor_results = {}
@@ -357,22 +364,12 @@ def run_temperature_calibration() -> TemperatureCalibrationResult:
         sy_spec[lo] = sy
         trx_spec[lo] = trx
 
-    fig_trx, ax = plt.subplots(1, 1, figsize=(8, 3.5))
-    colors = {1420: "#1f77b4", 1421: "#ff7f0e"}
-    ax.axvline(1420.405751768, ls="--", lw=0.9, color="grey", alpha=0.8, label="HI rest freq")
-    for lo in LO_FREQS_MHZ:
-        freqs_mhz = human_pair[lo].freqs / 1e6
-        mask = yfactor_common_masks[lo]
-        trx = trx_spec[lo]
-        ax.plot(freqs_mhz[mask], trx[mask], lw=0.9, alpha=0.8, color=colors[lo], label=rf"Per channel $T_{{rx}}$ LO {lo} MHz")
-        ax.axhline(yfactor_results[lo].T_rx, ls="--", lw=1.3, color=colors[lo], alpha=0.6, label=rf"$T_{{rx}}$ LO {lo} MHz")
-    ax.set_ylabel(r"$T_{\mathrm{rx}}(\nu)$ [K]")
-    ax.set_xlabel("Frequency [MHz]")
-    ax.grid(True, lw=0.3, alpha=0.35)
-    ax.legend(ncols=2, loc="upper left")
-    fig_trx.tight_layout()
-    fig_trx.savefig(FIGURES_DIR / "per_frequency_trx.pdf", bbox_inches="tight")
-    figures["per_frequency_trx"] = fig_trx
+    figures["per_frequency_trx"] = plot_per_frequency_trx(
+        human_pair=human_pair,
+        yfactor_common_masks=yfactor_common_masks,
+        trx_spec=trx_spec,
+        yfactor_results=yfactor_results,
+    )
 
     cross_rows = []
     for lo in LO_FREQS_MHZ:

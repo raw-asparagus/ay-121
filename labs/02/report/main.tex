@@ -1,6 +1,6 @@
 \documentclass[10pt,preprint2]{aastex}
-\usepackage[left=0.75in,right=0.25in,top=0.75in,bottom=0.75in]{geometry}
-\AtBeginDocument{\newgeometry{left=0.75in,right=0.35in,top=0.75in,bottom=0.75in}}
+\usepackage[a4paper,asymmetric,left=0.75in,right=0.75in,top=0.75in,bottom=0.75in]{geometry}
+\AtBeginDocument{\newgeometry{asymmetric,left=0.75in,right=0.75in,top=0.75in,bottom=0.75in}\hoffset=0pt\setlength{\columnsep}{0.3in}}
 \usepackage{amsmath, amsfonts, amssymb}
 \usepackage{hyperref}
 \usepackage{graphicx}
@@ -9,7 +9,6 @@
 \usetikzlibrary{arrows.meta,positioning,fit,calc}
 
 % Master RF block-diagram spacing knobs.
-\newcommand{\rfRowGap}{30mm}
 \newcommand{\rfRoofGap}{20mm}
 \newcommand{\rfLabGap}{20mm}
 \newcommand{\rfAmpLabelGap}{1.0mm}
@@ -35,10 +34,12 @@
   \node[amplabel,below=\rfAmpLabelGap of #2] {#4};%
 }
 
+\makeatletter\def\frontmatter@abstractheading{}\makeatother
+\renewcommand{\abstractname}{}
 \begin{document}
 
 \title{Observing the Galactic HI 21-cm Line with the Big Horn Receiver}
-\author{Jun Rui Ting \\ March 2026\vspace{-1.5\baselineskip}}
+\author{Jun Rui Ting \\ \today\vspace{-2.5\baselineskip}}
 
 %-----------------------------------------------------------------------
 \begin{abstract}
@@ -62,13 +63,11 @@ interpreted as multiple spiral-arm crossings in the Perseus arm region.
 A Cygnus-X cross-validation field confirms a dominant feature near
 $-16$\,km\,s$^{-1}$ attributed to Local Arm material.
 
-\vspace{2\baselineskip}
+\vspace{2.5\baselineskip}
 \end{abstract}
 
-\section*{Preface}
-
-I would like to apologize for this late work but I had a lot of fun doing it and I hope you enjoy reading it as much as I enjoyed taking data. It devolved into a passion project of sorts and I took way too long in writing it. I am sorry for giving empty promises but I will do my best to juggle this and AY-128 for the next two labs.
-
+% \setcounter{tocdepth}{1}
+% \tableofcontents
 
 %=======================================================================
 \section{Introduction}
@@ -109,7 +108,7 @@ the parallel-spin triplet state ($F=1$, higher energy) and the
 antiparallel-spin singlet state ($F=0$, lower energy).
 The energy splitting corresponds to a photon frequency of
 \begin{equation}
-  \nu_0 = 1\,420\,405\,751.768\;\mathrm{Hz} \approx 1420.41\;\mathrm{MHz}.
+  \nu_0 = 1\,420\,405\,751.768\;\mathrm{Hz}.
 \end{equation}
 The spontaneous emission (21-cm) Einstein $A$-coefficient is
 $A_{10} = 2.869 \times 10^{-15}$\,s$^{-1}$, corresponding to a radiative
@@ -132,38 +131,13 @@ with spin temperature $T_s$ and optical depth $\tau(\nu)$.
 
 \begin{figure}[ht!]
   \centering
-  \includegraphics[width=0.5\textwidth]{figures/hyperfine.pdf}
+  \includegraphics[width=\columnwidth]{figures/hyperfine.pdf}
   \caption{Energy-level diagram of the hydrogen 21-cm hyperfine transition.
   The triplet ($F=1$) and singlet ($F=0$) states are split by
   $\Delta E = h\nu_0 \approx 5.87\,\mu$eV.
   Spontaneous emission produces the 21-cm photon at $\nu_0 = 1420.41$\,MHz.}
   \label{fig:hyperfine}
 \end{figure}
-
-\subsection{Thermal (Doppler) Line Broadening}
-\label{sec:theory_broadening}
-
-Thermal motion of hydrogen atoms at temperature $T$ broadens the line via
-the Doppler effect.
-The resulting profile is Gaussian with
-\begin{equation}
-  \sigma_v = \sqrt{\frac{k_B T}{m_H}},
-  \qquad
-  \mathrm{FWHM} = 2\sqrt{2\ln 2}\,\sigma_v,
-\end{equation}
-where $m_H = 1.673 \times 10^{-27}$\,kg.
-At $T = 100$\,K, FWHM $\approx 2.1$\,km\,s$^{-1}$; at $T = 8000$\,K,
-FWHM $\approx 19$\,km\,s$^{-1}$.
-Turbulent broadening adds in quadrature and dominates for many ISM components.
-
-% \begin{figure*}[ht!]
-%   \centering
-%   \includegraphics[width=0.72\textwidth]{figures/thermal_broadening.pdf}
-%   \caption{Doppler broadening of the HI line as a function of temperature.
-%   The Gaussian FWHM scales as $\sqrt{T}$; at 8000\,K (WNM temperature),
-%   the thermal FWHM is $\approx 19$\,km\,s$^{-1}$.}
-%   \label{fig:thermal_broadening}
-% \end{figure*}
 
 \subsection{Receiver Noise and System Temperature}
 \label{sec:theory_noise}
@@ -327,11 +301,11 @@ we subtract the projection of the Sun's peculiar velocity onto the line of sight
 \end{equation}
 where $\Delta v_{\rm LSR}$ is computed from the IAU-standard solar apex
 ($l = 56^\circ$, $b = 23^\circ$, $v = 20$\,km\,s$^{-1}$) and the
-pointing metadata via\newline \texttt{ugradio.doppler.get\_projected\_velocity}.
+pointing metadata via\newline \texttt{ugradio.doppler}.
 
 \begin{figure}[ht!]
   \centering
-  \includegraphics[width=0.5\textwidth]{figures/lsr_geometry.pdf}
+  \includegraphics[width=\columnwidth]{figures/lsr_geometry.pdf}
   \caption{Geometry of the LSR velocity correction.
   The Sun's motion relative to the LSR projects onto the line of sight to the target,
   adding a systematic offset that depends on the pointing direction and observation epoch.}
@@ -369,8 +343,8 @@ and a laboratory back-end with SDR digitization.
     sectionbox/.style={draw,dashed,rounded corners,inner sep=\rfSectionPad}
   ]
   \coordinate (roofmid) at (0,0);
-  \coordinate (coaxmid) at ($(roofmid)+(0,-\rfRowGap)$);
-  \coordinate (labmid) at ($(coaxmid)+(0,-\rfRowGap)$);
+  \coordinate (coaxmid) at ($(roofmid)+(0,-23mm)$);
+  \coordinate (labmid) at ($(coaxmid)+(0,-20.5mm)$);
 
   % Row 1: Roof
   \rffilter{at={(roofmid)}}{f1}{F1}{BPF 1412--1428 MHz}{$-1$ dB}
@@ -413,7 +387,7 @@ and a laboratory back-end with SDR digitization.
   \node[sectionbox,fit=(h0)(a1)(f1)(a2)(a3),
         label={[font=\footnotesize\bfseries]above:Roof}] {};
   \node[sectionbox,fit=(c1),
-        label={[font=\footnotesize\bfseries]above left:Roof to Lab}] {};
+        label={[font=\footnotesize\bfseries]above:Roof to Lab}] {};
   \node[sectionbox,fit=(f2)(a4)(a5)(d1),
         label={[font=\footnotesize\bfseries]below:Lab}] {};
 \end{tikzpicture}
@@ -446,7 +420,7 @@ within roughly $\pm 0.8$\,MHz of the LO.
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.86\textwidth]{figures/signal_chain.pdf}
+  \includegraphics[width=\textwidth]{figures/signal_chain.pdf}
   \caption{Cumulative signal chain gain/loss from horn to SDR, showing
   contributions of each component. The net gain measured at the bench
   (Horn$\to$SDR, 2026-03-07) is $-6.0$\,dB,
@@ -518,7 +492,7 @@ One outlier cable run was removed during quality screening
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.86\textwidth]{figures/cable_attenuation_lo.pdf}
+  \includegraphics[width=\textwidth]{figures/cable_attenuation_lo.pdf}
   \caption{Normalized SDR power versus cable length for the LO\,1420 and LO\,1421
   bench measurements. The dotted lines show fits using all cable runs, while the
   dashed lines show the adopted shared-slope fit after omitting the 26-ft cable
@@ -540,7 +514,7 @@ with a 95\% confidence interval of $[0.47, 0.99]$\,dB/m.
 An independent power-meter measurement of the same cable set yields:
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.86\textwidth]{figures/cable_attenuation_power_meter.pdf}
+  \includegraphics[width=\textwidth]{figures/cable_attenuation_power_meter.pdf}
   \caption{Cable attenuation cross-check using a calibrated power meter.
   The fitted slope $\alpha_{\rm meter} = 0.80 \pm 0.03$\,dB/m is
   statistically consistent with the SDR estimate within $\sim 0.6\sigma$.}
@@ -611,7 +585,7 @@ within uncertainty.
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.86\textwidth]{figures/reflectometry.pdf}
+  \includegraphics[width=\textwidth]{figures/reflectometry.pdf}
   \caption{Square-wave reflectometry trace showing the incident signal
   and reflected pulse from the open cable end ($\Gamma = +1$).
   The measured modular edge separation is $\Delta t_{\rm mod} = 98.0$\,ns;
@@ -653,7 +627,7 @@ As such, sky observations should operate well within a linear gain response.
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.86\textwidth]{figures/sdr_gain_response_clipping.pdf}
+  \includegraphics[width=\textwidth]{figures/sdr_gain_response_clipping.pdf}
   \caption{SDR power response as a function of input setpoint.
   The linear regime (solid line) transitions to saturation/clipping above 13.0\,dBm.
   Sky observations at the current gain setting have 29\,dB of headroom below
@@ -668,7 +642,7 @@ Rather than measuring this response with a swept tone, we constructed a
 synthetic hardware-response diagnostic from the published FIR coefficients,
 then multiplied by a symmetric model of the undocumented summing stage and
 applied the combined response to a noise input on the output-frequency grid.
-Figure~\ref{fig:sdr_fir} compares two summing coefficients: Aaron Parsons's
+Figure~\ref{fig:sdr_fir} compares two summing coefficients: Prof. Aaron Parsons's
 guessed coefficients and a regression-optimized set fit to flatten the
 observed passband.
 Key diagnostic results:
@@ -681,10 +655,10 @@ Key diagnostic results:
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.86\textwidth]{figures/sdr_fir_summing_correction.pdf}
+  \includegraphics[width=\textwidth]{figures/sdr_fir_summing_correction.pdf}
   \caption{Synthetic FIR+summing diagnostic across the RTL-SDR passband.
   The blue trace is a normalized noise-input realization, the orange curve
-  applies the published FIR coefficients plus Aaron Parsons's guessed
+  applies the published FIR coefficients plus Prof. Aaron Parsons's guessed
   summing coefficients, and the green curve uses regression-optimized
   summing coefficients on top of the same FIR model.}
   \label{fig:sdr_fir}
@@ -726,7 +700,7 @@ out of 8192 total --- more than 99.9\% of channels pass the screening.
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.86\textwidth]{figures/sigma_masking.pdf}
+  \includegraphics[width=\textwidth]{figures/sigma_masking.pdf}
   \caption{RFI sigma-clipping mask for the temperature calibration spectra.
   Blue channels are retained; masked channels (red) correspond to RFI spikes
   and hardware response edges.
@@ -763,7 +737,7 @@ as the bandpass response differs slightly at the two LO settings.
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.86\textwidth]{figures/per_frequency_trx.pdf}
+  \includegraphics[width=\textwidth]{figures/per_frequency_trx.pdf}
   \caption{Per-channel receiver noise temperature $T_{\rm rx}(\nu)$ for both
   LO settings, computed channel-by-channel from the Y-factor.
   The frequency dependence indicates non-uniform gain across the passband,
@@ -835,7 +809,7 @@ the running mean.
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.86\textwidth]{figures/mean_vs_median.pdf}
+  \includegraphics[width=\textwidth]{figures/mean_vs_median.pdf}
   \caption{Comparison of sliding mean and sliding median smoothing on a
   representative normalized LO\,1420 PSD. The top panel shows the raw PSD
   together with 9-channel sliding-median and sliding-mean estimates; the lower
@@ -845,19 +819,19 @@ the running mean.
   \label{fig:mean_vs_median}
 \end{figure*}
 
-\begin{figure*}[ht!]
-  \centering
-  \includegraphics[width=0.86\textwidth]{figures/ratio_profile.pdf}
-  \caption{Frequency-switched ratio profiles for both fields.
-  Top row: standard field $(l,b) = (120^\circ, 0^\circ)$.
-  Bottom row: Cygnus-X field.
-  Left column: $R-1 = P_{1420}/P_{1421} - 1$ plotted against LO\,1420 LSR velocity.
-  Right column: $1/R-1 = P_{1421}/P_{1420} - 1$ plotted against LO\,1421 LSR velocity.
-  Both panels show the raw profile (pale) and 31-channel smoothed profile (solid).
-  The dominant HI emission feature near $-10$ to $+20$\,km\,s$^{-1}$ LSR
-  is clearly detected in both fields.}
-  \label{fig:ratio_profile}
-\end{figure*}
+% \begin{figure*}[ht!]
+%   \centering
+%   \includegraphics[width=\textwidth]{figures/ratio_profile.pdf}
+%   \caption{Frequency-switched ratio profiles for both fields.
+%   Top row: standard field $(l,b) = (120^\circ, 0^\circ)$.
+%   Bottom row: Cygnus-X field.
+%   Left column: $R-1 = P_{1420}/P_{1421} - 1$ plotted against LO\,1420 LSR velocity.
+%   Right column: $1/R-1 = P_{1421}/P_{1420} - 1$ plotted against LO\,1421 LSR velocity.
+%   Both panels show the raw profile (pale) and 31-channel smoothed profile (solid).
+%   The dominant HI emission feature near $-10$ to $+20$\,km\,s$^{-1}$ LSR
+%   is clearly detected in both fields.}
+%   \label{fig:ratio_profile}
+% \end{figure*}
 
 LSR corrections were applied independently to each spectrum
 using \texttt{ugradio.doppler} with
@@ -918,7 +892,7 @@ Cygnus-X fields, respectively.
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/standard_fits.pdf}
+  \includegraphics[width=\textwidth]{figures/standard_fits.pdf}
   \caption{Gaussian decomposition fits for the standard field
   $(l,b)=(120^\circ,0^\circ)$.
   Each panel shows the smoothed velocity profile (circles), the best-fit joint
@@ -934,7 +908,7 @@ Cygnus-X fields, respectively.
 
 \begin{figure*}[ht!]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/cygnus-x_fits.pdf}
+  \includegraphics[width=\textwidth]{figures/cygnus-x_fits.pdf}
   \caption{Gaussian decomposition fits for the Cygnus-X cross-validation field.
   Each panel shows the smoothed velocity profile (circles), the best-fit joint
   Gaussian+baseline model (solid line), individual Gaussian components (dashed),

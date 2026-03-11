@@ -7,14 +7,12 @@ from pathlib import Path
 import astropy.coordinates as astro_coord
 import astropy.time as astro_time
 import astropy.units as astro_u
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.optimize as opt
 import scipy.signal as sig
 import ugradio.coord
 import ugradio.doppler
-from scipy.constants import k as k_B, m_p
 
 from ugradiolab import Spectrum
 
@@ -25,6 +23,7 @@ from .common import (
     interp_mono,
     load_lo_pair,
     masked_spectrum_values,
+    smooth_series,
     sigma_clip_rfi_mask,
 )
 from .constants import (
@@ -51,11 +50,14 @@ from .constants import (
 )
 from .contracts import AnalysisResult
 from .io import load_equipment_artifact, load_temperature_artifact
-from .paths import CYGNUS_X_SPECTRA_DIR, ETA_EFF_ESTIMATE_PATH, FIGURES_DIR, STANDARD_SPECTRA_DIR, ensure_output_dirs
-
-
-plt.rcParams["figure.figsize"] = (8, 4)
-plt.rcParams["figure.dpi"] = 300
+from .paths import CYGNUS_X_SPECTRA_DIR, ETA_EFF_ESTIMATE_PATH, STANDARD_SPECTRA_DIR, ensure_output_dirs
+from .plotting import (
+    plot_dataset_fits,
+    plot_hyperfine,
+    plot_lsr_geometry,
+    plot_mean_vs_median,
+    plot_ratio_profile,
+)
 
 
 def velocity_axis(freqs_hz: np.ndarray, rest_freq_hz: float = HI_REST_FREQ_HZ) -> np.ndarray:
@@ -569,36 +571,8 @@ def run_analysis() -> AnalysisResult:
     _, cal = load_temperature_artifact()
     _, eq = load_equipment_artifact()
 
-    # Simple physical-context figures preserved from the notebook.
-    fig_hyper, ax = plt.subplots(figsize=(6, 3))
-    ax.set_xlim(0.2, 8.4)
-    ax.set_ylim(2.8, 8.2)
-    ax.axis("off")
-    ax.hlines(6.8, 1.1, 7.6, colors="#2166ac", linewidths=2.6)
-    ax.hlines(4.0, 1.1, 7.6, colors="#d6604d", linewidths=2.6)
-    ax.text(0.85, 6.8, "F = 1\n(triplet)", va="center", ha="right", color="#2166ac", fontweight="bold", fontsize=11)
-    ax.text(0.85, 4.0, "F = 0\n(singlet)", va="center", ha="right", color="#d6604d", fontweight="bold", fontsize=11)
-    ax.annotate("", xy=(2.0, 7.7), xytext=(2.0, 6.2), arrowprops=dict(arrowstyle="->", color="#2166ac", lw=1.8))
-    ax.annotate("", xy=(2.8, 7.7), xytext=(2.8, 6.2), arrowprops=dict(arrowstyle="->", color="#2166ac", lw=1.8))
-    ax.annotate("", xy=(2.0, 4.9), xytext=(2.0, 3.4), arrowprops=dict(arrowstyle="->", color="#d6604d", lw=1.8))
-    ax.annotate("", xy=(2.8, 3.1), xytext=(2.8, 4.6), arrowprops=dict(arrowstyle="->", color="#d6604d", lw=1.8))
-    ax.annotate("", xy=(4.9, 4.2), xytext=(4.9, 6.6), arrowprops=dict(arrowstyle="->", color="black", lw=2.2))
-    fig_hyper.tight_layout(pad=0.2)
-    fig_hyper.savefig(FIGURES_DIR / "hyperfine.pdf", bbox_inches="tight", pad_inches=0.02)
-    figures["hyperfine"] = fig_hyper
-
-    temps = np.logspace(np.log10(20), np.log10(1e4), 400)
-    sigma_th_kms = (k_B * temps / m_p) ** 0.5 / 1e3
-    fwhm = 2.355 * sigma_th_kms
-    fig_therm, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(temps, fwhm, color="C0", lw=2)
-    ax.set_xscale("log")
-    ax.set_xlabel("Thermal temperature $T$ [K]")
-    ax.set_ylabel("Thermal FWHM [km/s]")
-    ax.grid(alpha=0.3)
-    fig_therm.tight_layout()
-    fig_therm.savefig(FIGURES_DIR / "thermal_broadening.pdf", bbox_inches="tight")
-    figures["thermal_broadening"] = fig_therm
+    figures["hyperfine"] = plot_hyperfine()
+    figures["lsr_geometry"] = plot_lsr_geometry()
 
     spec_ref = std_pair[1420]
     ra_manual, dec_manual = gal_to_equatorial(120.0, 0.0)
@@ -634,28 +608,41 @@ def run_analysis() -> AnalysisResult:
         if np.any(valid_cols):
             psd[valid_cols] = np.nanmean(psd_blocks[:, valid_cols], axis=0)
         psd[~analysis_mask] = np.nan
-        mean_slide = smooth_nanboxcar(fill_masked_spectrum_values(std_pair[1420], values=psd, mask=analysis_mask), 9)
-        median_slide = smooth_nanmedian(psd, 9)
+
+        def _fill_nan_linear(arr: np.ndarray) -> np.ndarray:
+            arr = np.asarray(arr, float)
+            finite = np.isfinite(arr)
+            if finite.sum() < 2:
+                raise ValueError("Need at least two finite channels to interpolate across the LO bin.")
+            x = np.arange(arr.size, dtype=float)
+            out = arr.copy()
+            out[~finite] = np.interp(x[~finite], x[finite], arr[finite])
+            return out
+
+        window_neighbors = 4
+        window_size = 1 + 2 * window_neighbors
+        if window_size > nsamples:
+            window_size = nsamples if nsamples % 2 == 1 else nsamples - 1
+        if window_size < 3:
+            window_size = 3
+        if window_size % 2 == 0:
+            window_size -= 1
+
+        mean_slide = smooth_series(_fill_nan_linear(psd), {"method": "boxcar", "M": window_size})
+        median_slide = smooth_nanmedian(psd, window_size)
         mean_slide[~analysis_mask] = np.nan
         median_slide[~analysis_mask] = np.nan
         focus = analysis_mask
         norm_ref = np.nanmedian(mean_slide[focus])
-        fig_mean, axes = plt.subplots(2, 1, figsize=(8, 2.5), sharex=True, height_ratios=(5, 1))
-        for line, label, color in [(psd, "Raw PSD", "gray"), (median_slide, "Median sliding (9 ch)", "C0"), (mean_slide, "Mean sliding (9 ch)", "C1")]:
-            alpha = 0.2 if label == "Raw PSD" else 0.4
-            lw = 0.6 if label == "Raw PSD" else 1.2
-            axes[0].plot(freqs_mhz[focus], line[focus] / norm_ref, color=color, lw=lw, alpha=alpha, label=label)
-        axes[0].set_ylabel("Normalized PSD")
-        axes[0].legend()
-        axes[0].grid(alpha=0.3)
-        axes[1].plot(freqs_mhz[focus], (mean_slide - median_slide)[focus] / norm_ref, color="C2", lw=1.1)
-        axes[1].axhline(0, color="gray", lw=0.8, ls="--")
-        axes[1].set_xlabel("Frequency [MHz]")
-        axes[1].set_ylabel("Diff.")
-        axes[1].grid(alpha=0.3)
-        fig_mean.tight_layout()
-        fig_mean.savefig(FIGURES_DIR / "mean_vs_median.pdf", bbox_inches="tight")
-        figures["mean_vs_median"] = fig_mean
+        figures["mean_vs_median"] = plot_mean_vs_median(
+            freqs_mhz=freqs_mhz,
+            focus=focus,
+            psd=psd,
+            median_slide=median_slide,
+            mean_slide=mean_slide,
+            window_size=window_size,
+            norm_ref=norm_ref,
+        )
 
     ratio_profiles = {}
     ratio_fits = {}
@@ -685,6 +672,11 @@ def run_analysis() -> AnalysisResult:
             fit, table = select_model_grid(vel, y, sy, vel_min, vel_max)
             ratio_fits[(ds_name, tag)] = fit
             ratio_model_tables[(ds_name, tag)] = table
+    figures["ratio_profile"] = plot_ratio_profile(
+        standard=ratio_profiles["standard"],
+        cygnus_x=ratio_profiles["cygnus-x"],
+        smooth_nchan=SMOOTH_NCHAN,
+    )
     tables["ratio_model_tables"] = {f"{key[0]}:{key[1]}": value for key, value in ratio_model_tables.items()}
 
     eq_offset = np.asarray(eq["freq_offset_mhz"], float)
@@ -843,6 +835,7 @@ def run_analysis() -> AnalysisResult:
 
     summary_rows = []
     for ds_name in ["standard", "cygnus-x"]:
+        ds_label = {"standard": "HI profile at (l=120°, b=0°)", "cygnus-x": "Cygnus-X"}[ds_name]
         fit_b = temp_fits[(ds_name, "R")]
         m_b = fit_summary_metrics(fit_b)
         u_b = fit_metric_uncertainty_mc(fit_b, n_draw=250, seed=29)
@@ -852,38 +845,20 @@ def run_analysis() -> AnalysisResult:
         sigma_b = temp_profiles[ds_name]["sTline_R_fit"]
         vel_b = temp_profiles[ds_name]["v0"]
         finite_b = np.isfinite(vel_b) & np.isfinite(profile_b) & (vel_b >= vel_min) & (vel_b <= vel_max)
-        fig, axes = plt.subplots(2, 1, figsize=(8, 4), sharex=True, gridspec_kw={"height_ratios": [5, 1], "hspace": 0.0})
-        axis_cal, axis_resid = axes
-        axis_cal.plot(vel_b[finite_b], profile_b[finite_b], lw=0.6, alpha=0.45, color="C2", label="data")
-        axis_cal.fill_between(vel_b[finite_b], profile_b[finite_b] - sigma_b[finite_b], profile_b[finite_b] + sigma_b[finite_b], color="C2", alpha=0.25, label="±1sigma")
-        model_b = fit_b.model(vgrid)
-        p_b = fit_b.popt
-        base_b = _eval_poly(vgrid, p_b[3 * fit_b.n_gauss : 3 * fit_b.n_gauss + fit_b.poly_order + 1])
-        axis_cal.plot(vgrid, model_b, color="C3", lw=1.6, label=rf"fit (n={fit_b.n_gauss}, poly={fit_b.poly_order}, $\chi^2_r$={fit_b.chi2_red:.3f})")
-        axis_cal.plot(vgrid, base_b, color="k", lw=1.0, ls=":", label="Continuum baseline")
-        comp_colors_b = plt.cm.Oranges(np.linspace(0.45, 0.9, fit_b.n_gauss))
-        for idx in range(fit_b.n_gauss):
-            gk = p_b[3 * idx] * np.exp(-0.5 * ((vgrid - p_b[3 * idx + 1]) / p_b[3 * idx + 2]) ** 2)
-            fwhm_kms = 2.355 * p_b[3 * idx + 2]
-            axis_cal.plot(vgrid, base_b + gk, lw=1.0, ls="--", color=comp_colors_b[idx], label=f"v={p_b[3*idx+1]:.1f}, A={p_b[3*idx]:.2f} K, FWHM={fwhm_kms:.1f}")
-        axis_cal.axhline(0, color="gray", lw=0.8, ls="--")
-        axis_cal.set_ylabel(r"Calibrated $T_{\mathrm{line}}$ [K]")
-        axis_cal.legend(fontsize=8)
-        axis_cal.tick_params(axis="x", which="both", labelbottom=False)
-        axis_cal.grid(True, alpha=0.6, ls="--")
-        resid_b = (profile_b[finite_b] - fit_b.model(vel_b[finite_b])) / np.maximum(sigma_b[finite_b], 1e-9)
-        axis_resid.plot(vel_b[finite_b], resid_b, color="C4", lw=0.9)
-        axis_resid.axhline(0, color="black", lw=0.8, ls="--")
-        axis_resid.set_ylabel("Residuals")
-        axis_resid.set_xlabel("LSR velocity [km/s]")
-        axis_resid.set_xlim(vel_min, vel_max)
-        axis_resid.grid(True, alpha=0.6, ls="--")
-        fig.subplots_adjust(hspace=0.0)
-        fig.savefig(FIGURES_DIR / f"{ds_name}_fits.pdf", bbox_inches="tight")
-        figures[f"{ds_name}_fits"] = fig
+        figures[f"{ds_name}_fits"], resid_b = plot_dataset_fits(
+            ds_name=ds_name,
+            fit_b=fit_b,
+            vel_min=vel_min,
+            vel_max=vel_max,
+            vgrid=vgrid,
+            profile_b=profile_b,
+            sigma_b=sigma_b,
+            vel_b=vel_b,
+            finite_b=finite_b,
+        )
         summary_rows.append(
             {
-                "dataset": ds_name,
+                "dataset": ds_label,
                 "profile": "R",
                 "n_gauss": fit_b.n_gauss,
                 "poly_order": fit_b.poly_order,

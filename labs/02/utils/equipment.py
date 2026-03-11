@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -48,15 +47,17 @@ from .io import attenuation_manifest, save_npz, unknown_length_manifest
 from .paths import (
     COLD_REF_1420_PATH,
     EQUIPMENT_ARTIFACT_PATH,
-    FIGURES_DIR,
     SDR_GAIN_SWEEP_MANIFEST_PATH,
     ensure_output_dirs,
 )
-
-
-plt.rcParams["figure.figsize"] = (8, 4)
-plt.rcParams["figure.dpi"] = 300
-
+from .plotting import (
+    plot_cable_attenuation_lo,
+    plot_cable_attenuation_power_meter,
+    plot_reflectometry,
+    plot_sdr_fir_summing_correction,
+    plot_sdr_gain_response_clipping,
+    plot_signal_chain,
+)
 
 def validate_manifest(df: pd.DataFrame, *, require_cable_length: bool, label: str) -> pd.DataFrame:
     required = [
@@ -444,7 +445,7 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
 
     blocks = [
         ("Horn", 0.0, "roof"),
-        ("Roof chain\n(ZKLx3+Reactel)", BENCH_ROOF_CHAIN_NET_GAIN_DB, "roof"),
+        ("Roof chain\n(ZKL×3+Reactel)", BENCH_ROOF_CHAIN_NET_GAIN_DB, "roof"),
         ("Cable", -BENCH_UNKNOWN_CABLE_LOSS_DB, "cable"),
         ("K&L BPF", -BENCH_KL_FILTER_LOSS_DB, "lab"),
         ("Lab amps\n(WB+NB)", BENCH_LAB_AMPS_NET_GAIN_DB, "lab"),
@@ -458,28 +459,14 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
     regions = [block[2] for block in blocks]
     region_color = {"roof": "C0", "cable": "C4", "lab": "C1"}
     region_label = {"roof": "Roof (LNA chain)", "cable": "Cable run", "lab": "Lab rack"}
-    fig_signal, ax = plt.subplots(figsize=(8, 3))
-    prev_reg = regions[0]
-    seg_start = 0
-    seen_labels: set[str] = set()
-    for idx in range(1, len(regions) + 1):
-        cur_reg = regions[idx] if idx < len(regions) else None
-        if cur_reg != prev_reg or idx == len(regions):
-            label = region_label[prev_reg] if prev_reg not in seen_labels else "_nolegend_"
-            seen_labels.add(prev_reg)
-            ax.axvspan(seg_start - 0.4, idx - 1 + 0.4, color=region_color[prev_reg], alpha=0.12, label=label)
-            seg_start = idx
-            prev_reg = cur_reg
-    ax.plot(x, G_cum_db, "o-", color="C2", lw=1.8, zorder=3)
-    ax.axhline(0, color="k", lw=0.6, ls=":")
-    ax.set_ylabel("Cumulative gain [dB]")
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=20, ha="right")
-    ax.grid(True, lw=0.4, alpha=0.5)
-    ax.legend(loc="upper right")
-    fig_signal.tight_layout(rect=[0, 0.05, 1, 1])
-    fig_signal.savefig(FIGURES_DIR / "signal_chain.pdf", bbox_inches="tight")
-    figures["signal_chain"] = fig_signal
+    figures["signal_chain"] = plot_signal_chain(
+        x=x,
+        G_cum_db=G_cum_db,
+        labels=labels,
+        regions=regions,
+        region_color=region_color,
+        region_label=region_label,
+    )
     values["net_gain_db"] = float(G_cum_db[-1])
 
     df_att = validate_manifest(attenuation_manifest(), require_cable_length=True, label="attenuation manifest")
@@ -574,53 +561,16 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
     tables["fit_compare"] = fit_compare
 
     L_line = np.linspace(np.min(L_all), np.max(L_all), 500)
-    fig_lo, axes = plt.subplots(3, 1, figsize=(8, 5), height_ratios=[5, 1, 1], sharex=True)
-    fig_lo.subplots_adjust(hspace=0)
-    all_inlier = ~drop_mask
-    axes[0].scatter(L_all[all_inlier], y1420_all[all_inlier], color="C0", s=10, label="LO1420")
-    axes[0].scatter(L_all[all_inlier], y1421_all[all_inlier], color="C1", s=10, label="LO1421")
-    if np.any(~all_inlier):
-        axes[0].scatter(L_all[~all_inlier], y1420_all[~all_inlier], color="C0", s=20, marker="x", lw=1.0, label="omitted")
-        axes[0].scatter(L_all[~all_inlier], y1421_all[~all_inlier], color="C1", s=20, marker="x", lw=1.0)
-    axes[0].plot(L_line, float(fit_lin_all["B1420"]) - float(fit_lin_all["alpha"]) * L_line, color="C0", lw=1.0, ls=":", label="all-point fit")
-    axes[0].plot(L_line, float(fit_lin_all["B1421"]) - float(fit_lin_all["alpha"]) * L_line, color="C1", lw=1.0, ls=":")
-    axes[0].plot(L_line, float(fit_lin["B1420"]) - float(fit_lin["alpha"]) * L_line, color="C0", lw=1.0, ls="--", label="subset fit")
-    axes[0].plot(L_line, float(fit_lin["B1421"]) - float(fit_lin["alpha"]) * L_line, color="C1", lw=1.0, ls="--")
-    for label, alpha_ref, color in [("RG-58 typical", 0.440, "C4"), ("RG-58 weather", 0.748, "C6")]:
-        axes[0].plot(L_line, float(fit_lin["B1420"]) - alpha_ref * L_line, color=color, lw=0.9, ls="-.", label=label)
-    axes[0].set_ylabel("Normalised power [dB]")
-    axes[0].tick_params(labelbottom=False)
-    axes[0].grid(True, lw=0.4, alpha=0.5)
-    axes[0].legend(ncols=3)
-    axes[1].scatter(L_all[all_inlier], np.asarray(fit_lin_all["row_resid_1420"])[all_inlier], color="C0", s=10, alpha=0.5)
-    axes[1].scatter(L_all[all_inlier], np.asarray(fit_lin_all["row_resid_1421"])[all_inlier], color="C1", s=10, alpha=0.5)
-    if np.any(drop_mask):
-        axes[1].scatter(L_all[drop_mask], np.asarray(fit_lin_all["row_resid_1420"])[drop_mask], color="C0", s=20, alpha=0.6, marker="x", lw=1.5)
-        axes[1].scatter(L_all[drop_mask], np.asarray(fit_lin_all["row_resid_1421"])[drop_mask], color="C1", s=20, alpha=0.6, marker="x", lw=1.5)
-    axes[1].axhline(0, color="k", lw=0.8, ls="--")
-    axes[1].tick_params(labelbottom=False, labelsize=7)
-    axes[1].set_ylabel("Resid.\n(all) [dB]", fontsize=8)
-    axes[1].grid(True, lw=0.4, alpha=0.5)
-    axes[2].scatter(L, np.asarray(fit_lin["row_resid_1420"]), color="C0", s=10, alpha=0.5)
-    axes[2].scatter(L, np.asarray(fit_lin["row_resid_1421"]), color="C1", s=10, alpha=0.5)
-    axes[2].axhline(0, color="k", lw=0.8, ls="--")
-    axes[2].tick_params(labelsize=7)
-    axes[2].set_xlabel("Cable length [m]")
-    axes[2].set_ylabel("Resid.\n(primary) [dB]", fontsize=8)
-    axes[2].grid(True, lw=0.4, alpha=0.5)
-    all_resid = np.concatenate(
-        [
-            np.asarray(fit_lin_all["row_resid_1420"]),
-            np.asarray(fit_lin_all["row_resid_1421"]),
-            np.asarray(fit_lin["row_resid_1420"]),
-            np.asarray(fit_lin["row_resid_1421"]),
-        ]
+    figures["cable_attenuation_lo"] = plot_cable_attenuation_lo(
+        L_all=L_all,
+        y1420_all=y1420_all,
+        y1421_all=y1421_all,
+        drop_mask=drop_mask,
+        fit_lin_all=fit_lin_all,
+        fit_lin=fit_lin,
+        L=L,
+        L_line=L_line,
     )
-    rmax = np.nanmax(np.abs(all_resid)) * 1.25
-    axes[1].set_ylim(-rmax, rmax)
-    axes[2].set_ylim(-rmax, rmax)
-    fig_lo.savefig(FIGURES_DIR / "cable_attenuation_lo.pdf", bbox_inches="tight")
-    figures["cable_attenuation_lo"] = fig_lo
 
     fit_meter_all = fit_single_linear(
         L_all,
@@ -660,25 +610,21 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
         ]
     ).set_index("fit_case")
     tables["meter_compare"] = meter_compare
-    fig_meter, axes = plt.subplots(2, 1, figsize=(8, 3.5), height_ratios=[3, 1], sharex=True)
-    fig_meter.subplots_adjust(hspace=0)
-    axes[0].scatter(L, y1420 - float(fit_lin["B1420"]), color="C0", s=30, label="SDR 1420", zorder=4)
-    axes[0].plot(L_line, -float(fit_lin["alpha"]) * L_line, color="C0", lw=1.5, ls="--", label="SDR 1420 fit")
-    axes[0].scatter(L, meter - float(fit_meter["B"]), color="C2", s=30, marker="^", label="Power meter", zorder=4)
-    axes[0].plot(L_line, -float(fit_meter["alpha"]) * L_line, color="C2", lw=1.5, ls="--", label="Power meter fit")
-    axes[0].set_ylabel("Relative attenuation\n[dB]")
-    axes[0].tick_params(labelbottom=False)
-    axes[0].legend(ncols=2)
-    axes[0].grid(alpha=0.3)
-    axes[1].scatter(L, np.asarray(fit_lin["row_resid_1420"]), color="C0", s=20)
-    meter_resid = meter - (float(fit_meter["B"]) - float(fit_meter["alpha"]) * L)
-    axes[1].scatter(L, meter_resid, color="C2", s=20, marker="^")
-    axes[1].axhline(0, color="k", lw=0.8, ls="--")
-    axes[1].set_xlabel("Cable length [m]")
-    axes[1].set_ylabel("Residual\n[dB]")
-    axes[1].grid(alpha=0.3)
-    fig_meter.savefig(FIGURES_DIR / "cable_attenuation_power_meter.pdf", bbox_inches="tight")
-    figures["cable_attenuation_power_meter"] = fig_meter
+    sdr_line_n = -fit_lin["alpha"] * L_line
+    meter_line_n = -fit_meter["alpha"] * L_line
+    y1420_n = y1420 - fit_lin["B1420"]
+    meter_n = meter - fit_meter["B"]
+    meter_resid = meter - (fit_meter["B"] - fit_meter["alpha"] * L)
+    figures["cable_attenuation_power_meter"] = plot_cable_attenuation_power_meter(
+        L=L,
+        y1420_n=y1420_n,
+        L_line=L_line,
+        sdr_line_n=sdr_line_n,
+        meter_n=meter_n,
+        meter_line_n=meter_line_n,
+        fit_lin=fit_lin,
+        meter_resid=meter_resid,
+    )
 
     meter_df = df_att_used[["set_id", "cable_length_m", "power_meter_dbm"]].copy()
     meter_df["power_w"] = meter_df["power_meter_dbm"].map(dbm_to_watts)
@@ -912,20 +858,15 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
     anchor_t = np.array([-460, -428, -402, -324, -304, -230, -202, -124, -104, -26, 20], dtype=float)
     anchor_y = np.array([0.00, 0.00, 0.55, 0.55, 1.00, 1.00, 0.55, 0.55, 0.00, 0.00, 0.55], dtype=float)
     wave = np.interp(t_grid, anchor_t, anchor_y)
-    fig_refl, ax = plt.subplots(figsize=(8, 3))
-    ax.plot(t_grid, wave, lw=2.0, color="C0")
-    for t in sorted([-428, -402, -324, -304, -230, -202, -124, -104, -26]):
-        ax.axvline(t, color="0.45", lw=1.0, ls="--", alpha=0.8)
-        ax.text(t, 0.15 if t % 2 else 0.25, f"{int(t)} ns", va="top", ha="center", bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="none", alpha=0.85))
-    ax.axvline(T_FIRST_PLATEAU_START_NS, color="C3", lw=2.2)
-    ax.axvline(T_MAX_PLATEAU_START_NS, color="C2", lw=2.2)
-    ax.annotate(r"$\Delta t_{mod}$ =" + f" {TAU_MOD_NS:.0f} ns", xy=((T_FIRST_PLATEAU_START_NS + T_MAX_PLATEAU_START_NS) / 2, 0.88), xytext=(-360, 0.95), ha="center")
-    ax.set_xlabel("Time [ns]")
-    ax.set_ylabel("Normalized amplitude")
-    ax.grid(alpha=0.25)
-    fig_refl.tight_layout()
-    fig_refl.savefig(FIGURES_DIR / "reflectometry.pdf", bbox_inches="tight")
-    figures["reflectometry"] = fig_refl
+    TIMES_NS = [-428, -402, -324, -304, -230, -202, -124, -104, -26]
+    figures["reflectometry"] = plot_reflectometry(
+        t_grid=t_grid,
+        wave=wave,
+        TIMES_NS=TIMES_NS,
+        T_FIRST_PLATEAU_START_NS=T_FIRST_PLATEAU_START_NS,
+        T_MAX_PLATEAU_START_NS=T_MAX_PLATEAU_START_NS,
+        TAU_MOD_NS=TAU_MOD_NS,
+    )
 
     df_sweep = pd.read_csv(SDR_GAIN_SWEEP_MANIFEST_PATH).copy()
     df_sweep["clip_max_frac"] = df_sweep[["i_clip_frac", "q_clip_frac"]].max(axis=1)
@@ -964,21 +905,16 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
             }
         )
         if lo_mhz == 1420.0:
-            fig_sweep, ax = plt.subplots(figsize=(8, 3), constrained_layout=True)
-            ax.scatter(g["siggen_amp_dbm"], g["total_power_db"], color="C0", alpha=0.7, label="all points")
-            if len(clipped):
-                ax.scatter(clipped["siggen_amp_dbm"], clipped["total_power_db"], marker="x", s=60, color="C3", label="clipped")
-            if len(unclipped) >= 2:
-                xline = np.linspace(unclipped["siggen_amp_dbm"].min(), unclipped["siggen_amp_dbm"].max(), 200)
-                ax.plot(xline, slope * xline + intercept, "--", color="k", label=rf"unclipped fit: $y={slope:.3f}x+{intercept:.2f}$")
-            ax.set_xlabel("Signal Generator setpoint [dBm]")
-            ax.set_ylabel("SDR total power [dB]")
-            ax.grid(alpha=0.3)
-            ax.legend()
+            fig_sweep = plot_sdr_gain_response_clipping(
+                g=g,
+                clipped=clipped,
+                unclipped=unclipped,
+                slope=slope,
+                intercept=intercept,
+            )
     fit_df = pd.DataFrame(fit_rows).sort_values("lo_mhz").reset_index(drop=True)
     tables["sweep_fit"] = fit_df
     if fig_sweep is not None:
-        fig_sweep.savefig(FIGURES_DIR / "sdr_gain_response_clipping.pdf", bbox_inches="tight")
         figures["sdr_gain_response_clipping"] = fig_sweep
 
     spec_noise = Spectrum.load(COLD_REF_1420_PATH)
@@ -1050,19 +986,13 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
     g_opt = make_symmetric_sum_filter(theta_opt)
     P_sum_opt_norm_shifted = summing_response_norm_shifted(g_opt)
     after_opt_n = _normalise_in_mask(corrected_with_summing(P_sum_opt_norm_shifted), combined_mask)
-    fig_resp, ax = plt.subplots(1, 1, figsize=(8, 3))
-    ax.plot(freq_offset_mhz[combined_mask], noise_norm[combined_mask], lw=0.9, color="C0", alpha=0.7, label="raw data")
-    ax.plot(freq_offset_mhz[combined_mask], after_init_n[combined_mask], lw=0.9, color="C1", alpha=0.7, label="after FIR + summing (guess)")
-    ax.plot(freq_offset_mhz[combined_mask], after_opt_n[combined_mask], lw=0.9, color="C2", alpha=0.8, label="after FIR + summing (optimized)")
-    ax.axhline(1.0, color="k", lw=0.7, ls="--", alpha=0.5, label="y = 1 (ideal)")
-    ax.set_xlabel("Frequency offset from LO [MHz]")
-    ax.set_ylabel("Normalised power")
-    ax.legend()
-    ax.grid(True, lw=0.4, alpha=0.5)
-    ax.set_ylim(0.4, 1.4)
-    fig_resp.tight_layout()
-    fig_resp.savefig(FIGURES_DIR / "sdr_fir_summing_correction.pdf", bbox_inches="tight")
-    figures["sdr_fir_summing_correction"] = fig_resp
+    figures["sdr_fir_summing_correction"] = plot_sdr_fir_summing_correction(
+        freq_offset_mhz=freq_offset_mhz,
+        combined_mask=combined_mask,
+        noise_norm=noise_norm,
+        after_init_n=after_init_n,
+        after_opt_n=after_opt_n,
+    )
     tables["response_summary"] = pd.DataFrame(
         [
             {"metric": "FIR passband ripple [dB]", "value": _pct_ripple_db(P_fir_norm_shifted, passband_mask)},

@@ -18,6 +18,31 @@ LEGEND_SIZE = 8
 ANNOTATION_SIZE = 9
 EMPHASIS_SIZE = 10
 
+# Visual weight scale tuned for the standard figure sizes defined above.
+LW_NONE = 0.0
+LW_GRID = 0.4
+LW_FINE = 0.6
+LW_GUIDE = 0.8
+LW_LIGHT = 0.9
+LW_STANDARD = 1.0
+LW_MEDIUM = 1.1
+LW_STRONG = 1.3
+LW_FIT = 1.5
+LW_MODEL = 1.6
+LW_EMPHASIS = 1.8
+LW_CALLOUT = 2.2
+LW_LEVEL = 2.6
+
+SCATTER_S_FINE = 10
+SCATTER_S_STANDARD = 20
+SCATTER_S_EMPHASIS = 30
+SCATTER_S_CALLOUT = 60
+
+MARKER_MS_FINE = 1.6
+MARKER_MS_STANDARD = 8
+MARKER_MS_MEDIUM = 10.5
+MARKER_MS_LARGE = 16
+
 PRIMARY_COLOR = "C0"
 SECONDARY_COLOR = "C1"
 TERTIARY_COLOR = "C2"
@@ -43,7 +68,7 @@ mpl.rcParams.update(
         "axes.titlesize": EMPHASIS_SIZE,
         "xtick.labelsize": TICK_SIZE,
         "ytick.labelsize": TICK_SIZE,
-        "grid.linewidth": 0.4,
+        "grid.linewidth": LW_GRID,
         "grid.alpha": 0.5,
         "legend.fontsize": LEGEND_SIZE,
         "axes.unicode_minus": False,
@@ -126,14 +151,14 @@ def _grid_2x2(
 
 
 def _zero_line(ax) -> None:
-    ax.axhline(0.0, color=NEUTRAL_COLOR, lw=0.8, ls="--")
+    ax.axhline(0.0, color=NEUTRAL_COLOR, lw=LW_GUIDE, ls="--")
 
 
 def _unity_line(ax, *, label: str | None = None) -> None:
-    ax.axhline(1.0, color=NEUTRAL_COLOR, lw=0.8, ls="--", alpha=0.7, label=label)
+    ax.axhline(1.0, color=NEUTRAL_COLOR, lw=LW_GUIDE, ls="--", alpha=0.7, label=label)
 
 
-def _reference_vline(ax, x: float, *, label: str | None = None, color: str = NEUTRAL_COLOR, lw: float = 0.9, ls: str = "--", alpha: float = 0.8) -> None:
+def _reference_vline(ax, x: float, *, label: str | None = None, color: str = NEUTRAL_COLOR, lw: float = LW_LIGHT, ls: str = "--", alpha: float = 0.8) -> None:
     ax.axvline(x, color=color, lw=lw, ls=ls, alpha=alpha, label=label)
 
 
@@ -175,7 +200,7 @@ def signal_chain(
                        color=region_color[prev_reg], alpha=0.12, label=lbl)
             seg_start = j; prev_reg = cur_reg
 
-    ax.plot(x, G_cum_db, 'o-', color=TERTIARY_COLOR, lw=1.8, zorder=3)
+    ax.plot(x, G_cum_db, 'o-', color=TERTIARY_COLOR, lw=LW_EMPHASIS, zorder=3)
 
     _zero_line(ax)
     ax.set_ylabel(r'Cumulative gain [$\mathrm{dB}$]')
@@ -209,22 +234,22 @@ def cable_attenuation_lo(
     # ── Top panel: data + fits + RG-58 reference lines ───────────────────────────
     ax = axes[0]
     all_inlier = ~drop_mask
-    ax.scatter(L_all[all_inlier], y1420_all[all_inlier], color=PRIMARY_COLOR, s=10, label=r'LO 1420')
-    ax.scatter(L_all[all_inlier], y1421_all[all_inlier], color=SECONDARY_COLOR, s=10, label=r'LO 1421')
+    ax.scatter(L_all[all_inlier], y1420_all[all_inlier], color=PRIMARY_COLOR, s=SCATTER_S_FINE, label=r'LO 1420')
+    ax.scatter(L_all[all_inlier], y1421_all[all_inlier], color=SECONDARY_COLOR, s=SCATTER_S_FINE, label=r'LO 1421')
     if np.any(~all_inlier):
-        ax.scatter(L_all[~all_inlier], y1420_all[~all_inlier], color=PRIMARY_COLOR, s=20, marker='x',
-                   lw=1.0, label=r'omitted')
-        ax.scatter(L_all[~all_inlier], y1421_all[~all_inlier], color=SECONDARY_COLOR, s=20, marker='x',
-                   lw=1.0)
+        ax.scatter(L_all[~all_inlier], y1420_all[~all_inlier], color=PRIMARY_COLOR, s=SCATTER_S_STANDARD, marker='x',
+                   lw=LW_STANDARD, label=r'omitted')
+        ax.scatter(L_all[~all_inlier], y1421_all[~all_inlier], color=SECONDARY_COLOR, s=SCATTER_S_STANDARD, marker='x',
+                   lw=LW_STANDARD)
 
     ax.plot(L_line, _line_y(fit_lin_all['B1420'], fit_lin_all['alpha'], L_line),
-            color=PRIMARY_COLOR, lw=1.0, ls=':', label=r'all-point fit')
+            color=PRIMARY_COLOR, lw=LW_STANDARD, ls=':', label=r'all-point fit')
     ax.plot(L_line, _line_y(fit_lin_all['B1421'], fit_lin_all['alpha'], L_line),
-            color=SECONDARY_COLOR, lw=1.0, ls=':')
+            color=SECONDARY_COLOR, lw=LW_STANDARD, ls=':')
     ax.plot(L_line, _line_y(fit_lin['B1420'], fit_lin['alpha'], L_line),
-            color=PRIMARY_COLOR, lw=1.0, ls='--', label=r'subset fit')
+            color=PRIMARY_COLOR, lw=LW_STANDARD, ls='--', label=r'subset fit')
     ax.plot(L_line, _line_y(fit_lin['B1421'], fit_lin['alpha'], L_line),
-            color=SECONDARY_COLOR, lw=1.0, ls='--')
+            color=SECONDARY_COLOR, lw=LW_STANDARD, ls='--')
 
     # RG-58 reference lines (same intercepts as primary fit, published slopes)
     coax_refs = [
@@ -233,7 +258,7 @@ def cable_attenuation_lo(
     ]
     for label, alpha_ref, color, ls in coax_refs:
         ax.plot(L_line, _line_y(fit_lin['B1420'], alpha_ref, L_line),
-                color=color, lw=0.9, ls=ls, label=label)
+                color=color, lw=LW_LIGHT, ls=ls, label=label)
 
     ax.set_ylabel(r'Normalised power [$\mathrm{dB}$]')
     ax.tick_params(labelbottom=False)
@@ -243,14 +268,14 @@ def cable_attenuation_lo(
     # ── Middle panel: all-point fit residuals (includes screened points) ──────────
     ax = axes[1]
     ax.scatter(L_all[all_inlier], fit_lin_all['row_resid_1420'][all_inlier],
-               color=PRIMARY_COLOR, s=10, alpha=0.5)
+               color=PRIMARY_COLOR, s=SCATTER_S_FINE, alpha=0.5)
     ax.scatter(L_all[all_inlier], fit_lin_all['row_resid_1421'][all_inlier],
-               color=SECONDARY_COLOR, s=10, alpha=0.5)
+               color=SECONDARY_COLOR, s=SCATTER_S_FINE, alpha=0.5)
     if np.any(drop_mask):
         ax.scatter(L_all[drop_mask], fit_lin_all['row_resid_1420'][drop_mask],
-                   color=PRIMARY_COLOR, s=20, alpha=0.6, marker='x', lw=1.5)
+                   color=PRIMARY_COLOR, s=SCATTER_S_STANDARD, alpha=0.6, marker='x', lw=LW_FIT)
         ax.scatter(L_all[drop_mask], fit_lin_all['row_resid_1421'][drop_mask],
-                   color=SECONDARY_COLOR, s=20, alpha=0.6, marker='x', lw=1.5)
+                   color=SECONDARY_COLOR, s=SCATTER_S_STANDARD, alpha=0.6, marker='x', lw=LW_FIT)
     _zero_line(ax)
     ax.tick_params(labelbottom=False, labelsize=TICK_SIZE)
     ax.set_ylabel('Resid.\n\n' + r'[$\mathrm{dB}$]', fontsize=LABEL_SIZE)
@@ -258,8 +283,8 @@ def cable_attenuation_lo(
 
     # ── Bottom panel: primary (screened) fit residuals ────────────────────────────
     ax = axes[2]
-    ax.scatter(L, fit_lin['row_resid_1420'], color=PRIMARY_COLOR, s=10, alpha=0.5)
-    ax.scatter(L, fit_lin['row_resid_1421'], color=SECONDARY_COLOR, s=10, alpha=0.5)
+    ax.scatter(L, fit_lin['row_resid_1420'], color=PRIMARY_COLOR, s=SCATTER_S_FINE, alpha=0.5)
+    ax.scatter(L, fit_lin['row_resid_1421'], color=SECONDARY_COLOR, s=SCATTER_S_FINE, alpha=0.5)
     _zero_line(ax)
     ax.tick_params(labelsize=TICK_SIZE)
     ax.set_xlabel(r'Cable length [$\mathrm{m}$]')
@@ -295,10 +320,10 @@ def cable_attenuation_power_meter(
 
     # ── Top panel: normalised SDR 1420 and power meter overlaid ──────────────────
     ax = axes[0]
-    ax.scatter(L, y1420_n, color=PRIMARY_COLOR, s=30, label=r'SDR 1420', zorder=4)
-    ax.plot(L_line, sdr_line_n, color=PRIMARY_COLOR, lw=1.5, ls='--', label=r'SDR 1420 fit')
-    ax.scatter(L, meter_n, color=TERTIARY_COLOR, s=30, marker='^', label=r'Power meter', zorder=4)
-    ax.plot(L_line, meter_line_n, color=TERTIARY_COLOR, lw=1.5, ls='--', label=r'Power meter fit')
+    ax.scatter(L, y1420_n, color=PRIMARY_COLOR, s=SCATTER_S_EMPHASIS, label=r'SDR 1420', zorder=4)
+    ax.plot(L_line, sdr_line_n, color=PRIMARY_COLOR, lw=LW_FIT, ls='--', label=r'SDR 1420 fit')
+    ax.scatter(L, meter_n, color=TERTIARY_COLOR, s=SCATTER_S_EMPHASIS, marker='^', label=r'Power meter', zorder=4)
+    ax.plot(L_line, meter_line_n, color=TERTIARY_COLOR, lw=LW_FIT, ls='--', label=r'Power meter fit')
     ax.set_ylabel('Relative attenuation\n' + r'[$\mathrm{dB}$]')
     ax.tick_params(labelbottom=False)
     ax.legend(ncols=2)
@@ -306,8 +331,8 @@ def cable_attenuation_power_meter(
 
     # ── Bottom panel: residuals ───────────────────────────────────────────────────
     ax = axes[1]
-    ax.scatter(L, fit_lin['row_resid_1420'], color=PRIMARY_COLOR, s=20)
-    ax.scatter(L, meter_resid, color=TERTIARY_COLOR, s=20, marker='^')
+    ax.scatter(L, fit_lin['row_resid_1420'], color=PRIMARY_COLOR, s=SCATTER_S_STANDARD)
+    ax.scatter(L, meter_resid, color=TERTIARY_COLOR, s=SCATTER_S_STANDARD, marker='^')
     _zero_line(ax)
     ax.set_xlabel(r'Cable length [$\mathrm{m}$]')
     ax.set_ylabel('Residual\n' + r'[$\mathrm{dB}$]')
@@ -328,7 +353,7 @@ def reflectometry(
     TAU_MOD_NS: float,
 ):
     fig, ax = _single_panel(_textwidth_figsize(3))
-    ax.plot(t_grid, wave, lw=2.0, color=PRIMARY_COLOR)
+    ax.plot(t_grid, wave, lw=LW_CALLOUT, color=PRIMARY_COLOR)
 
     # Keep timing labels horizontal below the top border, and stagger y-levels to avoid overlap.
     label_levels = [0.25, 0.1]
@@ -336,7 +361,7 @@ def reflectometry(
     last_x_for_level = [-np.inf] * len(label_levels)
 
     for t in sorted(TIMES_NS):
-        _reference_vline(ax, t, color=NEUTRAL_COLOR, lw=1.0)
+        _reference_vline(ax, t, color=NEUTRAL_COLOR, lw=LW_STANDARD)
 
         level_idx = None
         for i, last_x in enumerate(last_x_for_level):
@@ -358,8 +383,8 @@ def reflectometry(
             bbox=dict(boxstyle='round,pad=0.18', fc='white', ec='none', alpha=0.85),
         )
 
-    _reference_vline(ax, T_FIRST_PLATEAU_START_NS, color=QUATERNARY_COLOR, lw=2.2, alpha=1.0)
-    _reference_vline(ax, T_MAX_PLATEAU_START_NS, color=TERTIARY_COLOR, lw=2.2, alpha=1.0)
+    _reference_vline(ax, T_FIRST_PLATEAU_START_NS, color=QUATERNARY_COLOR, lw=LW_CALLOUT, alpha=1.0)
+    _reference_vline(ax, T_MAX_PLATEAU_START_NS, color=TERTIARY_COLOR, lw=LW_CALLOUT, alpha=1.0)
     ax.annotate(
         rf"$\Delta t_{{\mathrm{{mod}}}} = {TAU_MOD_NS:.0f}\,\mathrm{{ns}}$",
         xy=((T_FIRST_PLATEAU_START_NS + T_MAX_PLATEAU_START_NS) / 2, 0.88),
@@ -389,7 +414,7 @@ def sdr_gain_response_clipping(
     ax.scatter(g['siggen_amp_dbm'][:-2], g['total_power_db'][:-2], color=PRIMARY_COLOR, alpha=0.7, label=r'all points')
     if len(clipped):
         ax.scatter(clipped['siggen_amp_dbm'], clipped['total_power_db'],
-                   marker='x', s=60, color=QUATERNARY_COLOR, label=r'clipped')
+                   marker='x', s=SCATTER_S_CALLOUT, color=QUATERNARY_COLOR, label=r'clipped')
     if len(unclipped) >= 2:
         xfit = np.linspace(unclipped['siggen_amp_dbm'].min(), unclipped['siggen_amp_dbm'].max(), 200)
         ax.plot(xfit, slope * xfit + intercept, '--', color=NEUTRAL_COLOR,
@@ -414,11 +439,11 @@ def sdr_fir_summing_correction(
 ):
     fig, ax = _single_panel(_textwidth_figsize(3))
     ax.plot(freq_offset_mhz[combined_mask], noise_norm[combined_mask],
-            lw=0.9, color=PRIMARY_COLOR, alpha=0.7, label=r'raw data')
+            lw=LW_LIGHT, color=PRIMARY_COLOR, alpha=0.7, label=r'raw data')
     ax.plot(freq_offset_mhz[combined_mask], after_init_n[combined_mask],
-            lw=0.9, color=SECONDARY_COLOR, alpha=0.7, label=r'after FIR + summing (guess)')
+            lw=LW_LIGHT, color=SECONDARY_COLOR, alpha=0.7, label=r'after FIR + summing (guess)')
     ax.plot(freq_offset_mhz[combined_mask], after_opt_n[combined_mask],
-            lw=0.9, color=TERTIARY_COLOR, alpha=0.8, label=r'after FIR + summing (optimized)')
+            lw=LW_LIGHT, color=TERTIARY_COLOR, alpha=0.8, label=r'after FIR + summing (optimized)')
     _unity_line(ax, label=r'$y = 1$ (ideal)')
     ax.set_xlabel(r'Frequency offset from LO [$\mathrm{MHz}$]')
     ax.set_ylabel(r'Normalised power')
@@ -442,9 +467,9 @@ def sigma_masking(
         worst_freqs[~worst_mask],
         worst_psd[~worst_mask],
         marker='x',
-        ms=8,
+        ms=MARKER_MS_STANDARD,
         alpha=0.80,
-        lw=0.0,
+        lw=LW_NONE,
         color=QUATERNARY_COLOR,
         label=r'flagged (removed)',
     )
@@ -452,7 +477,7 @@ def sigma_masking(
         worst_freqs[worst_mask],
         worst_psd[worst_mask],
         '.',
-        ms=1.6,
+        ms=MARKER_MS_FINE,
         alpha=0.35,
         color=PRIMARY_COLOR,
         label=r'kept after sigma clip',
@@ -482,10 +507,10 @@ def per_frequency_trx(
         freqs_mhz = human_pair[lo].freqs / 1e6
         mask = yfactor_common_masks[lo]
         trx = trx_spec[lo]
-        ax.plot(freqs_mhz[mask], trx[mask], lw=0.9, alpha=0.8,
+        ax.plot(freqs_mhz[mask], trx[mask], lw=LW_LIGHT, alpha=0.8,
                 color=colors[lo], label=rf'Per-channel $T_{{\rm rx}}$, LO ${lo}\,\mathrm{{MHz}}$')
         scalar_trx = yfactor_results[lo].T_rx
-        ax.axhline(scalar_trx, ls='--', lw=1.3, color=colors[lo], alpha=0.6, label=rf'$T_{{\rm rx}}$, LO ${lo}\,\mathrm{{MHz}}$')
+        ax.axhline(scalar_trx, ls='--', lw=LW_STRONG, color=colors[lo], alpha=0.6, label=rf'$T_{{\rm rx}}$, LO ${lo}\,\mathrm{{MHz}}$')
 
     ax.set_ylabel(r'$T_{\mathrm{rx}}(\nu)$ [$\mathrm{K}$]')
     ax.set_xlabel(r'Frequency [$\mathrm{MHz}$]')
@@ -519,12 +544,12 @@ def ratio_profile(
         y_smooth = np.asarray(data[smooth_key], float)
         sel = (vel > vmin) & (vel < vmax)
 
-        ax.plot(vel[sel], y_raw[sel], color=PRIMARY_COLOR, lw=0.3, alpha=0.35, label=r"raw")
+        ax.plot(vel[sel], y_raw[sel], color=PRIMARY_COLOR, lw=LW_GRID, alpha=0.35, label=r"raw")
         ax.plot(
             vel[sel],
             y_smooth[sel],
             color=PRIMARY_COLOR,
-            lw=1.1,
+            lw=LW_MEDIUM,
             alpha=0.9,
             label=rf"smoothed ($n={smooth_nchan}$)",
         )
@@ -555,8 +580,8 @@ def hyperfine():
     gap_color = SENARY_COLOR
 
     # Energy levels
-    ax.hlines(6.8, 1.1, 7.6, colors=triplet_color, linewidths=2.6)
-    ax.hlines(4.0, 1.1, 7.6, colors=singlet_color, linewidths=2.6)
+    ax.hlines(6.8, 1.1, 7.6, colors=triplet_color, linewidths=LW_LEVEL)
+    ax.hlines(4.0, 1.1, 7.6, colors=singlet_color, linewidths=LW_LEVEL)
 
     # Labels
     ax.text(0.85, 6.8, r'$F = 1$' + '\n' + r'(triplet)', va='center', ha='right',
@@ -566,11 +591,11 @@ def hyperfine():
 
     # ── Spin arrows F=1: electron (left) and proton (right), BOTH pointing up ──
     ax.annotate('', xy=(2.0, 7.7), xytext=(2.0, 6.2),
-                arrowprops=dict(arrowstyle='->', color=triplet_color, lw=1.8))
+                arrowprops=dict(arrowstyle='->', color=triplet_color, lw=LW_EMPHASIS))
     ax.text(2.0, 6.0, r'$e^{-}$', ha='center', va='top', color=triplet_color, fontsize=ANNOTATION_SIZE)
 
     ax.annotate('', xy=(2.8, 7.7), xytext=(2.8, 6.2),
-                arrowprops=dict(arrowstyle='->', color=triplet_color, lw=1.8))
+                arrowprops=dict(arrowstyle='->', color=triplet_color, lw=LW_EMPHASIS))
     ax.text(2.8, 6.0, r'$p$', ha='center', va='top', color=triplet_color, fontsize=ANNOTATION_SIZE)
 
     ax.text(2.4, 7.95, r'parallel spins $\uparrow\uparrow$', ha='center', va='bottom',
@@ -578,11 +603,11 @@ def hyperfine():
 
     # ── Spin arrows F=0: electron pointing UP, proton pointing DOWN ──
     ax.annotate('', xy=(2.0, 4.9), xytext=(2.0, 3.4),   # electron: up
-                arrowprops=dict(arrowstyle='->', color=singlet_color, lw=1.8))
+                arrowprops=dict(arrowstyle='->', color=singlet_color, lw=LW_EMPHASIS))
     ax.text(2.0, 3.2, r'$e^{-}$', ha='center', va='top', color=singlet_color, fontsize=ANNOTATION_SIZE)
 
     ax.annotate('', xy=(2.8, 3.1), xytext=(2.8, 4.6),   # proton: down
-                arrowprops=dict(arrowstyle='->', color=singlet_color, lw=1.8))
+                arrowprops=dict(arrowstyle='->', color=singlet_color, lw=LW_EMPHASIS))
     ax.text(2.8, 4.75, r'$p$', ha='center', va='bottom', color=singlet_color, fontsize=ANNOTATION_SIZE)
 
     ax.text(2.4, 2.9, r'anti-parallel spins $\uparrow\downarrow$', ha='center', va='top',
@@ -590,13 +615,13 @@ def hyperfine():
 
     # ── Spontaneous emission arrow (downward) with label to the LEFT ──
     ax.annotate('', xy=(5.35, 4.2), xytext=(5.35, 6.6),
-                arrowprops=dict(arrowstyle='->', color=emission_color, lw=2.2))
+                arrowprops=dict(arrowstyle='->', color=emission_color, lw=LW_CALLOUT))
     ax.text(5.1, 5.4, r'Spontaneous' + '\n' + r'emission' + '\n' + r'$A_{10} = 2.869 \times 10^{-15}\,\mathrm{s^{-1}}$' + '\n' + r'($\sim 11\,\mathrm{Myr}$)',
             ha='right', va='center', color=emission_color, fontsize=ANNOTATION_SIZE)
 
     # ── Energy gap annotation ────────────────────────────────────────────────────
     ax.annotate('', xy=(6.1, 4.15), xytext=(6.1, 6.65),
-                arrowprops=dict(arrowstyle='<->', color=gap_color, lw=1.4))
+                arrowprops=dict(arrowstyle='<->', color=gap_color, lw=LW_STRONG))
     ax.text(6.28, 5.4, r'$\Delta E = h\nu$' + '\n' + r'$\nu \sim 1420.406\,\mathrm{MHz}$' + '\n' + r'$\lambda = 21.1\,\mathrm{cm}$',
             ha='left', va='center', color=gap_color, style='italic', fontsize=ANNOTATION_SIZE)
 
@@ -621,27 +646,27 @@ def lsr_geometry():
     ax.axis('off')
 
     # ── Sun ──────────────────────────────────────────────────────────────────────
-    ax.plot(0, 0, 'o', color=sun_color, markersize=16, zorder=5,
-            markeredgecolor=QUINARY_COLOR, markeredgewidth=2)
+    ax.plot(0, 0, 'o', color=sun_color, markersize=MARKER_MS_LARGE, zorder=5,
+            markeredgecolor=QUINARY_COLOR, markeredgewidth=LW_CALLOUT)
     ax.text(0, -0.52, r'Sun' + '\n' + r'(LSR origin)', ha='center', va='top', fontsize=ANNOTATION_SIZE, bbox=_bbox)
 
     # ── Earth orbit ───────────────────────────────────────────────────────────────
     theta = np.linspace(0, 2*np.pi, 300)
-    ax.plot(3.8*np.cos(theta), 3.3*np.sin(theta), ls='--', color=orbit_color, alpha=0.3, linewidth=1.3,
+    ax.plot(3.8*np.cos(theta), 3.3*np.sin(theta), ls='--', color=orbit_color, alpha=0.3, linewidth=LW_STRONG,
             label=r'Earth orbit')
 
     # ── Earth ─────────────────────────────────────────────────────────────────────
     earth_angle = np.radians(50)
     ex, ey = 3.8*np.cos(earth_angle), 3.3*np.sin(earth_angle)
-    ax.plot(ex, ey, 'o', color=earth_color, markersize=10.5, zorder=5,
-            markeredgecolor=QUINARY_COLOR, markeredgewidth=1.5)
+    ax.plot(ex, ey, 'o', color=earth_color, markersize=MARKER_MS_MEDIUM, zorder=5,
+            markeredgecolor=QUINARY_COLOR, markeredgewidth=LW_FIT)
     ax.text(ex + 0.22, ey + 0.18, r'Earth', ha='left', va='bottom', fontsize=ANNOTATION_SIZE, bbox=_bbox)
 
     # ── v_orb: tangent to orbit ────────────────────────────────────────────────────
     v_orb_angle = earth_angle + np.pi/2
     vox, voy = 1.25*np.cos(v_orb_angle), 1.25*np.sin(v_orb_angle)
     ax.annotate('', xy=(ex + vox, ey + voy), xytext=(ex, ey),
-                arrowprops=dict(arrowstyle='->', color=orbit_color, lw=2.2))
+                arrowprops=dict(arrowstyle='->', color=orbit_color, lw=LW_CALLOUT))
     ax.text(ex + vox, ey + voy + 0.15,
             r'$v_\mathrm{orb}\approx 30\,\mathrm{km\,s^{-1}}$',
             ha='right', va='bottom', color=orbit_color, fontsize=ANNOTATION_SIZE, bbox=_bbox)
@@ -650,7 +675,7 @@ def lsr_geometry():
     spin_angle = earth_angle + np.pi/2   # same direction, smaller magnitude
     spx, spy = 0.42*np.cos(spin_angle), 0.42*np.sin(spin_angle)
     ax.annotate('', xy=(ex + spx, ey + spy), xytext=(ex, ey),
-                arrowprops=dict(arrowstyle='->', color=spin_color, lw=1.5))
+                arrowprops=dict(arrowstyle='->', color=spin_color, lw=LW_FIT))
     ax.text(ex + spx + 0.2, ey + spy - 0.6,
             r'$v_\mathrm{spin}\approx 0.46\,\mathrm{km\,s^{-1}}$',
             ha='left', va='top', color=spin_color, fontsize=ANNOTATION_SIZE, bbox=_bbox)
@@ -659,7 +684,7 @@ def lsr_geometry():
     apex_angle = np.radians(56)
     sax, say = 1.65*np.cos(apex_angle), 1.65*np.sin(apex_angle)
     ax.annotate('', xy=(sax, say), xytext=(0, 0),
-                arrowprops=dict(arrowstyle='->', color=sun_color, lw=2.2))
+                arrowprops=dict(arrowstyle='->', color=sun_color, lw=LW_CALLOUT))
     ax.text(-0.5, 0.02,
             r'$v_\mathrm{sun}\approx 20\,\mathrm{km\,s^{-1}}$' + '\n' + r'$(\ell\approx56^\circ,\ b\approx23^\circ)$',
             ha='right', va='center', color=sun_color, fontsize=ANNOTATION_SIZE, bbox=_bbox)
@@ -669,7 +694,7 @@ def lsr_geometry():
     tx = ex + 1.8*np.cos(target_angle)
     ty = ey + 1.8*np.sin(target_angle)
     ax.annotate('', xy=(tx, ty), xytext=(ex, ey),
-                arrowprops=dict(arrowstyle='->', color=target_color, lw=1.8))
+                arrowprops=dict(arrowstyle='->', color=target_color, lw=LW_EMPHASIS))
     ax.text(tx - 0.02, ty + 0.18, r'$\hat{n}$ target',
             ha='right', va='top', color=target_color, fontsize=ANNOTATION_SIZE, bbox=_bbox)
 
@@ -706,7 +731,7 @@ def mean_vs_median(
         (mean_slide, rf'Mean sliding ($N={window_size}$ channels)', SECONDARY_COLOR),
     ]:
         alpha = 0.2 if label == r'Raw PSD' else 0.4
-        lw = 0.6 if label == r'Raw PSD' else 1.2
+        lw = LW_FINE if label == r'Raw PSD' else LW_STRONG
         top_ax.plot(freqs_mhz[focus], line[focus] / norm_ref, color=color, lw=lw, alpha=alpha, label=label)
 
     top_ax.set_ylabel(r'Normalized PSD')
@@ -714,7 +739,7 @@ def mean_vs_median(
     _apply_grid(top_ax)
     top_ax.tick_params(axis='x', which='both', labelbottom=False)
 
-    bottom_ax.plot(freqs_mhz[focus], (mean_slide - median_slide)[focus] / norm_ref, color=TERTIARY_COLOR, lw=1.1)
+    bottom_ax.plot(freqs_mhz[focus], (mean_slide - median_slide)[focus] / norm_ref, color=TERTIARY_COLOR, lw=LW_MEDIUM)
     _zero_line(bottom_ax)
     bottom_ax.set_xlabel(r'Frequency [$\mathrm{MHz}$]')
     bottom_ax.set_ylabel(r'Diff.')
@@ -743,15 +768,15 @@ def dataset_fits(
     fig, axes = _stacked_panels(2, figsize=_textwidth_figsize(4), height_ratios=[5, 1])
     axis_cal, axis_cal_resid = axes
 
-    axis_cal.plot(vel_b[finite_b], profile_b[finite_b], lw=0.6, alpha=0.45, color=TERTIARY_COLOR, label=rf'{cal_label}data')
+    axis_cal.plot(vel_b[finite_b], profile_b[finite_b], lw=LW_FINE, alpha=0.45, color=TERTIARY_COLOR, label=rf'{cal_label}data')
     axis_cal.fill_between(vel_b[finite_b], profile_b[finite_b] - sigma_b[finite_b],
                           profile_b[finite_b] + sigma_b[finite_b], color=TERTIARY_COLOR, alpha=0.25, label=rf'{cal_label}$\pm 1\sigma$')
     model_b = fit_b.model(vgrid)
     p_b = fit_b.popt
     base_b = _eval_poly(vgrid, p_b[3 * fit_b.n_gauss:3 * fit_b.n_gauss + fit_b.poly_order + 1])
-    axis_cal.plot(vgrid, model_b, color=QUATERNARY_COLOR, lw=1.6,
+    axis_cal.plot(vgrid, model_b, color=QUATERNARY_COLOR, lw=LW_MODEL,
                   label=rf'{cal_label}fit ($n={fit_b.n_gauss}$, poly={fit_b.poly_order}, $\chi_r^2={fit_b.chi2_red:.3f}$)')
-    axis_cal.plot(vgrid, base_b, color=NEUTRAL_COLOR, lw=1.0, ls=':', label=r'Continuum baseline')
+    axis_cal.plot(vgrid, base_b, color=NEUTRAL_COLOR, lw=LW_STANDARD, ls=':', label=r'Continuum baseline')
     comp_colors_b = [COMPONENT_COLORS[k % len(COMPONENT_COLORS)] for k in range(fit_b.n_gauss)]
     for k in range(fit_b.n_gauss):
         gk = p_b[3 * k] * np.exp(-0.5 * ((vgrid - p_b[3 * k + 1]) / p_b[3 * k + 2]) ** 2)
@@ -761,7 +786,7 @@ def dataset_fits(
             rf'$A={p_b[3 * k]:.2f}\,\mathrm{{K}}$, '
             rf'$\mathrm{{FWHM}}={fwhm_kms:.1f}\,\mathrm{{km\,s^{{-1}}}}$'
         )
-        axis_cal.plot(vgrid, base_b + gk, lw=1.0, ls='--', color=comp_colors_b[k], label=comp_label)
+        axis_cal.plot(vgrid, base_b + gk, lw=LW_STANDARD, ls='--', color=comp_colors_b[k], label=comp_label)
     _zero_line(axis_cal)
     axis_cal.set_ylabel(r'Calibrated $T_{\mathrm{line}}$ [$\mathrm{K}$]')
     axis_cal.legend(fontsize=LEGEND_SIZE)
@@ -769,7 +794,7 @@ def dataset_fits(
     _apply_grid(axis_cal)
 
     resid_b = (profile_b[finite_b] - fit_b.model(vel_b[finite_b])) / np.maximum(sigma_b[finite_b], 1e-9)
-    axis_cal_resid.plot(vel_b[finite_b], resid_b, color=QUINARY_COLOR, lw=0.9)
+    axis_cal_resid.plot(vel_b[finite_b], resid_b, color=QUINARY_COLOR, lw=LW_LIGHT)
     _zero_line(axis_cal_resid)
     axis_cal_resid.set_ylabel(r'Residuals')
     axis_cal_resid.set_xlabel(r'LSR velocity [$\mathrm{km\,s^{-1}}$]')

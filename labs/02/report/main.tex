@@ -1,11 +1,12 @@
 \documentclass[10pt,preprint2]{aastex}
 \usepackage[a4paper,asymmetric,left=0.75in,right=0.75in,top=0.75in,bottom=0.75in]{geometry}
-\AtBeginDocument{\newgeometry{asymmetric,left=0.75in,right=0.75in,top=0.75in,bottom=0.75in}\hoffset=0pt\setlength{\columnsep}{0.3in}}
+\AtBeginDocument{\newgeometry{asymmetric,left=0.75in,right=0.75in,top=0.75in,bottom=0.75in}\hoffset=0pt\setlength{\columnsep}{0.3in}\pagestyle{fancy}\fancyhf{}\fancyhead[L]{\small ASTRON 121 Radio Astronomy Laboratory}\fancyhead[R]{\small Lab 2}\fancyfoot[C]{\thepage}}
 \usepackage{amsmath, amsfonts, amssymb}
 \usepackage{hyperref}
 \usepackage{graphicx}
 \usepackage{tikz}
 \usepackage{booktabs}
+\usepackage{fancyhdr}
 \usetikzlibrary{arrows.meta,positioning,fit,calc}
 
 % Master RF block-diagram spacing knobs.
@@ -74,7 +75,7 @@ $-16$\,km\,s$^{-1}$ attributed to Local Arm material.
 \label{sec:intro}
 %=======================================================================
 
-The 21-cm hyperfine line of neutral hydrogen (HI) at $\nu_0 = 1420.40575$\,MHz
+The 21-cm hyperfine line of neutral hydrogen (HI) at $\nu_0 \sim 1420.40575$\,MHz
 is the most widely used spectral tracer of the interstellar medium (ISM),
 first detected by \citet{ewen1951}.
 Because the Milky Way's disk is optically thin to 21-cm radiation,
@@ -135,7 +136,7 @@ with spin temperature $T_s$ and optical depth $\tau(\nu)$.
   \caption{Energy-level diagram of the hydrogen 21-cm hyperfine transition.
   The triplet ($F=1$) and singlet ($F=0$) states are split by
   $\Delta E = h\nu_0 \approx 5.87\,\mu$eV.
-  Spontaneous emission produces the 21-cm photon at $\nu_0 = 1420.41$\,MHz.}
+  Spontaneous emission produces the 21-cm photon at $\nu_0 \sim 1420.41$\,MHz.}
   \label{fig:hyperfine}
 \end{figure}
 
@@ -794,7 +795,7 @@ Both fields were observed with dual-LO (1420 and 1421\,MHz) frequency switching.
 
 Following the theory in Section~\ref{sec:theory_freqswitch}
 \citep{parsons2024calintensity}, the
-frequency-switched ratio $R(\nu_k) = P_{1420}(\nu_k)/P_{1421}(\nu_k)$
+frequency-switched ratio\newline $R(\nu_k) = P_{1420}(\nu_k)/P_{1421}(\nu_k)$
 removes the slowly varying receiver bandpass.
 The ratio profiles $y_R = R-1$ and $y_{\rm inv} = 1/R - 1$ were computed
 channel by channel after RFI masking, then smoothed with a 31-channel
@@ -1241,7 +1242,7 @@ power meter, providing two independent attenuation measurements per cable run.}
   \node[coaxnode,right=0.9cm of sg] (c1) {6-ft ref\\cable};
   \node[coaxnode,right=0.9cm of c1] (c2) {6-ft ref\\cable};
   \node[coaxnode,right=0.9cm of c2,draw=red!70!black] (cu)
-        {Unknown cable\\$L \approx ?$\\(Roof--lab coax)};
+        {Unknown cable\\$L \approx\,\,\, ?$\\(Roof--lab coax)};
   \node[splitter,right=0.7cm of cu] (sp) {S};
   \node[epnode,above right=0.5cm and 0.7cm of sp] (sdr) {SDR};
   \node[epnode,below right=0.5cm and 0.7cm of sp] (pm) {Power\\meter};
@@ -1380,7 +1381,7 @@ with first clipping at 15.5\,dBm and 29\,dB of headroom above sky levels.}
   \draw[arr] (roof)--(lab);
   \draw[arr] (lab)--(sdr);
   % Arrow cold merging into horn
-  \draw[arr] (cold.east) -- ++(2.3cm,0) -- (horn.south);
+  \draw[arr] (cold.east) -| (horn.south);
   % Switch annotation
   \node[draw,dashed,rounded corners,above=0.4cm of horn,
         font=\footnotesize,inner sep=3pt]

@@ -1,5 +1,5 @@
 from .drivers import SignalGenerator
-from .models import Record, Spectrum, SpectrumPlot, SmoothMethod
+from .models import Record, Spectrum, SmoothMethod
 from .pointing import (
     compute_pointing,
     equatorial_to_altaz_matrix,

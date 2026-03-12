@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 import csv
 from pathlib import Path
+import pickle
 
 import astropy.coordinates as astro_coord
 import astropy.time as astro_time
@@ -50,7 +49,7 @@ from .constants import (
 )
 from .contracts import AnalysisResult
 from .io import load_equipment_artifact, load_temperature_artifact
-from .paths import CYGNUS_X_SPECTRA_DIR, ETA_EFF_ESTIMATE_PATH, STANDARD_SPECTRA_DIR, ensure_output_dirs
+from .paths import CACHE_DIR, CYGNUS_X_SPECTRA_DIR, ETA_EFF_ESTIMATE_PATH, STANDARD_SPECTRA_DIR, ensure_output_dirs
 from .plotting import (
     plot_dataset_fits,
     plot_hyperfine,
@@ -58,6 +57,17 @@ from .plotting import (
     plot_mean_vs_median,
     plot_ratio_profile,
 )
+
+
+FIT_CACHE_SIGNATURE = (
+    f"fitv8_jointphys_lomask_ng{N_GAUSS_GRID}_pg{POLY_GRID}_"
+    f"sig{SIGMA_PHYS_MIN_KMS:.3f}-{SIGMA_PHYS_MAX_KMS:.3f}_"
+    f"margin{PHYSICS_WIDTH_EDGE_MARGIN_FRAC:.3f}_"
+    f"lam{PHYSICS_WIDTH_PENALTY_LAMBDA:.2f}_sm{SMOOTH_METHOD}{SMOOTH_NCHAN}"
+)
+ANALYSIS_CACHE_PATH_A = CACHE_DIR / "analysis_cache_path_a.pkl"
+ANALYSIS_CACHE_PATH_B = CACHE_DIR / "analysis_cache_path_b.pkl"
+ANALYSIS_CACHE_PATH_SYS = CACHE_DIR / "analysis_cache_baseline_sys.pkl"
 
 
 def velocity_axis(freqs_hz: np.ndarray, rest_freq_hz: float = HI_REST_FREQ_HZ) -> np.ndarray:
@@ -152,6 +162,64 @@ def smooth_profile_with_sigma(y: np.ndarray, sigma: np.ndarray, nchan: int, meth
     var_sm = smooth_nanboxcar(var, nchan)
     sig_sm = np.sqrt(np.clip(var_sm / max(nchan, 1), 0.0, np.inf))
     return y_sm, sig_sm
+
+
+def _cache_has_ok_rows(model_tables: dict[object, object]) -> bool:
+    if not isinstance(model_tables, dict) or not model_tables:
+        return False
+    for table in model_tables.values():
+        if not isinstance(table, pd.DataFrame) or "status" not in table.columns:
+            return False
+        if not bool(table["status"].astype(str).eq("ok").any()):
+            return False
+    return True
+
+
+def _load_pickle_cache(cache_path: Path) -> object | None:
+    if not cache_path.exists():
+        return None
+    try:
+        with cache_path.open("rb") as handle:
+            return pickle.load(handle)
+    except Exception:
+        return None
+
+
+def _write_pickle_cache(cache_path: Path, payload: dict[str, object]) -> None:
+    tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    with tmp_path.open("wb") as handle:
+        pickle.dump(payload, handle)
+    tmp_path.replace(cache_path)
+
+
+def _load_fit_cache(cache_path: Path, fits_key: str, tables_key: str, force_refit: bool) -> tuple[bool, dict[object, object], dict[object, pd.DataFrame]]:
+    if force_refit:
+        return True, {}, {}
+    cache_payload = _load_pickle_cache(cache_path)
+    if not isinstance(cache_payload, dict):
+        return True, {}, {}
+    if cache_payload.get("fit_cache_signature") != FIT_CACHE_SIGNATURE:
+        return True, {}, {}
+    fits = cache_payload.get(fits_key)
+    model_tables = cache_payload.get(tables_key)
+    if not isinstance(fits, dict) or not _cache_has_ok_rows(model_tables):
+        return True, {}, {}
+    return False, fits, model_tables
+
+
+def _load_baseline_cache(cache_path: Path, force_refit: bool) -> tuple[bool, list[dict[str, object]], pd.DataFrame | None]:
+    if force_refit:
+        return True, [], None
+    cache_payload = _load_pickle_cache(cache_path)
+    if not isinstance(cache_payload, dict):
+        return True, [], None
+    if cache_payload.get("fit_cache_signature") != FIT_CACHE_SIGNATURE:
+        return True, [], None
+    baseline_sys_rows = cache_payload.get("baseline_sys_rows")
+    df_baseline_sys = cache_payload.get("df_baseline_sys")
+    if not isinstance(baseline_sys_rows, list) or not isinstance(df_baseline_sys, pd.DataFrame):
+        return True, [], None
+    return False, baseline_sys_rows, df_baseline_sys
 
 
 def _eval_poly(v: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
@@ -556,7 +624,7 @@ def hadec_to_altaz(ha_deg: float, dec_deg: float, lat_deg: float) -> tuple[float
     return float(np.degrees(alt_rad)), float(np.degrees(az_rad))
 
 
-def run_analysis() -> AnalysisResult:
+def run_analysis(force_refit: bool = False) -> AnalysisResult:
     ensure_output_dirs()
     tables: dict[str, object] = {}
     figures: dict[str, object] = {}
@@ -645,8 +713,12 @@ def run_analysis() -> AnalysisResult:
         )
 
     ratio_profiles = {}
-    ratio_fits = {}
-    ratio_model_tables = {}
+    needs_fit_a, ratio_fits, ratio_model_tables = _load_fit_cache(
+        ANALYSIS_CACHE_PATH_A,
+        fits_key="ratio_fits",
+        tables_key="ratio_model_tables",
+        force_refit=force_refit,
+    )
     for ds_name, ds in datasets.items():
         pair = ds["pair"]
         masks = ds["masks"]
@@ -668,10 +740,20 @@ def run_analysis() -> AnalysisResult:
         v1 = velocity_axis(pair[1421].freqs) + lsr_correction_kms(pair[1421])
         ratio_profiles[ds_name] = {"v0": v0, "v1": v1, "y_R": y_R, "y_inv": y_inv, "s_R": np.where(mask, R_sigma, np.nan), "s_inv": np.where(mask, Rinv_sigma, np.nan), "y_R_fit": y_R_fit, "y_inv_fit": y_inv_fit, "s_R_fit": s_R_fit, "s_inv_fit": s_inv_fit}
         vel_min, vel_max = FIT_WINDOWS_KMS[ds_name]
-        for tag, vel, y, sy in [("R", v0, y_R_fit, s_R_fit), ("Rinv", v1, y_inv_fit, s_inv_fit)]:
-            fit, table = select_model_grid(vel, y, sy, vel_min, vel_max)
-            ratio_fits[(ds_name, tag)] = fit
-            ratio_model_tables[(ds_name, tag)] = table
+        if needs_fit_a:
+            for tag, vel, y, sy in [("R", v0, y_R_fit, s_R_fit), ("Rinv", v1, y_inv_fit, s_inv_fit)]:
+                fit, table = select_model_grid(vel, y, sy, vel_min, vel_max)
+                ratio_fits[(ds_name, tag)] = fit
+                ratio_model_tables[(ds_name, tag)] = table
+    if needs_fit_a:
+        _write_pickle_cache(
+            ANALYSIS_CACHE_PATH_A,
+            {
+                "ratio_fits": ratio_fits,
+                "ratio_model_tables": ratio_model_tables,
+                "fit_cache_signature": FIT_CACHE_SIGNATURE,
+            },
+        )
     figures["ratio_profile"] = plot_ratio_profile(
         standard=ratio_profiles["standard"],
         cygnus_x=ratio_profiles["cygnus-x"],
@@ -729,8 +811,12 @@ def run_analysis() -> AnalysisResult:
     cold_ref_is_hw_corrected = "hw_corrected" in cold_ref_method.lower()
 
     temp_profiles = {}
-    temp_fits = {}
-    temp_model_tables = {}
+    needs_fit_b, temp_fits, temp_model_tables = _load_fit_cache(
+        ANALYSIS_CACHE_PATH_B,
+        fits_key="temp_fits",
+        tables_key="temp_model_tables",
+        force_refit=force_refit,
+    )
     for ds_name, ds in datasets.items():
         pair = ds["pair"]
         masks = ds["masks"]
@@ -785,52 +871,77 @@ def run_analysis() -> AnalysisResult:
         v1 = velocity_axis(f1) + lsr_correction_kms(pair[1421])
         temp_profiles[ds_name] = {"v0": v0, "v1": v1, "Tline_R": Tline_R, "Tline_inv": Tline_inv, "Tline_R_fit": Tline_R_fit, "Tline_inv_fit": Tline_inv_fit, "sTline_R_stat": sTline_R_stat, "sTline_inv_stat": sTline_inv_stat, "sTline_R_fit": sTline_R_fit, "sTline_inv_fit": sTline_inv_fit, "sTline_R_total": sTline_R_total, "sTline_inv_total": sTline_inv_total}
         vel_min, vel_max = FIT_WINDOWS_KMS[ds_name]
-        for tag, vel, y, sy in [("R", v0, Tline_R_fit, sTline_R_fit), ("Rinv", v1, Tline_inv_fit, sTline_inv_fit)]:
-            fit, table = select_model_grid(vel, y, sy, vel_min, vel_max)
-            temp_fits[(ds_name, tag)] = fit
-            temp_model_tables[(ds_name, tag)] = table
+        if needs_fit_b:
+            for tag, vel, y, sy in [("R", v0, Tline_R_fit, sTline_R_fit), ("Rinv", v1, Tline_inv_fit, sTline_inv_fit)]:
+                fit, table = select_model_grid(vel, y, sy, vel_min, vel_max)
+                temp_fits[(ds_name, tag)] = fit
+                temp_model_tables[(ds_name, tag)] = table
+    if needs_fit_b:
+        _write_pickle_cache(
+            ANALYSIS_CACHE_PATH_B,
+            {
+                "temp_fits": temp_fits,
+                "temp_model_tables": temp_model_tables,
+                "fit_cache_signature": FIT_CACHE_SIGNATURE,
+            },
+        )
     tables["temp_model_tables"] = {f"{key[0]}:{key[1]}": value for key, value in temp_model_tables.items()}
 
-    baseline_sys_rows = []
-    for ds_name in ["standard", "cygnus-x"]:
-        for tag in ["R", "Rinv"]:
-            best_fit = ratio_fits[(ds_name, tag)]
-            n_g_best = best_fit.n_gauss
-            m_best = best_fit.poly_order
-            vel_min, vel_max = FIT_WINDOWS_KMS[ds_name]
-            if tag == "R":
-                vel = ratio_profiles[ds_name]["v0"]
-                y = ratio_profiles[ds_name]["y_R_fit"]
-                sy = ratio_profiles[ds_name]["s_R_fit"]
-            else:
-                vel = ratio_profiles[ds_name]["v1"]
-                y = ratio_profiles[ds_name]["y_inv_fit"]
-                sy = ratio_profiles[ds_name]["s_inv_fit"]
-            centroid_best = fit_summary_metrics(best_fit)["centroid"]
-            fwhm_best = fit_summary_metrics(best_fit)["fwhm_eff"]
-            centroid_deltas = []
-            fwhm_deltas = []
-            for dm in [-1, +1]:
-                m_try = m_best + dm
-                if m_try < 0:
-                    continue
-                try:
-                    alt_fit, _ = select_model_grid(vel, y, sy, vel_min, vel_max, n_grid=(n_g_best,), poly_grid=(m_try,))
-                    centroid_deltas.append(abs(fit_summary_metrics(alt_fit)["centroid"] - centroid_best))
-                    fwhm_deltas.append(abs(fit_summary_metrics(alt_fit)["fwhm_eff"] - fwhm_best))
-                except Exception:
-                    pass
-            baseline_sys_rows.append(
-                {
-                    "dataset": ds_name,
-                    "profile": tag,
-                    "poly_best": m_best,
-                    "n_gauss": n_g_best,
-                    "sys_centroid_kms": round(max(centroid_deltas) if centroid_deltas else 0.0, 4),
-                    "sys_fwhm_kms": round(max(fwhm_deltas) if fwhm_deltas else 0.0, 4),
-                }
-            )
-    df_baseline_sys = pd.DataFrame(baseline_sys_rows)
+    needs_fit_sys, baseline_sys_rows, df_baseline_sys = _load_baseline_cache(
+        ANALYSIS_CACHE_PATH_SYS,
+        force_refit=force_refit,
+    )
+    if needs_fit_sys:
+        baseline_sys_rows = []
+        for ds_name in ["standard", "cygnus-x"]:
+            for tag in ["R", "Rinv"]:
+                best_fit = ratio_fits[(ds_name, tag)]
+                n_g_best = best_fit.n_gauss
+                m_best = best_fit.poly_order
+                vel_min, vel_max = FIT_WINDOWS_KMS[ds_name]
+                if tag == "R":
+                    vel = ratio_profiles[ds_name]["v0"]
+                    y = ratio_profiles[ds_name]["y_R_fit"]
+                    sy = ratio_profiles[ds_name]["s_R_fit"]
+                else:
+                    vel = ratio_profiles[ds_name]["v1"]
+                    y = ratio_profiles[ds_name]["y_inv_fit"]
+                    sy = ratio_profiles[ds_name]["s_inv_fit"]
+                centroid_best = fit_summary_metrics(best_fit)["centroid"]
+                fwhm_best = fit_summary_metrics(best_fit)["fwhm_eff"]
+                centroid_deltas = []
+                fwhm_deltas = []
+                for dm in [-1, +1]:
+                    m_try = m_best + dm
+                    if m_try < 0:
+                        continue
+                    try:
+                        alt_fit, _ = select_model_grid(vel, y, sy, vel_min, vel_max, n_grid=(n_g_best,), poly_grid=(m_try,))
+                        centroid_deltas.append(abs(fit_summary_metrics(alt_fit)["centroid"] - centroid_best))
+                        fwhm_deltas.append(abs(fit_summary_metrics(alt_fit)["fwhm_eff"] - fwhm_best))
+                    except Exception:
+                        pass
+                baseline_sys_rows.append(
+                    {
+                        "dataset": ds_name,
+                        "profile": tag,
+                        "poly_best": m_best,
+                        "n_gauss": n_g_best,
+                        "sys_centroid_kms": round(max(centroid_deltas) if centroid_deltas else 0.0, 4),
+                        "sys_fwhm_kms": round(max(fwhm_deltas) if fwhm_deltas else 0.0, 4),
+                    }
+                )
+        df_baseline_sys = pd.DataFrame(baseline_sys_rows)
+        _write_pickle_cache(
+            ANALYSIS_CACHE_PATH_SYS,
+            {
+                "baseline_sys_rows": baseline_sys_rows,
+                "df_baseline_sys": df_baseline_sys,
+                "fit_cache_signature": FIT_CACHE_SIGNATURE,
+            },
+        )
+    else:
+        assert df_baseline_sys is not None
     tables["baseline_systematics"] = df_baseline_sys
 
     summary_rows = []
@@ -911,6 +1022,16 @@ def run_analysis() -> AnalysisResult:
             "sys_frac": sys_frac,
             "att_frac_raw": att_frac_raw,
             "lin_frac": lin_frac,
+            "cache": {
+                "fit_cache_signature": FIT_CACHE_SIGNATURE,
+                "force_refit": force_refit,
+                "path_a_hit": not needs_fit_a,
+                "path_b_hit": not needs_fit_b,
+                "baseline_sys_hit": not needs_fit_sys,
+                "path_a": ANALYSIS_CACHE_PATH_A,
+                "path_b": ANALYSIS_CACHE_PATH_B,
+                "baseline_sys": ANALYSIS_CACHE_PATH_SYS,
+            },
         }
     )
     return AnalysisResult(artifact={}, artifact_path=None, tables=tables, figures=figures, values=values)

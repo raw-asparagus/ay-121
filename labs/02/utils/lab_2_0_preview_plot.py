@@ -1,6 +1,9 @@
 import matplotlib.pyplot as plt
 
-from ugradiolab import Spectrum, SpectrumPlot
+from ugradiolab import Spectrum
+
+from .plotting import TEXTWIDTH_IN
+from .spectrum_plot import plot_spectrum_compare, plot_spectrum_ratio
 
 
 def plot_dataset_pair(
@@ -22,10 +25,7 @@ def plot_dataset_pair(
     print(f"R_total         = {R_total:.10f}")
     print(f"1/R_total       = {inv_R_total:.10f}")
 
-    plot_1420 = SpectrumPlot.coerce(spec_1420)
-    plot_1421 = SpectrumPlot.coerce(spec_1421)
-
-    fig = plt.figure(figsize=(10, 8), constrained_layout=True)
+    fig = plt.figure(figsize=(TEXTWIDTH_IN, 6.4 / 8 * TEXTWIDTH_IN), constrained_layout=True)
     gs = fig.add_gridspec(
         nrows=3,
         ncols=1,
@@ -38,7 +38,8 @@ def plot_dataset_pair(
     ax_inv_ratio = fig.add_subplot(gs[2], sharex=ax_psd)
 
     # Top panel: compare PSDs
-    plot_1420.plot_compare(
+    plot_spectrum_compare(
+        spec_1420,
         spec_1421,
         ax=ax_psd,
         title=f"{dataset_tag}: LO 1420 vs LO 1421 PSD",
@@ -53,7 +54,8 @@ def plot_dataset_pair(
     )
 
     # Middle panel: R = LO1420 / LO1421
-    plot_1420.plot_ratio(
+    plot_spectrum_ratio(
+        spec_1420,
         spec_1421,
         ax=ax_ratio,
         title=f"{dataset_tag}: R = LO1420 / LO1421",
@@ -67,7 +69,8 @@ def plot_dataset_pair(
     )
 
     # Bottom panel: 1/R = LO1421 / LO1420
-    plot_1421.plot_ratio(
+    plot_spectrum_ratio(
+        spec_1421,
         spec_1420,
         ax=ax_inv_ratio,
         title=f"{dataset_tag}: 1/R = LO1421 / LO1420",

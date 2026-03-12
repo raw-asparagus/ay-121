@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 def table(result, name: str):
     return result.tables[name]
 

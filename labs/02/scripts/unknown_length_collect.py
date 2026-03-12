@@ -26,8 +26,6 @@ Workflow:
 This script intentionally does not connect to or control a signal generator.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from ugradio.sdr import SDR

@@ -35,8 +35,6 @@ Per sweep point:
 4. Compute capture metrics and append one row to the manifest CSV.
 """
 
-from __future__ import annotations
-
 import math
 from pathlib import Path
 

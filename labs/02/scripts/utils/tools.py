@@ -1,7 +1,5 @@
 """Shared schema, metrics, and manifest helpers for Lab 2 capture scripts."""
 
-from __future__ import annotations
-
 import csv
 import math
 from pathlib import Path

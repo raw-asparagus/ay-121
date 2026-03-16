@@ -38,47 +38,44 @@ from .constants import (
     T_HOT,
 )
 from .contracts import TemperatureCalibrationResult
-from .io import load_equipment_artifact, save_npz
+from .io import EquipmentArtifact, load_equipment_artifact_typed, save_npz
 from .paths import DATA_ROOT, HUMAN_SPECTRA_DIR, COLD_REF_SPECTRA_DIR, TEMPERATURE_ARTIFACT_PATH, ensure_output_dirs
 from .plotting import plot_per_frequency_trx, plot_sigma_masking
 
 
-def hardware_systematic_fraction(eq: dict[str, object]) -> tuple[float, float, float, float]:
-    sigma_alpha = float(eq["sigma_alpha_db_per_m"])
-    L_unknown = float(eq["unknown_cable_length_m"])
+def hardware_systematic_fraction(eq: EquipmentArtifact) -> tuple[float, float, float, float]:
+    sigma_alpha = eq.sigma_alpha_db_per_m
+    L_unknown = eq.unknown_cable_length_m
     att_frac_raw = np.log(10.0) / 10.0 * abs(sigma_alpha) * abs(L_unknown)
     att_frac = 0.0
-    rmse_arr = np.asarray(eq["sweep_rmse_db"], float)
-    rmse_db = float(np.nanmedian(rmse_arr)) if rmse_arr.size and np.isfinite(np.nanmedian(rmse_arr)) else 0.2
+    rmse_db = eq.sweep_rmse_db
     lin_frac = np.log(10.0) / 20.0 * abs(rmse_db)
     frac = float(np.sqrt(att_frac**2 + lin_frac**2))
     return frac, att_frac_raw, att_frac, rmse_db
 
 
 def _response_support_fraction(resp: np.ndarray, eval_mask: np.ndarray | None = None) -> float:
-    arr = np.asarray(resp, float)
+    arr = resp
     finite = np.isfinite(arr)
     if eval_mask is not None:
-        finite = finite & np.asarray(eval_mask, bool)
+        finite = finite & eval_mask
     if not np.any(finite):
-        return np.nan
-    peak = float(np.nanmax(arr[finite]))
-    if not np.isfinite(peak) or peak <= 0:
-        return np.nan
+        raise ValueError("Equipment response has no finite evaluation support.")
+    peak = float(np.max(arr[finite]))
+    if peak <= 0:
+        raise ValueError("Equipment response peak must be positive.")
     return float(np.mean((arr >= 0.1 * peak) & finite))
 
 
-def select_equipment_response_model(eq: dict[str, object]) -> tuple[np.ndarray, str, dict[str, float | bool]]:
-    eq_fir = np.asarray(eq["fir_response_norm"], float)
-    eq_sum = np.asarray(eq["sum_response_norm"], float)
-    eq_eval = np.asarray(eq["combined_eval_mask"], bool)
+def select_equipment_response_model(eq: EquipmentArtifact) -> tuple[np.ndarray, str, dict[str, float | bool]]:
+    eq_fir = eq.fir_response_norm
+    eq_sum = eq.sum_response_norm
+    eq_eval = eq.combined_eval_mask
     eq_combined = eq_fir * eq_sum
     support_combined = _response_support_fraction(eq_combined, eq_eval)
     support_fir = _response_support_fraction(eq_fir, eq_eval)
     collapsed = (
-        np.isfinite(support_combined)
-        and np.isfinite(support_fir)
-        and support_combined < HARDWARE_RESPONSE_COLLAPSE_THRESH_FRAC
+        support_combined < HARDWARE_RESPONSE_COLLAPSE_THRESH_FRAC
         and support_combined < HARDWARE_RESPONSE_RELATIVE_SUPPORT_THRESH * support_fir
     )
     if collapsed:
@@ -88,34 +85,33 @@ def select_equipment_response_model(eq: dict[str, object]) -> tuple[np.ndarray, 
         chosen = eq_combined
         variant = "fir_times_sum"
     diagnostics = {
-        "support_combined": float(support_combined) if np.isfinite(support_combined) else np.nan,
-        "support_fir": float(support_fir) if np.isfinite(support_fir) else np.nan,
+        "support_combined": float(support_combined),
+        "support_fir": float(support_fir),
         "collapsed": bool(collapsed),
     }
-    return np.asarray(chosen, float), variant, diagnostics
+    return chosen, variant, diagnostics
 
 
 def hardware_response_on_axis(
-    eq: dict[str, object],
+    eq: EquipmentArtifact,
     spectrum: Spectrum,
     eq_resp_model: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
-    eq_offset = np.asarray(eq["freq_offset_mhz"], float)
-    eq_pass = np.asarray(eq["passband_mask"], bool)
-    eq_eval = np.asarray(eq["combined_eval_mask"], bool)
+    eq_offset = eq.freq_offset_mhz
+    eq_pass = eq.passband_mask
+    eq_eval = eq.combined_eval_mask
     eq_resp = (
-        np.asarray(eq["fir_response_norm"], float) * np.asarray(eq["sum_response_norm"], float)
+        eq.fir_response_norm * eq.sum_response_norm
         if eq_resp_model is None
-        else np.asarray(eq_resp_model, float)
+        else eq_resp_model
     )
-    eq_floor_nom = max(float(eq["response_floor"]), HARDWARE_RESPONSE_MIN)
+    eq_floor_nom = max(eq.response_floor, HARDWARE_RESPONSE_MIN)
     eval_finite = eq_eval & np.isfinite(eq_resp)
-    if np.any(eval_finite):
-        eval_floor = float(np.nanmin(eq_resp[eval_finite]))
-    else:
-        eval_floor = float(np.nanmin(eq_resp[np.isfinite(eq_resp)]))
+    if not np.any(eval_finite):
+        raise ValueError("Equipment response has no finite support on eval_mask.")
+    eval_floor = float(np.min(eq_resp[eval_finite]))
     eq_floor_eff = max(HARDWARE_RESPONSE_MIN, min(eq_floor_nom, eval_floor))
-    offset_mhz = (np.asarray(spectrum.freqs, float) - float(spectrum.center_freq)) / 1e6
+    offset_mhz = (spectrum.freqs - spectrum.center_freq) / 1e6
     resp = interp_mono(eq_offset, eq_resp, offset_mhz, fill_value=np.nan)
     pass_mask = interp_bool_nearest(eq_offset, eq_pass, offset_mhz, default=False)
     eval_mask = interp_bool_nearest(eq_offset, eq_eval, offset_mhz, default=False)
@@ -226,20 +222,20 @@ def run_temperature_calibration() -> TemperatureCalibrationResult:
             loaded_spectra[(label, lo)] = pair[lo]
             loaded_lo_masks[(label, lo)] = lo_analysis_mask(pair[lo])
 
-    eq_path, eq = load_equipment_artifact()
+    eq_path, eq = load_equipment_artifact_typed()
     hardware_systematic_frac, hardware_att_frac_raw, hardware_att_frac_used, hardware_rmse_db = hardware_systematic_fraction(eq)
     eq_response_model, eq_response_variant, eq_response_diag = select_equipment_response_model(eq)
     hardware = {
         "path": str(eq_path),
-        "schema_version": str(eq["schema_version"].item() if np.asarray(eq["schema_version"]).ndim == 0 else eq["schema_version"]),
-        "alpha_db_per_m": float(eq["alpha_db_per_m"]),
-        "sigma_alpha_db_per_m": float(eq["sigma_alpha_db_per_m"]),
-        "unknown_cable_length_m": float(eq["unknown_cable_length_m"]),
-        "unknown_cable_length_sigma_m": float(eq["unknown_cable_length_sigma_m"]),
-        "highest_unclipped_setpoint_dbm": float(eq["highest_unclipped_setpoint_dbm"]),
-        "first_clipped_setpoint_dbm": float(eq["first_clipped_setpoint_dbm"]),
-        "clip_threshold": float(eq["clip_threshold"]),
-        "response_floor": max(float(eq["response_floor"]), HARDWARE_RESPONSE_MIN),
+        "schema_version": eq.schema_version,
+        "alpha_db_per_m": eq.alpha_db_per_m,
+        "sigma_alpha_db_per_m": eq.sigma_alpha_db_per_m,
+        "unknown_cable_length_m": eq.unknown_cable_length_m,
+        "unknown_cable_length_sigma_m": eq.unknown_cable_length_sigma_m,
+        "highest_unclipped_setpoint_dbm": eq.highest_unclipped_setpoint_dbm,
+        "first_clipped_setpoint_dbm": eq.first_clipped_setpoint_dbm,
+        "clip_threshold": eq.clip_threshold,
+        "response_floor": max(eq.response_floor, HARDWARE_RESPONSE_MIN),
         "linearity_rmse_db": float(hardware_rmse_db),
         "att_frac_raw": float(hardware_att_frac_raw),
         "att_frac_used": float(hardware_att_frac_used),
@@ -267,7 +263,7 @@ def run_temperature_calibration() -> TemperatureCalibrationResult:
             passband_masks[(label, lo)] = pass_mask
             eval_masks[(label, lo)] = eval_mask
             hardware_floors.append(float(eff_floor))
-    hardware["response_floor"] = float(np.nanmin(hardware_floors)) if hardware_floors else hardware["response_floor"]
+    hardware["response_floor"] = float(np.min(hardware_floors))
     masks = {
         key: combine_spectrum_mask(loaded_spectra[key], loaded_lo_masks[key], masks_rfi[key], hardware_masks[key], require_nonempty=True)
         for key in masks_rfi
@@ -293,7 +289,7 @@ def run_temperature_calibration() -> TemperatureCalibrationResult:
                     "total": total,
                 }
     if worst_info is not None:
-        worst_freqs = np.asarray(worst_info["spec"].freqs, float) / 1e6
+        worst_freqs = worst_info["spec"].freqs / 1e6
         worst_psd = masked_spectrum_values(worst_info["spec"])
         worst_mask = combine_spectrum_mask(worst_info["spec"], worst_info["mask"])
         center_idx = lo_center_bin_index(worst_info["spec"])
@@ -311,8 +307,8 @@ def run_temperature_calibration() -> TemperatureCalibrationResult:
     yfactor_results = {}
     yfactor_common_masks = {}
     for lo in LO_FREQS_MHZ:
-        hot_mask = np.asarray(masks[("human", lo)], bool)
-        cold_mask = np.asarray(masks[("cold_ref", lo)], bool)
+        hot_mask = masks[("human", lo)]
+        cold_mask = masks[("cold_ref", lo)]
         common_mask = hot_mask & cold_mask
         yfactor_common_masks[lo] = common_mask
         p_hot, s_hot = masked_total_power(human_pair[lo], common_mask)
@@ -349,7 +345,7 @@ def run_temperature_calibration() -> TemperatureCalibrationResult:
     sy_spec = {}
     trx_spec = {}
     for lo in LO_FREQS_MHZ:
-        mask = np.asarray(yfactor_common_masks[lo], bool)
+        mask = yfactor_common_masks[lo]
         p_h = masked_spectrum_values(human_pair[lo], mask=mask)
         s_h = masked_spectrum_values(human_pair[lo], human_pair[lo].std, mask=mask)
         p_c = masked_spectrum_values(cold_ref_pair[lo], mask=mask)
@@ -371,8 +367,8 @@ def run_temperature_calibration() -> TemperatureCalibrationResult:
 
     cross_rows = []
     for lo in LO_FREQS_MHZ:
-        hot_mask = np.asarray(masks[("human", lo)], bool)
-        cold_mask = np.asarray(masks[("cold_ref", lo)], bool)
+        hot_mask = masks[("human", lo)]
+        cold_mask = masks[("cold_ref", lo)]
         common_mask = hot_mask & cold_mask
         p_hot_common, _ = masked_total_power(human_pair[lo], common_mask)
         p_cold_common, _ = masked_total_power(cold_ref_pair[lo], common_mask)
@@ -409,12 +405,12 @@ def run_temperature_calibration() -> TemperatureCalibrationResult:
     resp_1421 = hardware_response[("cold_ref", 1421)]
     cold_ref_profile_1420 = build_cold_reference_profile(cold_ref_pair[1420], yfactor_common_masks[1420], smooth_kwargs=SAVGOL, response=resp_1420, response_floor=hardware["response_floor"])
     cold_ref_profile_1421 = build_cold_reference_profile(cold_ref_pair[1421], yfactor_common_masks[1421], smooth_kwargs=SAVGOL, response=resp_1421, response_floor=hardware["response_floor"])
-    cold_ref_mask_1420 = np.asarray(yfactor_common_masks[1420], bool)
-    cold_ref_mask_1421 = np.asarray(yfactor_common_masks[1421], bool)
+    cold_ref_mask_1420 = yfactor_common_masks[1420]
+    cold_ref_mask_1421 = yfactor_common_masks[1421]
     cold_ref_mask_stats_1420, lo_center_bin_index_1420 = omit_lo_center_bin_mask(cold_ref_pair[1420], cold_ref_mask_1420)
     cold_ref_mask_stats_1421, lo_center_bin_index_1421 = omit_lo_center_bin_mask(cold_ref_pair[1421], cold_ref_mask_1421)
-    freq_hz_1420 = np.asarray(cold_ref_pair[1420].freqs, float)
-    freq_hz_1421 = np.asarray(cold_ref_pair[1421].freqs, float)
+    freq_hz_1420 = cold_ref_pair[1420].freqs
+    freq_hz_1421 = cold_ref_pair[1421].freqs
     delta_nu_hz_1420 = float(cold_ref_pair[1420].bin_width)
     delta_nu_hz_1421 = float(cold_ref_pair[1421].bin_width)
     tau_s_1420 = float(cold_ref_pair[1420].nblocks * cold_ref_pair[1420].nsamples / cold_ref_pair[1420].sample_rate)

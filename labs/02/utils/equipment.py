@@ -41,11 +41,10 @@ from .constants import (
     UNKNOWN_LEAD_LENGTH_M,
 )
 from .contracts import EquipmentCalibrationResult
-from .io import attenuation_manifest, save_npz, unknown_length_manifest
+from .io import attenuation_manifest, save_npz, sdr_gain_sweep_manifest, unknown_length_manifest
 from .paths import (
     COLD_REF_1420_PATH,
     EQUIPMENT_ARTIFACT_PATH,
-    SDR_GAIN_SWEEP_MANIFEST_PATH,
     ensure_output_dirs,
 )
 from .plotting import (
@@ -56,45 +55,6 @@ from .plotting import (
     plot_sdr_gain_response_clipping,
     plot_signal_chain,
 )
-
-def validate_manifest(df: pd.DataFrame, *, require_cable_length: bool, label: str) -> pd.DataFrame:
-    required = [
-        "set_id",
-        "lo1420_path",
-        "lo1421_path",
-        "lo1420_total_power",
-        "lo1421_total_power",
-        "power_meter_dbm",
-        "siggen_freq_mhz",
-        "siggen_amp_dbm",
-    ]
-    if require_cable_length:
-        required.append("cable_length_m")
-    missing = [column for column in required if column not in df.columns]
-    if missing:
-        raise KeyError(f"{label}: missing required columns {missing}")
-
-    out = df.copy()
-    numeric_cols = [
-        "lo1420_total_power",
-        "lo1421_total_power",
-        "power_meter_dbm",
-        "siggen_freq_mhz",
-        "siggen_amp_dbm",
-    ]
-    if require_cable_length:
-        numeric_cols.append("cable_length_m")
-    for column in numeric_cols:
-        out[column] = pd.to_numeric(out[column], errors="coerce")
-
-    bad_rows = out.index[out[numeric_cols].isna().any(axis=1)].tolist()
-    if bad_rows:
-        raise ValueError(f"{label}: non-finite required numeric fields in rows {bad_rows}")
-    if (out["lo1420_total_power"] <= 0).any() or (out["lo1421_total_power"] <= 0).any():
-        raise ValueError(f"{label}: total_power must be positive for log-normalization")
-    if require_cable_length and (out["cable_length_m"] < 0).any():
-        raise ValueError(f"{label}: cable_length_m must be non-negative")
-    return out
 
 
 def to_normalised_db(total_power: float, siggen_amp_dbm: float) -> float:
@@ -122,11 +82,11 @@ def _mc_cov_shared_length(
     rng = np.random.default_rng(seed)
     betas = np.full((int(n_mc), 3), np.nan, dtype=float)
     for idx in range(int(n_mc)):
-        Lj = np.asarray(L, float) + rng.normal(0.0, sigma_L, size=len(L))
+        Lj = L + rng.normal(0.0, sigma_L, size=len(L))
         if np.unique(np.round(Lj, 9)).size < 2:
             continue
         n = Lj.size
-        y = np.concatenate([np.asarray(y0, float), np.asarray(y1, float)])
+        y = np.concatenate([y0, y1])
         X = np.zeros((2 * n, 3), dtype=float)
         X[:n, 0] = 1.0
         X[:n, 2] = -Lj
@@ -137,7 +97,7 @@ def _mc_cov_shared_length(
     valid = betas[np.isfinite(betas).all(axis=1)]
     if valid.shape[0] < 4:
         return np.zeros((3, 3), dtype=float)
-    return np.asarray(np.cov(valid, rowvar=False, ddof=1), dtype=float)
+    return np.cov(valid, rowvar=False, ddof=1).astype(float, copy=False)
 
 
 def _mc_cov_single_length(
@@ -152,16 +112,16 @@ def _mc_cov_single_length(
     rng = np.random.default_rng(seed)
     betas = np.full((int(n_mc), 2), np.nan, dtype=float)
     for idx in range(int(n_mc)):
-        Lj = np.asarray(L, float) + rng.normal(0.0, sigma_L, size=len(L))
+        Lj = L + rng.normal(0.0, sigma_L, size=len(L))
         if np.unique(np.round(Lj, 9)).size < 2:
             continue
         X = np.column_stack([np.ones_like(Lj), -Lj])
-        beta, *_ = np.linalg.lstsq(X, np.asarray(y, float), rcond=None)
+        beta, *_ = np.linalg.lstsq(X, y, rcond=None)
         betas[idx, :] = beta
     valid = betas[np.isfinite(betas).all(axis=1)]
     if valid.shape[0] < 4:
         return np.zeros((2, 2), dtype=float)
-    return np.asarray(np.cov(valid, rowvar=False, ddof=1), dtype=float)
+    return np.cov(valid, rowvar=False, ddof=1).astype(float, copy=False)
 
 
 def fit_shared_linear(
@@ -286,7 +246,7 @@ def fit_single_linear(
 
 
 def robust_row_outlier_diagnostics(fit: dict[str, object], z_thresh: float = OUTLIER_Z_THRESHOLD) -> dict[str, object]:
-    r = np.asarray(fit["row_resid_norm"], float)
+    r = fit["row_resid_norm"]
     med = float(np.median(r))
     mad = float(np.median(np.abs(r - med)))
     robust_z = np.zeros_like(r) if mad <= 1e-12 else 0.67448975 * (r - med) / mad
@@ -393,11 +353,12 @@ def _fill_nan_linear(values: np.ndarray) -> np.ndarray:
 
 
 def _normalise_in_mask(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    valid = np.asarray(values, float)[mask]
+    arr = np.asarray(values, float)
+    valid = arr[mask]
     valid = valid[np.isfinite(valid) & (valid > 0)]
     if valid.size == 0:
-        return np.asarray(values, float)
-    return np.asarray(values, float) / float(np.median(valid))
+        return arr
+    return arr / float(np.median(valid))
 
 
 def _ripple_db(values: np.ndarray, mask: np.ndarray, lo: float = 5.0, hi: float = 95.0) -> float:
@@ -467,8 +428,8 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
     )
     values["net_gain_db"] = float(G_cum_db[-1])
 
-    df_att = validate_manifest(attenuation_manifest(), require_cable_length=True, label="attenuation manifest")
-    df_unk = validate_manifest(unknown_length_manifest(), require_cable_length=False, label="unknown-length manifest")
+    df_att = attenuation_manifest()
+    df_unk = unknown_length_manifest()
     for df in (df_att, df_unk):
         df["y_lo1420_db"] = df.apply(lambda row: to_normalised_db(row["lo1420_total_power"], row["siggen_amp_dbm"]), axis=1)
         df["y_lo1421_db"] = df.apply(lambda row: to_normalised_db(row["lo1421_total_power"], row["siggen_amp_dbm"]), axis=1)
@@ -504,7 +465,7 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
     df_diag["influence_flag"] = influence_mask
     tables["screening_diagnostics"] = df_diag.copy()
 
-    drop_mask = (~np.asarray(outlier_diag["inlier_mask"], bool)) | influence_mask
+    drop_mask = (~outlier_diag["inlier_mask"]) | influence_mask
     can_screen = drop_mask.any() and np.sum(~drop_mask) >= MIN_POINTS_AFTER_SCREEN and np.unique(L_all[~drop_mask]).size >= 2
     screening_applied = bool(can_screen)
     df_att_used = df_att_all.loc[~drop_mask].copy().reset_index(drop=True) if screening_applied else df_att_all.copy().reset_index(drop=True)
@@ -866,7 +827,7 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
         TAU_MOD_NS=TAU_MOD_NS,
     )
 
-    df_sweep = pd.read_csv(SDR_GAIN_SWEEP_MANIFEST_PATH).copy()
+    df_sweep = sdr_gain_sweep_manifest().copy()
     df_sweep["clip_max_frac"] = df_sweep[["i_clip_frac", "q_clip_frac"]].max(axis=1)
     df_sweep["meter_minus_set_db"] = df_sweep["manual_meter_dbm"] - df_sweep["siggen_amp_dbm"]
     df_sweep["is_clipped"] = df_sweep["clip_max_frac"] >= 1e-3
@@ -911,13 +872,23 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
                 intercept=intercept,
             )
     fit_df = pd.DataFrame(fit_rows).sort_values("lo_mhz").reset_index(drop=True)
+    required_sweep_cols = [
+        "highest_unclipped_setpoint_dbm",
+        "first_clipped_setpoint_dbm",
+        "rmse_db",
+    ]
+    if fit_df[required_sweep_cols].isna().any(axis=1).any():
+        raise ValueError(
+            "SDR gain sweep must provide unclipped headroom, clipped onset, "
+            "and RMSE for every LO before writing the equipment artifact."
+        )
     tables["sweep_fit"] = fit_df
     if fig_sweep is not None:
         figures["sdr_gain_response_clipping"] = fig_sweep
 
     spec_noise = Spectrum.load(COLD_REF_1420_PATH)
-    N_FFT = int(np.asarray(spec_noise.psd).size)
-    freq_offset_hz = np.asarray(spec_noise.freqs, float) - float(spec_noise.center_freq)
+    N_FFT = int(spec_noise.psd.size)
+    freq_offset_hz = spec_noise.freqs - float(spec_noise.center_freq)
     freq_offset_mhz = freq_offset_hz / 1e6
     P_fir_norm_shifted = power_response_on_output_axis(H_FIR, freq_offset_hz, RTL_INTERNAL_SAMPLE_RATE_HZ)
     P_sum_est_norm_shifted = power_response_on_output_axis(G_SUM_EST, freq_offset_hz, RTL_INTERNAL_SAMPLE_RATE_HZ)
@@ -954,7 +925,7 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
     after_fir_n = _normalise_in_mask(after_fir, combined_mask)
 
     def summing_response_norm_shifted(g_coeffs: np.ndarray) -> np.ndarray:
-        return power_response_on_output_axis(np.asarray(g_coeffs, float), freq_offset_hz, RTL_INTERNAL_SAMPLE_RATE_HZ)
+        return power_response_on_output_axis(g_coeffs, freq_offset_hz, RTL_INTERNAL_SAMPLE_RATE_HZ)
 
     def corrected_with_summing(P_sum_norm_shifted: np.ndarray) -> np.ndarray:
         return noise_norm / np.clip(P_fir_norm_shifted * P_sum_norm_shifted, RESPONSE_FLOOR, None)
@@ -1000,8 +971,8 @@ def run_equipment_calibration() -> EquipmentCalibrationResult:
         ]
     )
 
-    highest_unclipped_setpoint_dbm = float(np.nanmin(fit_df["highest_unclipped_setpoint_dbm"]))
-    first_clipped_setpoint_dbm = float(np.nanmin(fit_df["first_clipped_setpoint_dbm"]))
+    highest_unclipped_setpoint_dbm = float(fit_df["highest_unclipped_setpoint_dbm"].min())
+    first_clipped_setpoint_dbm = float(fit_df["first_clipped_setpoint_dbm"].min())
     sweep_rmse_db = fit_df["rmse_db"].to_numpy(dtype=float)
     sweep_lo_mhz = fit_df["lo_mhz"].to_numpy(dtype=float)
     clip_threshold = 1e-3

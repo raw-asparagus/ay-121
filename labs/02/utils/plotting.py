@@ -142,11 +142,8 @@ def _grid_2x2(
     *,
     figsize: tuple[float, float],
     sharex: str | bool = "col",
-    hspace: float = 0.38,
-    wspace: float = 0.32,
 ):
     fig, axes = plt.subplots(2, 2, figsize=figsize, sharex=sharex)
-    fig.subplots_adjust(hspace=hspace, wspace=wspace)
     return fig, axes
 
 
@@ -171,9 +168,9 @@ def figure_names(result) -> list[str]:
 
 
 def _eval_poly(v: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
-    x = np.asarray(v, float) / 100.0
+    x = v / 100.0
     out = np.zeros_like(x)
-    for idx, coeff in enumerate(np.asarray(coeffs, float)):
+    for idx, coeff in enumerate(coeffs):
         out += coeff * x**idx
     return out
 
@@ -539,9 +536,9 @@ def ratio_profile(
     ]
 
     for ax, data, xkey, raw_key, smooth_key, title, ylabel in configs:
-        vel = np.asarray(data[xkey], float)
-        y_raw = np.asarray(data[raw_key], float)
-        y_smooth = np.asarray(data[smooth_key], float)
+        vel = data[xkey]
+        y_raw = data[raw_key]
+        y_smooth = data[smooth_key]
         sel = (vel > vmin) & (vel < vmax)
 
         ax.plot(vel[sel], y_raw[sel], color=PRIMARY_COLOR, lw=LW_GRID, alpha=0.35, label=r"raw")

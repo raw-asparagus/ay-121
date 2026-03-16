@@ -3,17 +3,12 @@ import csv
 from pathlib import Path
 import pickle
 
-import astropy.coordinates as astro_coord
-import astropy.time as astro_time
-import astropy.units as astro_u
 import numpy as np
 import pandas as pd
 import scipy.optimize as opt
 import scipy.signal as sig
-import ugradio.coord
-import ugradio.doppler
 
-from ugradiolab import Spectrum
+from ugradiolab import Record, equatorial_to_altaz, galactic_to_equatorial
 
 from .common import (
     combine_spectrum_mask,
@@ -21,6 +16,7 @@ from .common import (
     interp_bool_nearest,
     interp_mono,
     load_lo_pair,
+    lsr_correction_kms,
     masked_spectrum_values,
     smooth_series,
     sigma_clip_rfi_mask,
@@ -48,7 +44,7 @@ from .constants import (
     SMOOTH_NCHAN,
 )
 from .contracts import AnalysisResult
-from .io import load_equipment_artifact, load_temperature_artifact
+from .io import load_equipment_artifact_typed, load_temperature_artifact_typed
 from .paths import CACHE_DIR, CYGNUS_X_SPECTRA_DIR, ETA_EFF_ESTIMATE_PATH, STANDARD_SPECTRA_DIR, ensure_output_dirs
 from .plotting import (
     plot_dataset_fits,
@@ -68,43 +64,6 @@ FIT_CACHE_SIGNATURE = (
 ANALYSIS_CACHE_PATH_A = CACHE_DIR / "analysis_cache_path_a.pkl"
 ANALYSIS_CACHE_PATH_B = CACHE_DIR / "analysis_cache_path_b.pkl"
 ANALYSIS_CACHE_PATH_SYS = CACHE_DIR / "analysis_cache_baseline_sys.pkl"
-
-
-def velocity_axis(freqs_hz: np.ndarray, rest_freq_hz: float = HI_REST_FREQ_HZ) -> np.ndarray:
-    return C_LIGHT_KMS * (rest_freq_hz - np.asarray(freqs_hz, float)) / rest_freq_hz
-
-
-def lsr_correction_kms(spectrum: Spectrum) -> float:
-    ra_deg = np.nan
-    dec_deg = np.nan
-    has_altaz = hasattr(spectrum, "az") and hasattr(spectrum, "alt")
-    if has_altaz:
-        az_deg = float(getattr(spectrum, "az"))
-        alt_deg = float(getattr(spectrum, "alt"))
-        if np.isfinite(az_deg) and np.isfinite(alt_deg):
-            location = astro_coord.EarthLocation(
-                lat=float(spectrum.obs_lat) * astro_u.deg,
-                lon=float(spectrum.obs_lon) * astro_u.deg,
-                height=float(spectrum.obs_alt) * astro_u.m,
-            )
-            obstime = astro_time.Time(float(spectrum.jd), format="jd")
-            frame_altaz = astro_coord.AltAz(obstime=obstime, location=location)
-            sky_altaz = astro_coord.SkyCoord(az=az_deg * astro_u.deg, alt=alt_deg * astro_u.deg, frame=frame_altaz)
-            sky_icrs = sky_altaz.icrs
-            ra_deg = float(sky_icrs.ra.deg)
-            dec_deg = float(sky_icrs.dec.deg)
-    if not (np.isfinite(ra_deg) and np.isfinite(dec_deg)):
-        ra_deg = float(np.degrees(float(spectrum.lst)))
-        dec_deg = float(spectrum.obs_lat)
-    v_ms = ugradio.doppler.get_projected_velocity(
-        ra=ra_deg,
-        dec=dec_deg,
-        jd=spectrum.jd,
-        obs_lat=spectrum.obs_lat,
-        obs_lon=spectrum.obs_lon,
-        obs_alt=spectrum.obs_alt,
-    )
-    return float(v_ms / 1e3)
 
 
 def robust_mad_sigma(x: np.ndarray) -> float:
@@ -594,36 +553,6 @@ def fit_metric_uncertainty_mc(fit: FitResult, n_draw: int = 300, seed: int = 0):
     return {"sigma_area": float(np.nanstd(df["area"])), "sigma_centroid": float(np.nanstd(df["centroid"])), "sigma_fwhm_eff": float(np.nanstd(df["fwhm_eff"]))}
 
 
-def gal_to_equatorial(l_deg: float, b_deg: float) -> tuple[float, float]:
-    R_eq_to_gal_2000 = np.array(
-        [[-0.054876, -0.873437, -0.483835], [0.494109, -0.444830, 0.746982], [-0.867666, -0.198076, 0.455984]],
-        dtype=float,
-    )
-    M_gal2eq = R_eq_to_gal_2000.T
-    l = np.radians(float(l_deg))
-    b = np.radians(float(b_deg))
-    xyz_g = np.array([np.cos(b) * np.cos(l), np.cos(b) * np.sin(l), np.sin(b)])
-    xyz_e = M_gal2eq @ xyz_g
-    ra_deg = float(np.degrees(np.arctan2(xyz_e[1], xyz_e[0])) % 360.0)
-    dec_deg = float(np.degrees(np.arcsin(np.clip(xyz_e[2], -1.0, 1.0))))
-    return ra_deg, dec_deg
-
-
-def hadec_to_altaz(ha_deg: float, dec_deg: float, lat_deg: float) -> tuple[float, float]:
-    ha = np.radians(float(ha_deg))
-    dec = np.radians(float(dec_deg))
-    lat = np.radians(float(lat_deg))
-    sin_alt = np.sin(dec) * np.sin(lat) + np.cos(dec) * np.cos(lat) * np.cos(ha)
-    alt_rad = np.arcsin(np.clip(sin_alt, -1.0, 1.0))
-    cos_alt = np.cos(alt_rad)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        cos_az = (np.sin(dec) - np.sin(lat) * sin_alt) / (np.cos(lat) * cos_alt)
-    az_rad = np.arccos(np.clip(cos_az, -1.0, 1.0))
-    if np.sin(ha) > 0:
-        az_rad = 2.0 * np.pi - az_rad
-    return float(np.degrees(alt_rad)), float(np.degrees(az_rad))
-
-
 def run_analysis(force_refit: bool = False) -> AnalysisResult:
     ensure_output_dirs()
     tables: dict[str, object] = {}
@@ -636,17 +565,17 @@ def run_analysis(force_refit: bool = False) -> AnalysisResult:
         "standard": {"pair": std_pair, "masks": {lo: sigma_clip_rfi_mask(std_pair[lo]) for lo in LO_FREQS_MHZ}},
         "cygnus-x": {"pair": cyg_pair, "masks": {lo: sigma_clip_rfi_mask(cyg_pair[lo]) for lo in LO_FREQS_MHZ}},
     }
-    _, cal = load_temperature_artifact()
-    _, eq = load_equipment_artifact()
+    _, cal = load_temperature_artifact_typed()
+    _, eq = load_equipment_artifact_typed()
 
     figures["hyperfine"] = plot_hyperfine()
     figures["lsr_geometry"] = plot_lsr_geometry()
 
     spec_ref = std_pair[1420]
-    ra_manual, dec_manual = gal_to_equatorial(120.0, 0.0)
+    ra_manual, dec_manual = galactic_to_equatorial(120.0, 0.0)
     lst_rad = float(spec_ref.lst)
     ha_deg = (np.degrees(lst_rad) - ra_manual) % 360.0
-    alt_manual, az_manual = hadec_to_altaz(ha_deg, dec_manual, float(spec_ref.obs_lat))
+    alt_manual, az_manual = equatorial_to_altaz(ra_manual, dec_manual, lst_rad, float(spec_ref.obs_lat))
     tables["coordinate_check"] = pd.DataFrame([{"ra_deg": ra_manual, "dec_deg": dec_manual, "ha_deg": ha_deg, "alt_deg": alt_manual, "az_deg": az_manual}])
 
     dv_chan = C_LIGHT_KMS * (std_pair[1420].sample_rate / std_pair[1420].psd.size) / HI_REST_FREQ_HZ
@@ -657,12 +586,11 @@ def run_analysis(force_refit: bool = False) -> AnalysisResult:
     raw_dir = STANDARD_SPECTRA_DIR.parent / "standard"
     candidates = sorted(raw_dir.glob("*-1420-0_obs_*.npz"))
     if candidates:
-        data = np.load(candidates[0], allow_pickle=False)
-        iq_raw = data["data"]
-        sr = float(data["sample_rate"])
-        fc = float(data["center_freq"])
-        nsamples = int(iq_raw.shape[1])
-        iq = iq_raw[..., 0].astype(np.float32) + 1j * iq_raw[..., 1].astype(np.float32)
+        record = Record.load(candidates[0])
+        sr = record.sample_rate
+        fc = record.center_freq
+        nsamples = record.nsamples
+        iq = record.data.copy()
         iq -= iq.mean(axis=1, keepdims=True)
         psd_blocks = np.abs(np.fft.fftshift(np.fft.fft(iq, axis=1), axes=1)) ** 2 / nsamples**2
         freqs = np.fft.fftshift(np.fft.fftfreq(nsamples, d=1.0 / sr)) + fc
@@ -678,7 +606,7 @@ def run_analysis(force_refit: bool = False) -> AnalysisResult:
         psd[~analysis_mask] = np.nan
 
         def _fill_nan_linear(arr: np.ndarray) -> np.ndarray:
-            arr = np.asarray(arr, float)
+            arr = np.array(arr, dtype=float, copy=True)
             finite = np.isfinite(arr)
             if finite.sum() < 2:
                 raise ValueError("Need at least two finite channels to interpolate across the LO bin.")
@@ -736,8 +664,8 @@ def run_analysis(force_refit: bool = False) -> AnalysisResult:
         y_inv = np.where(mask, Rinv - 1.0, np.nan)
         y_R_fit, s_R_fit = smooth_profile_with_sigma(y_R, np.where(mask, R_sigma, np.nan), SMOOTH_NCHAN, method=SMOOTH_METHOD)
         y_inv_fit, s_inv_fit = smooth_profile_with_sigma(y_inv, np.where(mask, Rinv_sigma, np.nan), SMOOTH_NCHAN, method=SMOOTH_METHOD)
-        v0 = velocity_axis(pair[1420].freqs) + lsr_correction_kms(pair[1420])
-        v1 = velocity_axis(pair[1421].freqs) + lsr_correction_kms(pair[1421])
+        v0 = pair[1420].velocity_axis_kms(HI_REST_FREQ_HZ, velocity_shift_kms=lsr_correction_kms(pair[1420]))
+        v1 = pair[1421].velocity_axis_kms(HI_REST_FREQ_HZ, velocity_shift_kms=lsr_correction_kms(pair[1421]))
         ratio_profiles[ds_name] = {"v0": v0, "v1": v1, "y_R": y_R, "y_inv": y_inv, "s_R": np.where(mask, R_sigma, np.nan), "s_inv": np.where(mask, Rinv_sigma, np.nan), "y_R_fit": y_R_fit, "y_inv_fit": y_inv_fit, "s_R_fit": s_R_fit, "s_inv_fit": s_inv_fit}
         vel_min, vel_max = FIT_WINDOWS_KMS[ds_name]
         if needs_fit_a:
@@ -761,53 +689,56 @@ def run_analysis(force_refit: bool = False) -> AnalysisResult:
     )
     tables["ratio_model_tables"] = {f"{key[0]}:{key[1]}": value for key, value in ratio_model_tables.items()}
 
-    eq_offset = np.asarray(eq["freq_offset_mhz"], float)
-    eq_resp_floor = float(eq["response_floor"])
-    eq_resp = np.asarray(eq["fir_response_norm"], float) * np.asarray(eq["sum_response_norm"], float)
-    eq_pass = np.asarray(eq["passband_mask"], bool)
-    eq_eval = np.asarray(eq["combined_eval_mask"], bool)
-    alpha = float(eq["alpha_db_per_m"])
-    sigma_alpha = float(eq["sigma_alpha_db_per_m"])
-    L_unknown = float(eq["unknown_cable_length_m"])
-    att_frac_raw = np.log(10) / 10.0 * abs(sigma_alpha) * abs(L_unknown) if np.isfinite(sigma_alpha) and np.isfinite(L_unknown) else 0.0
-    rmse_arr = np.asarray(eq["sweep_rmse_db"], float)
-    rmse_db = float(np.nanmedian(rmse_arr)) if rmse_arr.size else 0.2
+    eq_offset = eq.freq_offset_mhz
+    eq_resp_floor = eq.response_floor
+    eq_resp = eq.fir_response_norm * eq.sum_response_norm
+    eq_pass = eq.passband_mask
+    eq_eval = eq.combined_eval_mask
+    att_frac_raw = np.log(10) / 10.0 * abs(eq.sigma_alpha_db_per_m) * abs(eq.unknown_cable_length_m)
+    rmse_db = eq.sweep_rmse_db
     lin_frac = np.log(10) / 20.0 * abs(rmse_db)
-    sys_frac = float(cal["sigma_hw_fraction"]) if "sigma_hw_fraction" in cal else float(lin_frac)
+    sys_frac = cal.sigma_hw_fraction
     tables["linearity_headroom"] = pd.DataFrame(
         [
             {
                 "target_100mVpp_dbm": 10.0 * np.log10(((0.100 / (2.0 * np.sqrt(2.0))) ** 2 / 50.0) / 1e-3),
-                "highest_unclipped_setpoint_dbm": float(eq["highest_unclipped_setpoint_dbm"]),
-                "first_clipped_setpoint_dbm": float(eq["first_clipped_setpoint_dbm"]),
+                "highest_unclipped_setpoint_dbm": eq.highest_unclipped_setpoint_dbm,
+                "first_clipped_setpoint_dbm": eq.first_clipped_setpoint_dbm,
                 "linearity_rmse_db": rmse_db,
             }
         ]
     )
 
     def response_on_axis(freq_axis_hz: np.ndarray, center_freq_hz: float):
-        x_new = (np.asarray(freq_axis_hz, float) - float(center_freq_hz)) / 1e6
+        x_new = (freq_axis_hz - center_freq_hz) / 1e6
         resp_interp = interp_mono(eq_offset, eq_resp, x_new, fill_value=np.nan)
         pass_interp = interp_bool_nearest(eq_offset, eq_pass, x_new, default=False)
         eval_interp = interp_bool_nearest(eq_offset, eq_eval, x_new, default=False)
         resp_safe = np.clip(resp_interp, eq_resp_floor, np.inf)
         return resp_safe, pass_interp, eval_interp
 
-    def cold_profile_on_axis(cal_npz: dict[str, np.ndarray], lo: int, freq_axis_hz: np.ndarray):
-        fsrc = np.asarray(cal_npz[f"freq_hz_{lo}"], float)
-        psrc = np.asarray(cal_npz[f"cold_ref_profile_{lo}"], float)
-        msrc = np.asarray(cal_npz[f"cold_ref_mask_{lo}"], bool)
+    def cold_profile_on_axis(lo: int, freq_axis_hz: np.ndarray):
+        if lo == 1420:
+            fsrc = cal.freq_hz_1420
+            psrc = cal.cold_ref_profile_1420
+            msrc = cal.cold_ref_mask_1420
+        elif lo == 1421:
+            fsrc = cal.freq_hz_1421
+            psrc = cal.cold_ref_profile_1421
+            msrc = cal.cold_ref_mask_1421
+        else:
+            raise ValueError(f"Unexpected LO {lo!r}")
         return (
             interp_mono(fsrc, psrc, freq_axis_hz, fill_value=np.nan),
             interp_bool_nearest(fsrc, msrc, freq_axis_hz, default=False),
         )
 
-    t_rx_1420 = float(cal["t_rx_1420"])
-    t_rx_1421 = float(cal["t_rx_1421"])
-    s_t_rx_1420 = float(cal["sigma_t_rx_1420"])
-    s_t_rx_1421 = float(cal["sigma_t_rx_1421"])
-    T_cold = float(cal["t_cold"])
-    cold_ref_method = str(cal["cold_ref_method"].item() if np.asarray(cal["cold_ref_method"]).ndim == 0 else cal["cold_ref_method"])
+    t_rx_1420 = cal.t_rx_1420
+    t_rx_1421 = cal.t_rx_1421
+    s_t_rx_1420 = cal.sigma_t_rx_1420
+    s_t_rx_1421 = cal.sigma_t_rx_1421
+    T_cold = cal.t_cold
+    cold_ref_method = cal.cold_ref_method
     cold_ref_is_hw_corrected = "hw_corrected" in cold_ref_method.lower()
 
     temp_profiles = {}
@@ -824,12 +755,12 @@ def run_analysis(force_refit: bool = False) -> AnalysisResult:
         p1 = masked_spectrum_values(pair[1421])
         s0 = masked_spectrum_values(pair[1420], pair[1420].std)
         s1 = masked_spectrum_values(pair[1421], pair[1421].std)
-        f0 = np.asarray(pair[1420].freqs, float)
-        f1 = np.asarray(pair[1421].freqs, float)
+        f0 = pair[1420].freqs
+        f1 = pair[1421].freqs
         resp0, _, _ = response_on_axis(f0, pair[1420].center_freq)
         resp1, _, _ = response_on_axis(f1, pair[1421].center_freq)
-        c0, cm0 = cold_profile_on_axis(cal, 1420, f0)
-        c1, cm1 = cold_profile_on_axis(cal, 1421, f1)
+        c0, cm0 = cold_profile_on_axis(1420, f0)
+        c1, cm1 = cold_profile_on_axis(1421, f1)
         hw_good = combine_spectrum_mask(pair[1420], masks[1420], masks[1421], cm0, cm1, np.isfinite(p0), np.isfinite(p1), np.isfinite(s0), np.isfinite(s1), np.isfinite(resp0), np.isfinite(resp1), np.isfinite(c0), np.isfinite(c1), (p0 > 0), (p1 > 0), (c0 > 0), (c1 > 0), require_nonempty=True)
         p0h = np.where(hw_good, p0 / resp0, np.nan)
         p1h = np.where(hw_good, p1 / resp1, np.nan)
@@ -867,8 +798,8 @@ def run_analysis(force_refit: bool = False) -> AnalysisResult:
         sTline_inv_total = np.sqrt(sTline_inv_stat**2 + (sys_frac * np.abs(Tline_inv)) ** 2)
         Tline_R_fit, sTline_R_fit = smooth_profile_with_sigma(Tline_R, sTline_R_stat, SMOOTH_NCHAN, method=SMOOTH_METHOD)
         Tline_inv_fit, sTline_inv_fit = smooth_profile_with_sigma(Tline_inv, sTline_inv_stat, SMOOTH_NCHAN, method=SMOOTH_METHOD)
-        v0 = velocity_axis(f0) + lsr_correction_kms(pair[1420])
-        v1 = velocity_axis(f1) + lsr_correction_kms(pair[1421])
+        v0 = pair[1420].velocity_axis_kms(HI_REST_FREQ_HZ, velocity_shift_kms=lsr_correction_kms(pair[1420]))
+        v1 = pair[1421].velocity_axis_kms(HI_REST_FREQ_HZ, velocity_shift_kms=lsr_correction_kms(pair[1421]))
         temp_profiles[ds_name] = {"v0": v0, "v1": v1, "Tline_R": Tline_R, "Tline_inv": Tline_inv, "Tline_R_fit": Tline_R_fit, "Tline_inv_fit": Tline_inv_fit, "sTline_R_stat": sTline_R_stat, "sTline_inv_stat": sTline_inv_stat, "sTline_R_fit": sTline_R_fit, "sTline_inv_fit": sTline_inv_fit, "sTline_R_total": sTline_R_total, "sTline_inv_total": sTline_inv_total}
         vel_min, vel_max = FIT_WINDOWS_KMS[ds_name]
         if needs_fit_b:

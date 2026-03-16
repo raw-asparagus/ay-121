@@ -14,6 +14,81 @@ _REQUIRED_KEYS = frozenset({
     'nblocks', 'nsamples',
 })
 
+_SCALAR_FLOAT_FIELDS = (
+    'sample_rate',
+    'center_freq',
+    'gain',
+    'unix_time',
+    'jd',
+    'lst',
+    'alt',
+    'az',
+    'obs_lat',
+    'obs_lon',
+    'obs_alt',
+)
+_POSITIVE_FLOAT_FIELDS = frozenset({'sample_rate'})
+_OPTIONAL_FLOAT_FIELDS = ('siggen_freq', 'siggen_amp')
+_OPTIONAL_BOOL_FIELDS = ('siggen_rf_on',)
+_INT8_MIN = np.iinfo(np.int8).min
+_INT8_MAX = np.iinfo(np.int8).max
+
+
+def _as_scalar(name: str, value, *, kind: str) -> float | int | bool:
+    arr = np.asarray(value)
+    if arr.ndim != 0:
+        raise ValueError(f'{name} must be a scalar, got shape {arr.shape}')
+    item = arr.item()
+    if kind == 'float':
+        if isinstance(item, (bool, np.bool_)):
+            raise ValueError(f'{name} must be a real scalar, got boolean {item!r}')
+        try:
+            out = float(item)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'{name} must be a real scalar, got {item!r}') from exc
+        if not np.isfinite(out):
+            raise ValueError(f'{name} must be finite, got {out!r}')
+        return out
+    if kind == 'int':
+        if isinstance(item, (bool, np.bool_)):
+            raise ValueError(f'{name} must be a positive integer, got boolean {item!r}')
+        if isinstance(item, (int, np.integer)):
+            out = int(item)
+        else:
+            try:
+                numeric = float(item)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f'{name} must be a positive integer, got {item!r}'
+                ) from exc
+            if not np.isfinite(numeric) or not numeric.is_integer():
+                raise ValueError(
+                    f'{name} must be a positive integer, got {item!r}'
+                )
+            out = int(numeric)
+        if out <= 0:
+            raise ValueError(f'{name} must be > 0, got {out!r}')
+        return out
+    if kind == 'bool':
+        if isinstance(item, (bool, np.bool_)):
+            return bool(item)
+        if isinstance(item, (int, np.integer)) and item in (0, 1):
+            return bool(item)
+        raise ValueError(f'{name} must be boolean, got {item!r}')
+    raise ValueError(f'Unknown scalar kind {kind!r}')
+
+
+def _validate_int8_capture(data: np.ndarray) -> None:
+    for label, values in (('real', data.real), ('imag', data.imag)):
+        rounded = np.rint(values)
+        if np.any(values != rounded):
+            raise ValueError(f'data {label} component must be integer-valued.')
+        if np.any((rounded < _INT8_MIN) | (rounded > _INT8_MAX)):
+            raise ValueError(
+                f'data {label} component must stay within int8 range '
+                f'[{_INT8_MIN}, {_INT8_MAX}].'
+            )
+
 
 @dataclass(frozen=True)
 class Record:
@@ -37,6 +112,60 @@ class Record:
     siggen_freq: float | None = None
     siggen_amp: float | None  = None
     siggen_rf_on: bool | None = None
+
+    def __post_init__(self):
+        data = np.asarray(self.data)
+        if data.ndim != 2:
+            raise ValueError(
+                f'data must have shape (nblocks, nsamples), got {data.shape}'
+            )
+        if not (
+            np.issubdtype(data.dtype, np.complexfloating)
+            or np.issubdtype(data.dtype, np.floating)
+            or np.issubdtype(data.dtype, np.integer)
+        ):
+            raise ValueError(
+                f'data must be numeric, got dtype {data.dtype}'
+            )
+        data = np.asarray(data, dtype=np.complex64)
+        if not (np.isfinite(data.real).all() and np.isfinite(data.imag).all()):
+            raise ValueError('data must be finite.')
+        _validate_int8_capture(data)
+
+        nblocks = _as_scalar('nblocks', self.nblocks, kind='int')
+        nsamples = _as_scalar('nsamples', self.nsamples, kind='int')
+        if data.shape != (nblocks, nsamples):
+            raise ValueError(
+                f'data shape {data.shape} inconsistent with '
+                f'nblocks={nblocks}, nsamples={nsamples}'
+            )
+
+        object.__setattr__(self, 'data', data)
+        object.__setattr__(self, 'nblocks', nblocks)
+        object.__setattr__(self, 'nsamples', nsamples)
+        object.__setattr__(self, 'direct', _as_scalar('direct', self.direct, kind='bool'))
+
+        for name in _SCALAR_FLOAT_FIELDS:
+            value = _as_scalar(name, getattr(self, name), kind='float')
+            if name in _POSITIVE_FLOAT_FIELDS and value <= 0:
+                raise ValueError(f'{name} must be > 0, got {value!r}')
+            object.__setattr__(
+                self,
+                name,
+                value,
+            )
+
+        for name in _OPTIONAL_FLOAT_FIELDS:
+            value = getattr(self, name)
+            if value is None:
+                continue
+            object.__setattr__(self, name, _as_scalar(name, value, kind='float'))
+
+        for name in _OPTIONAL_BOOL_FIELDS:
+            value = getattr(self, name)
+            if value is None:
+                continue
+            object.__setattr__(self, name, _as_scalar(name, value, kind='bool'))
 
     @property
     def uses_synth(self) -> bool:
@@ -85,10 +214,13 @@ class Record:
         -------
         Record
         """
-        if data.ndim != 3 or data.shape[-1] != 2:
+        raw = np.asarray(data)
+        if raw.ndim != 3 or raw.shape[-1] != 2:
             raise ValueError('data must have shape (nblocks, nsamples, 2)')
-        iq = (data[..., 0].astype(np.float32)
-              + 1j * data[..., 1].astype(np.float32))
+        if raw.dtype != np.dtype(np.int8):
+            raise ValueError(f'data must be int8, got dtype {raw.dtype}')
+        iq = (raw[..., 0].astype(np.float32)
+              + 1j * raw[..., 1].astype(np.float32))
 
         t   = get_unix_time()
         jd  = timing.julian_date(t)
@@ -148,16 +280,16 @@ class Record:
             shape or dtype, or stored nblocks/nsamples are inconsistent with
             the data array dimensions.
         """
-        with np.load(filepath, allow_pickle=False) as f:
+        with np.load(os.fspath(filepath), allow_pickle=False) as f:
             missing = _REQUIRED_KEYS - f.keys()
             if missing:
                 raise ValueError(
                     f'{filepath}: missing required keys: {missing}'
                 )
 
-            data     = f['data']
-            nblocks  = int(f['nblocks'])
-            nsamples = int(f['nsamples'])
+            data = f['data']
+            nblocks = _as_scalar('nblocks', f['nblocks'], kind='int')
+            nsamples = _as_scalar('nsamples', f['nsamples'], kind='int')
 
             if data.ndim != 3 or data.shape[-1] != 2:
                 raise ValueError(
@@ -179,29 +311,23 @@ class Record:
 
             return cls(
                 data         = iq,
-                sample_rate  = float(f['sample_rate']),
-                center_freq  = float(f['center_freq']),
-                gain         = float(f['gain']),
-                direct       = bool(f['direct']),
-                unix_time    = float(f['unix_time']),
-                jd           = float(f['jd']),
-                lst          = float(f['lst']),
-                alt          = float(f['alt']),
-                az           = float(f['az']),
-                obs_lat      = float(f['obs_lat']),
-                obs_lon      = float(f['obs_lon']),
-                obs_alt      = float(f['obs_alt']),
+                sample_rate  = f['sample_rate'],
+                center_freq  = f['center_freq'],
+                gain         = f['gain'],
+                direct       = f['direct'],
+                unix_time    = f['unix_time'],
+                jd           = f['jd'],
+                lst          = f['lst'],
+                alt          = f['alt'],
+                az           = f['az'],
+                obs_lat      = f['obs_lat'],
+                obs_lon      = f['obs_lon'],
+                obs_alt      = f['obs_alt'],
                 nblocks      = nblocks,
                 nsamples     = nsamples,
-                siggen_freq  = (
-                    float(f['siggen_freq']) if 'siggen_freq' in f else None
-                ),
-                siggen_amp   = (
-                    float(f['siggen_amp']) if 'siggen_amp' in f else None
-                ),
-                siggen_rf_on = (
-                    bool(f['siggen_rf_on']) if 'siggen_rf_on' in f else None
-                ),
+                siggen_freq  = f['siggen_freq'] if 'siggen_freq' in f else None,
+                siggen_amp   = f['siggen_amp'] if 'siggen_amp' in f else None,
+                siggen_rf_on = f['siggen_rf_on'] if 'siggen_rf_on' in f else None,
             )
 
     def _to_npz_dict(self):

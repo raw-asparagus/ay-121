@@ -96,7 +96,7 @@ def remove_manifest_rows_for_paths(manifest_path: Path, paths: dict[int, str]) -
 # Capture metrics
 
 def _channel_stats(channel: np.ndarray) -> dict[str, float]:
-    flat = np.asarray(channel, dtype=float).ravel()
+    flat = channel.ravel()
     return {
         "min":       float(np.min(flat)),
         "max":       float(np.max(flat)),
@@ -110,10 +110,11 @@ def compute_capture_metrics(path: str | Path) -> dict[str, float]:
     record = Record.load(path)
     i_stats = _channel_stats(record.data.real)
     q_stats = _channel_stats(record.data.imag)
-    total_power = float(Spectrum.from_data(path).total_power)
+    spectrum = Spectrum.from_record(record)
+    total_power = spectrum.total_power
     return {
         "total_power": total_power,
-        "total_power_db": float(10.0 * np.log10(total_power)) if total_power > 0 else math.nan,
+        "total_power_db": spectrum.total_power_db,
         "i_min":       i_stats["min"],   "i_max":    i_stats["max"],
         "i_median":    i_stats["median"],"i_rms":    i_stats["rms"],
         "i_clip_frac": i_stats["clip_frac"],
@@ -161,13 +162,15 @@ def build_manifest_row(
 ) -> dict[str, object]:
     powers = {lo: metrics[lo]["total_power"] for lo in LO_FREQS_MHZ}
     p0, p1 = powers[LO_FREQS_MHZ[0]], powers[LO_FREQS_MHZ[1]]
+    if p0 <= 0 or p1 <= 0:
+        raise ValueError("Manifest rows require positive total_power for both LO settings.")
     row: dict[str, object] = {
         "set_id":             set_id,
         "cable_length_m":     cable_length_m,
         "power_meter_dbm":    power_meter_dbm,
         "siggen_freq_mhz":    siggen_freq_mhz,
         "siggen_amp_dbm":     siggen_amp_dbm,
-        "total_power_ratio_1420_over_1421": p0 / p1 if p1 != 0.0 else math.nan,
+        "total_power_ratio_1420_over_1421": p0 / p1,
     }
     for lo in LO_FREQS_MHZ:
         row[f"lo{lo}_path"]        = paths[lo]

@@ -20,6 +20,67 @@ _REQUIRED_KEYS = frozenset({
     'nblocks', 'nsamples',
 })
 
+_SCALAR_FLOAT_FIELDS = (
+    'sample_rate',
+    'center_freq',
+    'gain',
+    'unix_time',
+    'jd',
+    'lst',
+    'alt',
+    'az',
+    'obs_lat',
+    'obs_lon',
+    'obs_alt',
+)
+_POSITIVE_FLOAT_FIELDS = frozenset({'sample_rate'})
+_OPTIONAL_FLOAT_FIELDS = ('siggen_freq', 'siggen_amp')
+_OPTIONAL_BOOL_FIELDS = ('siggen_rf_on',)
+
+
+def _as_scalar(name: str, value, *, kind: str) -> float | int | bool:
+    arr = np.asarray(value)
+    if arr.ndim != 0:
+        raise ValueError(f'{name} must be a scalar, got shape {arr.shape}')
+    item = arr.item()
+    if kind == 'float':
+        if isinstance(item, (bool, np.bool_)):
+            raise ValueError(f'{name} must be a real scalar, got boolean {item!r}')
+        try:
+            out = float(item)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'{name} must be a real scalar, got {item!r}') from exc
+        if not np.isfinite(out):
+            raise ValueError(f'{name} must be finite, got {out!r}')
+        return out
+    if kind == 'int':
+        if isinstance(item, (bool, np.bool_)):
+            raise ValueError(f'{name} must be a positive integer, got boolean {item!r}')
+        if isinstance(item, (int, np.integer)):
+            out = int(item)
+        else:
+            try:
+                numeric = float(item)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f'{name} must be a positive integer, got {item!r}'
+                ) from exc
+            if not np.isfinite(numeric) or not numeric.is_integer():
+                raise ValueError(
+                    f'{name} must be a positive integer, got {item!r}'
+                )
+            out = int(numeric)
+        if out <= 0:
+            raise ValueError(f'{name} must be > 0, got {out!r}')
+        return out
+    if kind == 'bool':
+        if isinstance(item, (bool, np.bool_)):
+            return bool(item)
+        if isinstance(item, (int, np.integer)) and item in (0, 1):
+            return bool(item)
+        raise ValueError(f'{name} must be boolean, got {item!r}')
+    raise ValueError(f'Unknown scalar kind {kind!r}')
+
 
 @dataclass(frozen=True)
 class Spectrum:
@@ -90,6 +151,69 @@ class Spectrum:
     siggen_amp: float | None  = None
     siggen_rf_on: bool | None = None
 
+    def __post_init__(self):
+        psd = np.asarray(self.psd, dtype=float)
+        std = np.asarray(self.std, dtype=float)
+        freqs = np.asarray(self.freqs, dtype=float)
+        if psd.ndim != 1:
+            raise ValueError(f'psd must be 1-D, got shape {psd.shape}')
+        if std.ndim != 1:
+            raise ValueError(f'std must be 1-D, got shape {std.shape}')
+        if freqs.ndim != 1:
+            raise ValueError(f'freqs must be 1-D, got shape {freqs.shape}')
+        if std.shape != psd.shape:
+            raise ValueError(
+                f'std shape {std.shape} does not match psd shape {psd.shape}'
+            )
+        if freqs.shape != psd.shape:
+            raise ValueError(
+                f'freqs shape {freqs.shape} does not match psd shape {psd.shape}'
+            )
+        if not np.isfinite(psd).all():
+            raise ValueError('psd must be finite.')
+        if not np.isfinite(std).all():
+            raise ValueError('std must be finite.')
+        if not np.isfinite(freqs).all():
+            raise ValueError('freqs must be finite.')
+        if np.any(std < 0):
+            raise ValueError('std must be non-negative.')
+
+        nblocks = _as_scalar('nblocks', self.nblocks, kind='int')
+        nsamples = _as_scalar('nsamples', self.nsamples, kind='int')
+        if psd.size != nsamples:
+            raise ValueError(
+                f'psd length {psd.size} inconsistent with nsamples={nsamples}'
+            )
+
+        object.__setattr__(self, 'psd', np.asarray(psd, dtype=np.float64))
+        object.__setattr__(self, 'std', np.asarray(std, dtype=np.float64))
+        object.__setattr__(self, 'freqs', np.asarray(freqs, dtype=np.float64))
+        object.__setattr__(self, 'nblocks', nblocks)
+        object.__setattr__(self, 'nsamples', nsamples)
+        object.__setattr__(self, 'direct', _as_scalar('direct', self.direct, kind='bool'))
+
+        for name in _SCALAR_FLOAT_FIELDS:
+            value = _as_scalar(name, getattr(self, name), kind='float')
+            if name in _POSITIVE_FLOAT_FIELDS and value <= 0:
+                raise ValueError(f'{name} must be > 0, got {value!r}')
+            object.__setattr__(
+                self,
+                name,
+                value,
+            )
+
+        for name in _OPTIONAL_FLOAT_FIELDS:
+            value = getattr(self, name)
+            if value is None:
+                continue
+            object.__setattr__(self, name, _as_scalar(name, value, kind='float'))
+
+        for name in _OPTIONAL_BOOL_FIELDS:
+            value = getattr(self, name)
+            if value is None:
+                continue
+            object.__setattr__(self, name, _as_scalar(name, value, kind='bool'))
+
     @property
     def uses_synth(self) -> bool:
         """True if all signal generator fields are populated."""
@@ -118,6 +242,14 @@ class Spectrum:
         ``mean(|x[n]|²)`` and is independent of ``nsamples``.
         """
         return float(np.sum(self.psd))
+
+    @property
+    def total_power_db(self) -> float:
+        """Total integrated power in dB."""
+        power = self.total_power
+        if not np.isfinite(power) or power <= 0:
+            raise ValueError('total_power must be finite and > 0 for dB conversion.')
+        return float(10.0 * np.log10(power))
 
     @property
     def total_power_sigma(self) -> float:
@@ -276,6 +408,42 @@ class Spectrum:
             )
 
     @classmethod
+    def from_record(cls, record: Record) -> 'Spectrum':
+        """Computes a Spectrum from a sanitized Record."""
+        if not isinstance(record, Record):
+            raise TypeError(f'record must be a Record, got {type(record)!r}')
+        nblocks, nsamples = record.data.shape
+        data = record.data - record.data.mean(axis=1, keepdims=True)
+        block_psds = np.abs(np.fft.fftshift(
+            np.fft.fft(data, axis=1),
+            axes=1
+        )) ** 2 / nsamples ** 2
+        return cls(
+            psd          = np.mean(block_psds, axis=0),
+            std          = np.std(block_psds, axis=0) / np.sqrt(nblocks),
+            freqs        = np.fft.fftshift(
+                np.fft.fftfreq(nsamples, d=1.0 / record.sample_rate)
+            ) + record.center_freq,
+            sample_rate  = record.sample_rate,
+            center_freq  = record.center_freq,
+            gain         = record.gain,
+            direct       = record.direct,
+            unix_time    = record.unix_time,
+            jd           = record.jd,
+            lst          = record.lst,
+            alt          = record.alt,
+            az           = record.az,
+            obs_lat      = record.obs_lat,
+            obs_lon      = record.obs_lon,
+            obs_alt      = record.obs_alt,
+            nblocks      = record.nblocks,
+            nsamples     = record.nsamples,
+            siggen_freq  = record.siggen_freq,
+            siggen_amp   = record.siggen_amp,
+            siggen_rf_on = record.siggen_rf_on,
+        )
+
+    @classmethod
     def from_data(cls, filepath) -> 'Spectrum':
         """Computes a Spectrum from a Record specified by filepath.
 
@@ -288,37 +456,7 @@ class Spectrum:
         -------
         Spectrum
         """
-        rec               = Record.load(filepath)
-        nblocks, nsamples = rec.data.shape
-        data              = rec.data - rec.data.mean(axis=1, keepdims=True)
-        block_psds        = np.abs(np.fft.fftshift(
-            np.fft.fft(data, axis=1),
-            axes=1
-        )) ** 2 / nsamples ** 2
-        return cls(
-            psd          = np.mean(block_psds, axis=0),
-            std          = np.std(block_psds, axis=0) / np.sqrt(nblocks),
-            freqs        = np.fft.fftshift(
-                np.fft.fftfreq(nsamples, d=1.0 / rec.sample_rate)
-            ) + rec.center_freq,
-            sample_rate  = rec.sample_rate,
-            center_freq  = rec.center_freq,
-            gain         = rec.gain,
-            direct       = rec.direct,
-            unix_time    = rec.unix_time,
-            jd           = rec.jd,
-            lst          = rec.lst,
-            alt          = rec.alt,
-            az           = rec.az,
-            obs_lat      = rec.obs_lat,
-            obs_lon      = rec.obs_lon,
-            obs_alt      = rec.obs_alt,
-            nblocks      = rec.nblocks,
-            nsamples     = rec.nsamples,
-            siggen_freq  = rec.siggen_freq,
-            siggen_amp   = rec.siggen_amp,
-            siggen_rf_on = rec.siggen_rf_on,
-        )
+        return cls.from_record(Record.load(filepath))
 
     def save(self, filepath):
         """Saves this Spectrum to a .npz file.
@@ -355,12 +493,26 @@ class Spectrum:
                     f'{filepath}: missing required keys: {missing}'
                 )
 
-            psd   = f['psd']
+            psd = f['psd']
+            std = f['std']
             freqs = f['freqs']
 
             if psd.ndim != 1:
                 raise ValueError(
                     f'{filepath}: psd must be 1-D, got shape {psd.shape}'
+                )
+            if std.ndim != 1:
+                raise ValueError(
+                    f'{filepath}: std must be 1-D, got shape {std.shape}'
+                )
+            if freqs.ndim != 1:
+                raise ValueError(
+                    f'{filepath}: freqs must be 1-D, got shape {freqs.shape}'
+                )
+            if std.shape != psd.shape:
+                raise ValueError(
+                    f'{filepath}: std shape {std.shape} does not match '
+                    f'psd shape {psd.shape}'
                 )
             if freqs.shape != psd.shape:
                 raise ValueError(
@@ -370,31 +522,25 @@ class Spectrum:
 
             return cls(
                 psd          = psd,
-                std          = f['std'],
+                std          = std,
                 freqs        = freqs,
-                sample_rate  = float(f['sample_rate']),
-                center_freq  = float(f['center_freq']),
-                gain         = float(f['gain']),
-                direct       = bool(f['direct']),
-                unix_time    = float(f['unix_time']),
-                jd           = float(f['jd']),
-                lst          = float(f['lst']),
-                alt          = float(f['alt']),
-                az           = float(f['az']),
-                obs_lat      = float(f['obs_lat']),
-                obs_lon      = float(f['obs_lon']),
-                obs_alt      = float(f['obs_alt']),
-                nblocks      = int(f['nblocks']),
-                nsamples     = int(f['nsamples']),
-                siggen_freq  = (
-                    float(f['siggen_freq']) if 'siggen_freq' in f else None
-                ),
-                siggen_amp   = (
-                    float(f['siggen_amp']) if 'siggen_amp' in f else None
-                ),
-                siggen_rf_on = (
-                    bool(f['siggen_rf_on']) if 'siggen_rf_on' in f else None
-                ),
+                sample_rate  = f['sample_rate'],
+                center_freq  = f['center_freq'],
+                gain         = f['gain'],
+                direct       = f['direct'],
+                unix_time    = f['unix_time'],
+                jd           = f['jd'],
+                lst          = f['lst'],
+                alt          = f['alt'],
+                az           = f['az'],
+                obs_lat      = f['obs_lat'],
+                obs_lon      = f['obs_lon'],
+                obs_alt      = f['obs_alt'],
+                nblocks      = f['nblocks'],
+                nsamples     = f['nsamples'],
+                siggen_freq  = f['siggen_freq'] if 'siggen_freq' in f else None,
+                siggen_amp   = f['siggen_amp'] if 'siggen_amp' in f else None,
+                siggen_rf_on = f['siggen_rf_on'] if 'siggen_rf_on' in f else None,
             )
 
     def _to_npz_dict(self):

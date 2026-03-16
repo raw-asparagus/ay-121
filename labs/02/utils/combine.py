@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Combine n files of per-LO-frequency captures into one"""
 
-import glob
-import os
 import re
 import sys
 from pathlib import Path
@@ -11,29 +9,32 @@ import numpy as np
 
 from ugradiolab import Record
 
-INDIR_DEFAULT  = 'data/lab02/standard'
-OUTDIR_DEFAULT = 'data/lab02/standard_combined'
+INDIR_DEFAULT = Path("data/lab02/standard")
+OUTDIR_DEFAULT = Path("data/lab02/standard_combined")
 
-LO_FREQS = ('1420', '1421')
+LO_FREQS = ("1420", "1421")
 
 
-def _find_files(indir, lo_freq):
+def find_lo_files(indir: str | Path, lo_freq: str) -> list[Path]:
     """Return paths matching *-<lo_freq>-<index>_obs_*.npz, sorted by index."""
-    raw = glob.glob(os.path.join(indir, f'*-{lo_freq}-*_obs_*.npz'))
-    return sorted(raw, key=lambda p: _parse_index(p, lo_freq))
+    indir = Path(indir)
+    raw = indir.glob(f"*-{lo_freq}-*_obs_*.npz")
+    return sorted(raw, key=lambda path: _parse_index(path, lo_freq))
 
 
-def _parse_index(path, lo_freq):
+def _parse_index(path: str | Path, lo_freq: str) -> int:
     """Extract run index from script-style names ending with -<lo_freq>-<i>_obs_."""
     name = Path(path).name
-    m = re.match(rf'.*-{re.escape(lo_freq)}-(\d+)_obs_', name)
+    m = re.match(rf".*-{re.escape(lo_freq)}-(\d+)_obs_", name)
     if m is None:
-        raise ValueError(f'Cannot parse run index from filename: {name!r}')
+        raise ValueError(f"Cannot parse run index from filename: {name!r}")
     return int(m.group(1))
 
 
-def _combine(records):
+def combine_records(records: list[Record]) -> Record:
     """Stack Records along the blocks axis; metadata taken from the first."""
+    if not records:
+        raise ValueError("Need at least one Record to combine.")
     data = np.concatenate([r.data for r in records], axis=0)
     r0 = records[0]
     return Record(
@@ -58,39 +59,52 @@ def _combine(records):
     )
 
 
-def main():
-    indir  = sys.argv[1] if len(sys.argv) > 1 else INDIR_DEFAULT
-    outdir = sys.argv[2] if len(sys.argv) > 2 else OUTDIR_DEFAULT
+def combine_capture_dir(
+    indir: str | Path,
+    outdir: str | Path,
+    lo_freqs: tuple[str, ...] = LO_FREQS,
+) -> list[Path]:
+    indir = Path(indir)
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
 
-    os.makedirs(outdir, exist_ok=True)
-    print(f'Input  : {indir}')
-    print(f'Output : {outdir}')
+    print(f"Input  : {indir}")
+    print(f"Output : {outdir}")
     print()
 
-    for lo_freq in LO_FREQS:
-        out_label = f'GAL-{lo_freq}'
-        paths = _find_files(indir, lo_freq)
+    outputs: list[Path] = []
+    for lo_freq in lo_freqs:
+        out_label = f"GAL-{lo_freq}"
+        paths = find_lo_files(indir, lo_freq)
         if not paths:
-            print(f'[{out_label}] No files found — skipping.')
+            print(f"[{out_label}] No files found — skipping.")
             continue
 
-        print(f'[{out_label}] Loading {len(paths)} files...')
+        print(f"[{out_label}] Loading {len(paths)} files...")
         records = []
         for p in paths:
             r = Record.load(p)
-            print(f'  {Path(p).name}  nblocks={r.nblocks}')
+            print(f"  {p.name}  nblocks={r.nblocks}")
             records.append(r)
 
-        combined = _combine(records)
-        print(f'  Combined: nblocks={combined.nblocks}, nsamples={combined.nsamples}')
+        combined = combine_records(records)
+        print(f"  Combined: nblocks={combined.nblocks}, nsamples={combined.nsamples}")
 
-        outpath = os.path.join(outdir, f'{out_label}_combined.npz')
+        outpath = outdir / f"{out_label}_combined.npz"
         combined.save(outpath)
-        print(f'  -> {outpath}')
+        outputs.append(outpath)
+        print(f"  -> {outpath}")
         print()
 
-    print('Done.')
+    print("Done.")
+    return outputs
 
 
-if __name__ == '__main__':
+def main():
+    indir = Path(sys.argv[1]) if len(sys.argv) > 1 else INDIR_DEFAULT
+    outdir = Path(sys.argv[2]) if len(sys.argv) > 2 else OUTDIR_DEFAULT
+    combine_capture_dir(indir, outdir)
+
+
+if __name__ == "__main__":
     main()

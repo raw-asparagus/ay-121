@@ -4,9 +4,9 @@ import numpy as np
 import scipy.signal as sig
 import ugradio.doppler
 
-from ugradiolab import Spectrum
+from ugradiolab import Spectrum, altaz_to_equatorial
 
-from .constants import C_LIGHT_KMS, HARDWARE_RESPONSE_MIN, HI_REST_FREQ_HZ, RFI_SIGMA, ROLLING_WIDTH, SAVGOL
+from .constants import HARDWARE_RESPONSE_MIN, RFI_SIGMA, ROLLING_WIDTH, SAVGOL
 
 
 def load_lo_pair(spectra_dir: Path) -> dict[int, Spectrum]:
@@ -27,7 +27,7 @@ def lo_center_bin_index(spectrum: Spectrum) -> int:
 
 
 def lo_analysis_mask(spectrum: Spectrum) -> np.ndarray:
-    mask = np.ones(np.asarray(spectrum.psd).shape, dtype=bool)
+    mask = np.ones(spectrum.psd.shape, dtype=bool)
     mask[lo_center_bin_index(spectrum)] = False
     if not np.any(mask):
         raise ValueError("LO-analysis mask removed every channel.")
@@ -227,20 +227,22 @@ def omit_lo_center_bin_mask(spectrum: Spectrum, mask: np.ndarray) -> tuple[np.nd
     return combine_spectrum_mask(spectrum, mask, require_nonempty=True), lo_center_bin_index(spectrum)
 
 
-def velocity_axis(freqs_hz: np.ndarray) -> np.ndarray:
-    return C_LIGHT_KMS * (HI_REST_FREQ_HZ - np.asarray(freqs_hz, float)) / HI_REST_FREQ_HZ
-
-
 def lsr_correction_kms(spectrum: Spectrum) -> float:
-    has_altaz = hasattr(spectrum, "az") and hasattr(spectrum, "alt")
-    if not has_altaz:
-        raise ValueError("Spectrum is missing az/alt metadata for LSR correction.")
+    alt_deg = float(spectrum.alt)
+    az_deg = float(spectrum.az)
+    lst_rad = float(spectrum.lst)
+    obs_lat = float(spectrum.obs_lat)
+    obs_lon = float(spectrum.obs_lon)
+    obs_alt = float(spectrum.obs_alt)
+
+    ra_deg, dec_deg = altaz_to_equatorial(alt_deg, az_deg, lst_rad, obs_lat)
     v_ms = ugradio.doppler.get_projected_velocity(
-        spectrum.jd,
-        spectrum.alt,
-        spectrum.az,
-        spectrum.obs_lat,
-        spectrum.obs_lon,
+        ra=ra_deg,
+        dec=dec_deg,
+        jd=float(spectrum.jd),
+        obs_lat=obs_lat,
+        obs_lon=obs_lon,
+        obs_alt=obs_alt,
     )
     return float(v_ms / 1e3)
 
@@ -250,8 +252,8 @@ def apply_hardware_response_correction(
     response: np.ndarray,
     response_floor: float,
 ) -> np.ndarray:
-    arr = np.asarray(values, float)
-    resp = np.asarray(response, float)
+    arr = np.array(values, copy=True)
+    resp = response
     if arr.shape != resp.shape:
         raise ValueError("values and response must have matching shapes.")
     floor = max(float(response_floor), HARDWARE_RESPONSE_MIN)

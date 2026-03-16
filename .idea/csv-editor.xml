@@ -10,6 +10,13 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="/data/lab02/sdr_gain_sweep/manifest.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
         <entry key="/data/lab02/unknown_length/manifest.csv">
           <value>
             <Attribute>

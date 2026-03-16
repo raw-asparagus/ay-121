@@ -1,0 +1,236 @@
+# Schema: Spectrum .npz file
+# Written by: Spectrum.save (ugradiolab/models/spectrum.py)
+# Read by:    Spectrum.load, np.load(..., allow_pickle=False)
+#
+# A Spectrum is the reduced product of a Record: it stores only the averaged
+# power spectrum and its uncertainty, not the raw I/Q data.
+#
+# PSD normalisation: psd = |FFT(block)|² / nsamples²  (per-bin, NOT per-Hz).
+# total_power = sum(psd) equals mean(|x[n]|²) by Parseval's theorem.
+# To convert to a power spectral density in V²/Hz, divide by bin_width
+# (= sample_rate / nsamples).
+#
+# DC removal: each block is mean-subtracted before the FFT, so the DC bin
+# is explicitly zeroed by the computation, not just masked afterwards.
+
+schema_version: "1"
+description: >
+  Binary .npz archive produced by Spectrum.save().
+  Contains the averaged power spectrum, its uncertainty, and the frequency
+  axis, plus all observation metadata from the source Record.
+  Does NOT contain raw I/Q data.
+
+fields:
+
+  # ── Spectral arrays ───────────────────────────────────────────────────────
+
+  psd:
+    dtype: float64
+    shape: [nsamples]
+    required: true
+    units: "per-bin (not per-Hz)"
+    constraints:
+      - finite
+      - "length == nsamples scalar in this file"
+    description: >
+      Mean normalised power spectrum across nblocks captured blocks.
+      Computed as mean(|FFT(block - block.mean)|² / nsamples²) over blocks.
+      DC-centred via fftshift.  The DC bin is zero due to mean-subtraction
+      (not just masked).  Per-bin: sum(psd) = mean(|x|²) by Parseval.
+
+  std:
+    dtype: float64
+    shape: [nsamples]
+    required: true
+    units: "per-bin"
+    constraints:
+      - finite
+      - ">= 0"
+      - "shape matches psd"
+    description: >
+      Standard error of the mean PSD estimator: std(block_psds) / sqrt(nblocks).
+      Represents the uncertainty on each psd bin.
+
+  freqs:
+    dtype: float64
+    shape: [nsamples]
+    required: true
+    units: Hz
+    constraints:
+      - finite
+      - "shape matches psd"
+    description: >
+      Absolute frequency axis in Hz, DC-centred (fftshift applied).
+      freqs = fftshift(fftfreq(nsamples, 1/sample_rate)) + center_freq.
+      freqs[nsamples//2] is closest to center_freq (the LO frequency).
+
+  # ── Integer metadata ──────────────────────────────────────────────────────
+
+  nblocks:
+    dtype: int64
+    shape: scalar
+    required: true
+    units: "—"
+    constraints:
+      - "> 0"
+    description: Number of blocks averaged to produce psd.
+
+  nsamples:
+    dtype: int64
+    shape: scalar
+    required: true
+    units: "—"
+    constraints:
+      - "> 0"
+    description: Samples per block; equals psd.size, std.size, freqs.size.
+
+  # ── Boolean metadata ──────────────────────────────────────────────────────
+
+  direct:
+    dtype: bool
+    shape: scalar
+    required: true
+    units: "—"
+    constraints: "—"
+    description: SDR direct sampling mode flag (inherited from Record).
+
+  # ── Float metadata ────────────────────────────────────────────────────────
+
+  sample_rate:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: Hz
+    constraints:
+      - "> 0"
+      - finite
+    description: SDR sample rate.  bin_width = sample_rate / nsamples.
+
+  center_freq:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: Hz
+    constraints:
+      - finite
+    description: SDR local oscillator centre frequency.
+
+  gain:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: dB
+    constraints:
+      - finite
+    description: SDR gain setting.
+
+  unix_time:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: seconds (Unix epoch)
+    constraints:
+      - finite
+    description: Unix timestamp at capture time (inherited from Record).
+
+  jd:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: days (Julian Date)
+    constraints:
+      - finite
+    description: Julian Date at capture time (inherited from Record).
+
+  lst:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: "RADIANS"  # ← note: all other angular fields are degrees
+    constraints:
+      - finite
+    description: >
+      Local Sidereal Time at capture time.  NOTE: stored in radians, unlike
+      all other angular fields (alt, az, obs_lat, obs_lon) which are in
+      degrees.  Inherited from Record.
+
+  alt:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: degrees
+    constraints:
+      - finite
+    description: Telescope altitude at capture time (inherited from Record).
+
+  az:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: degrees
+    constraints:
+      - finite
+    description: Telescope azimuth at capture time (inherited from Record).
+
+  obs_lat:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: degrees
+    constraints:
+      - finite
+    description: Observer latitude (inherited from Record).
+
+  obs_lon:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: degrees
+    constraints:
+      - finite
+    description: Observer longitude (inherited from Record).
+
+  obs_alt:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: metres
+    constraints:
+      - finite
+    description: Observer altitude above sea level (inherited from Record).
+
+  # ── Optional signal generator fields ─────────────────────────────────────
+  # All three are absent for pure sky observations.
+  # All three are present together for calibration spectra.
+
+  siggen_freq:
+    dtype: float64
+    shape: scalar
+    required: false
+    units: Hz
+    constraints:
+      - finite
+    description: >
+      Signal generator CW frequency.  Present only when a SignalGenerator
+      was connected during the source Record capture (uses_synth=True).
+
+  siggen_amp:
+    dtype: float64
+    shape: scalar
+    required: false
+    units: dBm
+    constraints:
+      - finite
+    description: >
+      Signal generator amplitude.  Present only when a SignalGenerator
+      was connected during the source Record capture (uses_synth=True).
+
+  siggen_rf_on:
+    dtype: bool
+    shape: scalar
+    required: false
+    units: "—"
+    constraints: "—"
+    description: >
+      Signal generator RF output state.  True = RF on at capture time.
+      Present only when a SignalGenerator was connected (uses_synth=True).

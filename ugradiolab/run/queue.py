@@ -1,7 +1,5 @@
 """Stateful queue runner for experiment execution."""
 
-import time
-
 
 def _format_experiment(exp, index, total):
     """Formats experiment details for display."""
@@ -23,36 +21,20 @@ class QueueRunner:
         self,
         experiments,
         sdr,
-        synth       = None,
-        confirm     = True,
-        cadence_sec = None,
+        synth   = None,
+        confirm = True,
     ):
         self.experiments = list(experiments)
         self.sdr         = sdr
         self.synth       = synth
         self.confirm     = confirm
-        self.cadence_sec = cadence_sec
 
     def run(self):
         """Executes the queue and return output file paths."""
         n = len(self.experiments)
 
-        paths     = []
-        obs_start = None
+        paths = []
         for i, exp in enumerate(self.experiments):
-            # Sleep until next cadence boundary
-            # (before starting an ObsExperiment)
-            if (
-                    self.cadence_sec
-                    and exp.counts_for_cadence
-                    and obs_start is not None
-            ):
-                elapsed = time.time() - obs_start
-                wait    = self.cadence_sec - elapsed
-                if wait > 0:
-                    print(f'  sleeping {wait:.1f}s until next cadence...')
-                    time.sleep(wait)
-
             print(_format_experiment(exp, i + 1, n))
             if self.confirm:
                 resp = (
@@ -66,9 +48,6 @@ class QueueRunner:
                 if resp == 's':
                     print('  skipped.')
                     continue
-
-            if exp.counts_for_cadence:
-                obs_start = time.time()
 
             path = exp.run(self.sdr, synth=self.synth)
             paths.append(path)

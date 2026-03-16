@@ -1,0 +1,206 @@
+# Schema: Record .npz file
+# Written by: Record.save (ugradiolab/models/record.py)
+# Read by:    Record.load, np.load(..., allow_pickle=False)
+#
+# IMPORTANT: The `data` field is stored as int8 on disk even though the
+# in-memory Record.data attribute is complex64.  Record.load reconstructs
+# complex64 automatically.  If you open the file with np.load directly you
+# will see int8 shape (nblocks, nsamples, 2).
+
+schema_version: "1"
+description: >
+  Binary .npz archive produced by Record.save().
+  Contains raw I/Q capture data plus full observation metadata.
+
+fields:
+
+  # ── Raw I/Q data ──────────────────────────────────────────────────────────
+
+  data:
+    dtype: int8
+    shape: [nblocks, nsamples, 2]
+    required: true
+    units: "—"
+    constraints:
+      - "last axis is [I, Q]"
+      - "values in [-128, 127]"
+      - "integer-valued (no fractional components)"
+    description: >
+      Raw ADC samples.  Last axis encodes [real (I), imaginary (Q)].
+      In-memory representation (Record.data) is complex64 shape
+      (nblocks, nsamples); Record.load performs the conversion automatically.
+
+  # ── Integer metadata ──────────────────────────────────────────────────────
+
+  nblocks:
+    dtype: int64
+    shape: scalar
+    required: true
+    units: "—"
+    constraints:
+      - "> 0"
+    description: Number of captured blocks; equals data.shape[0].
+
+  nsamples:
+    dtype: int64
+    shape: scalar
+    required: true
+    units: "—"
+    constraints:
+      - "> 0"
+    description: Samples per block; equals data.shape[1].
+
+  # ── Boolean metadata ──────────────────────────────────────────────────────
+
+  direct:
+    dtype: bool
+    shape: scalar
+    required: true
+    units: "—"
+    constraints: "—"
+    description: >
+      SDR direct sampling mode flag.  True means the SDR bypasses the tuner
+      and samples directly at the antenna port (used for frequencies < ~25 MHz).
+
+  # ── Float metadata ────────────────────────────────────────────────────────
+
+  sample_rate:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: Hz
+    constraints:
+      - "> 0"
+      - finite
+    description: SDR sample rate.
+
+  center_freq:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: Hz
+    constraints:
+      - finite
+    description: SDR local oscillator centre frequency.
+
+  gain:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: dB
+    constraints:
+      - finite
+    description: SDR gain setting.
+
+  unix_time:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: seconds (Unix epoch)
+    constraints:
+      - finite
+    description: >
+      Unix timestamp at capture time.  Obtained from NTP (pool.ntp.org) with
+      fallback to the local system clock via get_unix_time().
+
+  jd:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: days (Julian Date)
+    constraints:
+      - finite
+    description: Julian Date at capture time; derived from unix_time.
+
+  lst:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: "RADIANS"  # ← note: all other angular fields are degrees
+    constraints:
+      - finite
+    description: >
+      Local Sidereal Time at capture time.  NOTE: stored in radians, unlike
+      all other angular fields (alt, az, obs_lat, obs_lon) which are in
+      degrees.  Computed by ugradio.timing.lst(jd, obs_lon).
+
+  alt:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: degrees
+    constraints:
+      - finite
+    description: Telescope altitude at capture time.
+
+  az:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: degrees
+    constraints:
+      - finite
+    description: Telescope azimuth at capture time (North=0, East=90).
+
+  obs_lat:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: degrees
+    constraints:
+      - finite
+    description: Observer latitude.
+
+  obs_lon:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: degrees
+    constraints:
+      - finite
+    description: Observer longitude.
+
+  obs_alt:
+    dtype: float64
+    shape: scalar
+    required: true
+    units: metres
+    constraints:
+      - finite
+    description: Observer altitude above sea level.
+
+  # ── Optional signal generator fields ─────────────────────────────────────
+  # All three are absent for pure sky observations (ObsExperiment).
+  # All three are present together for calibration captures (CalExperiment).
+
+  siggen_freq:
+    dtype: float64
+    shape: scalar
+    required: false
+    units: Hz
+    constraints:
+      - finite
+    description: >
+      Signal generator CW frequency at capture time.  Present only when a
+      SignalGenerator was connected (uses_synth=True).
+
+  siggen_amp:
+    dtype: float64
+    shape: scalar
+    required: false
+    units: dBm
+    constraints:
+      - finite
+    description: >
+      Signal generator amplitude at capture time.  Present only when a
+      SignalGenerator was connected (uses_synth=True).
+
+  siggen_rf_on:
+    dtype: bool
+    shape: scalar
+    required: false
+    units: "—"
+    constraints: "—"
+    description: >
+      Signal generator RF output state at capture time.  True = RF on.
+      Present only when a SignalGenerator was connected (uses_synth=True).

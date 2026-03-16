@@ -1,18 +1,10 @@
-import os
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import ugradio.nch as nch
 
 from ..models import Record
-
-
-def _make_path(outdir, prefix, tag):
-    """Generates a timestamped output filepath."""
-    os.makedirs(outdir, exist_ok=True)
-    ts = time.strftime('%Y%m%d_%H%M%S')
-    return os.path.join(outdir, f'{prefix}_{tag}_{ts}.npz')
+from ..utils import make_path as _make_path
 
 
 @dataclass
@@ -65,10 +57,6 @@ class Experiment(ABC):
             synth   = synth,
         )
 
-    @property
-    def counts_for_cadence(self) -> bool:
-        return True
-
     def siggen_summary(self) -> str:
         return 'OFF'
 
@@ -90,10 +78,6 @@ class CalExperiment(Experiment):
     """
     siggen_freq_mhz: float = 1420.405751768
     siggen_amp_dbm: float  = -80.0
-
-    @property
-    def counts_for_cadence(self) -> bool:
-        return False
 
     def siggen_summary(self) -> str:
         return f'{self.siggen_freq_mhz} MHz, {self.siggen_amp_dbm} dBm'

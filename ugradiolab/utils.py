@@ -1,5 +1,14 @@
 import ntplib
+import os
+import time
 import ugradio.timing as timing
+
+
+def make_path(outdir: str, prefix: str, tag: str) -> str:
+    """Return a timestamped output filepath and create the directory."""
+    os.makedirs(outdir, exist_ok=True)
+    ts = time.strftime('%Y%m%d_%H%M%S')
+    return os.path.join(outdir, f'{prefix}_{tag}_{ts}.npz')
 
 
 def get_unix_time(timeout: float = 2.0) -> float:

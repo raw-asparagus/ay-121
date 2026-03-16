@@ -123,6 +123,7 @@ def run_capture_point(
     )
 
     exp = CalExperiment(
+        sdr=sdr, synth=synth,
         **COMMON_CAPTURE,
         center_freq=lo_hz,
         gain=sdr_gain_db,
@@ -131,7 +132,7 @@ def run_capture_point(
         siggen_freq_mhz=siggen_freq_mhz,
         siggen_amp_dbm=siggen_amp_dbm,
     )
-    return exp.run(sdr, synth=synth)
+    return exp.run()
 
 
 def prompt_float_allow_blank(prompt: str) -> float:

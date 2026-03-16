@@ -14,8 +14,10 @@ ugradiolab
 │                          astropy.coordinates, astropy.units, utils
 │
 ├── run/
-│   ├── experiment.py    → os, time, abc, ugradio.nch, models.record
-│   └── queue.py         → time
+│   ├── experiment.py        → abc, ugradio.nch
+│   ├── sdr_experiment.py    → experiment, models.record, utils
+│   ├── interf_experiment.py → experiment, drivers.interferometer, utils
+│   └── queue.py             → (no hardware deps)
 │
 ├── drivers/
 │   └── signal_generator.py  → time
@@ -68,15 +70,27 @@ Offline path:
 
 ## Experiment Layer
 
-`Experiment` (abstract) → `CalExperiment` / `ObsExperiment`
+The experiment hierarchy is:
 
-Each experiment dataclass encodes a complete set of SDR parameters plus output settings. The base class provides:
-- `_configure_sdr(sdr)` — pushes all parameters to the SDR instance
-- `_capture(sdr, synth)` — calls `sdr.capture_data`, discards block 0, returns a `Record`
+```
+Experiment (ABC)              ← shared fields: alt_deg, az_deg, outdir, prefix, lat, lon, obs_alt
+├── SDRExperiment (ABC)       ← adds sdr, nsamples, nblocks, sample_rate, center_freq, gain, direct
+│   ├── CalExperiment         ← adds synth, siggen_freq_mhz, siggen_amp_dbm
+│   └── ObsExperiment
+└── InterfExperiment          ← adds interferometer, snap, delay_line, duration_sec, baseline_*
+    ├── SunExperiment
+    └── MoonExperiment
+```
 
-`QueueRunner` iterates a list of experiments back-to-back, optionally prompting for confirmation before each one.
+Hardware is bound at construction time (e.g. `ObsExperiment(sdr=sdr, ...)`), so `run()` takes no arguments. The calling script opens hardware before the loop and closes it in `finally` — experiment objects hold a *reference* to already-open hardware, not ownership.
 
-Output filenames follow the pattern: `{outdir}/{prefix}_{tag}_{YYYYMMDD_HHMMSS}.npz` where `tag` is `'cal'` or `'obs'`.
+`SDRExperiment` provides:
+- `_configure_sdr()` — pushes all parameters to `self.sdr`
+- `_capture(synth)` — calls `self.sdr.capture_data`, discards block 0, returns a `Record`
+
+`QueueRunner` iterates a list of experiments back-to-back, optionally prompting for confirmation before each one. It is hardware-agnostic — hardware is embedded in each experiment.
+
+Output filenames follow the pattern: `{outdir}/{prefix}_{tag}_{YYYYMMDD_HHMMSS}.npz` where `tag` is `'cal'`, `'obs'`, or `'corr'`.
 
 ## Coordinate Pipeline
 
@@ -127,9 +141,10 @@ rec2 = dataclasses.replace(rec, gain=30.0)
 | Class / Function | Hardware required |
 |---|---|
 | `Record.from_sdr` | RTL-SDR (`ugradio.sdr.SDR`) |
-| `CalExperiment.run` | RTL-SDR + Keysight N9310A (`SignalGenerator`) |
-| `ObsExperiment.run` | RTL-SDR |
-| `QueueRunner.run` | RTL-SDR, optionally `SignalGenerator` |
+| `CalExperiment.run` | RTL-SDR (`self.sdr`) + Keysight N9310A (`self.synth`) |
+| `ObsExperiment.run` | RTL-SDR (`self.sdr`) |
+| `InterfExperiment.run` | Interferometer (`self.interferometer`) + SNAP (`self.snap`) |
+| `QueueRunner.run` | None — hardware is embedded in each experiment |
 | `compute_pointing` | None (reads system clock only) |
 | `Record.load`, `Spectrum.load` | None |
 | `Spectrum.from_record`, `Spectrum.from_data` | None |

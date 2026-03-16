@@ -3,13 +3,10 @@
 
 def _format_experiment(exp, index, total):
     """Formats experiment details for display."""
-    tag   = type(exp).__name__
     lines = [
-        f'[{index}/{total}] {exp.prefix} ({tag})',
+        f'[{index}/{total}] {exp.prefix} ({type(exp).__name__})',
         f'  alt={exp.alt_deg:.2f}  az={exp.az_deg:.2f}',
-        f'  nsamples={exp.nsamples}  nblocks={exp.nblocks}'
-        f'  sample_rate={exp.sample_rate / 1e6:.2f} MHz',
-        f'  siggen: {exp.siggen_summary()}'
+        *exp._run_summary(),
     ]
     return '\n'.join(lines)
 
@@ -20,13 +17,9 @@ class QueueRunner:
     def __init__(
         self,
         experiments,
-        sdr,
-        synth   = None,
         confirm = True,
     ):
         self.experiments = list(experiments)
-        self.sdr         = sdr
-        self.synth       = synth
         self.confirm     = confirm
 
     def run(self):
@@ -49,7 +42,7 @@ class QueueRunner:
                     print('  skipped.')
                     continue
 
-            path = exp.run(self.sdr, synth=self.synth)
+            path = exp.run()
             paths.append(path)
             print(f'  -> {path}')
 

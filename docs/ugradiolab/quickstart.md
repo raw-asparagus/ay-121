@@ -17,24 +17,28 @@ A practical walkthrough from hardware setup to saved, reduced spectra.
 import ugradio.sdr as sdr_mod
 from ugradiolab import ObsExperiment, QueueRunner
 
-# Open the SDR (reconfigured per-experiment by the runner)
+# Open the SDR once; pass the reference into each experiment
 sdr = sdr_mod.SDR()
 
-exp = ObsExperiment(
-    nsamples    = 32768,
-    nblocks     = 64,
-    sample_rate = 2.56e6,   # Hz
-    center_freq = 1420.4e6, # Hz — HI line
-    gain        = 30.0,
-    outdir      = 'data/obs/',
-    prefix      = 'galactic_plane',
-    alt_deg     = 45.0,
-    az_deg      = 180.0,
-)
+try:
+    exp = ObsExperiment(
+        sdr         = sdr,
+        nsamples    = 32768,
+        nblocks     = 64,
+        sample_rate = 2.56e6,   # Hz
+        center_freq = 1420.4e6, # Hz — HI line
+        gain        = 30.0,
+        outdir      = 'data/obs/',
+        prefix      = 'galactic_plane',
+        alt_deg     = 45.0,
+        az_deg      = 180.0,
+    )
 
-runner = QueueRunner([exp], sdr, confirm=False)
-paths = runner.run()
-print(paths)  # ['data/obs/galactic_plane_obs_20260316_123456.npz']
+    runner = QueueRunner([exp], confirm=False)
+    paths = runner.run()
+    print(paths)  # ['data/obs/galactic_plane_obs_20260316_123456.npz']
+finally:
+    sdr.close()
 ```
 
 ---
@@ -96,7 +100,10 @@ from ugradiolab import CalExperiment, SignalGenerator
 
 synth = SignalGenerator()  # opens /dev/usbtmc0
 
+# Bind sdr and synth at construction time; run() takes no arguments.
 cal = CalExperiment(
+    sdr             = sdr,
+    synth           = synth,
     nsamples        = 32768,
     nblocks         = 64,
     sample_rate     = 2.56e6,
@@ -110,7 +117,7 @@ cal = CalExperiment(
 
 # CalExperiment.run uses a finally block to ensure synth.rf_off()
 # is always called, even if capture raises an exception.
-path = cal.run(sdr, synth=synth)
+path = cal.run()
 
 synth.close()  # always close when done
 ```

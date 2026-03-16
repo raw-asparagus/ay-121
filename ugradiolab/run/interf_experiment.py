@@ -1,14 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import ugradio.nch as nch
 
 from ..drivers.interferometer import compute_sun_pointing, compute_moon_pointing, geometric_delay_ns
 from ..utils import make_path
+from .experiment import Experiment
 
 
 @dataclass
-class InterfExperiment:
+class InterfExperiment(Experiment):
     """Interferometric observation: point both antennas, optionally set delay, capture.
 
     Delay compensation requires a calibrated baseline. Leave baseline_ew_m=None
@@ -17,70 +18,54 @@ class InterfExperiment:
 
     Parameters
     ----------
-    alt_deg, az_deg : float
-        Pointing direction in degrees (horizontal coordinates).
+    interferometer : ugradio.interf.Interferometer
+        Connected interferometer controller.
+    snap : snap_spec object
+        SNAP correlator; must provide get_corr(duration_sec).
+    delay_line : ugradio.interf_delay.DelayClient, optional
+        Connected delay-line client. Used only when baseline_ew_m is set.
     duration_sec : float
         Integration time passed to snap.get_corr().
-    outdir : str
-        Output directory (created if absent).
-    prefix : str
-        Filename prefix for the saved .npz file.
     baseline_ew_m : float or None
         East-west baseline in metres, fit from fringe data. None disables delay.
     baseline_ns_m : float
-        North-south baseline in metres, fit from fringe data. Ignored when
-        baseline_ew_m is None.
+        North-south baseline in metres. Ignored when baseline_ew_m is None.
     delay_max_ns : float or None
-        Hardware delay limit; clips the computed delay when provided. Omit
-        until confirmed from DelayClient documentation.
-    lat, lon : float
-        Observer latitude/longitude in degrees. Defaults to NCH.
-    obs_alt : float
-        Observer altitude in metres. Defaults to NCH.
+        Hardware delay limit; clips the computed delay when provided.
     """
-    alt_deg:       float        = 0.0
-    az_deg:        float        = 0.0
-    duration_sec:  float        = 10.0
-    outdir:        str          = 'data/'
-    prefix:        str          = 'interf'
-    baseline_ew_m: float | None = None
-    baseline_ns_m: float        = 0.0
-    delay_max_ns:  float | None = None
-    lat:           float        = nch.lat
-    lon:           float        = nch.lon
-    obs_alt:       float        = nch.alt
+    interferometer: object      = field(default=None, repr=False, compare=False)
+    snap:           object      = field(default=None, repr=False, compare=False)
+    delay_line:     object      = field(default=None, repr=False, compare=False)
+    duration_sec:   float       = 10.0
+    baseline_ew_m:  float | None = None
+    baseline_ns_m:  float       = 0.0
+    delay_max_ns:   float | None = None
 
-    def run(self, interferometer, snap, delay_line=None) -> str:
-        """Execute the interferometric observation.
+    def _run_summary(self) -> list[str]:
+        return [f'  duration={self.duration_sec}s']
 
-        Parameters
-        ----------
-        interferometer : ugradio.interf.Interferometer
-            Connected interferometer controller.
-        snap : snap_spec object
-            SNAP correlator; must provide get_corr(duration_sec).
-        delay_line : ugradio.interf_delay.DelayClient, optional
-            Connected delay-line client. Used only when baseline_ew_m is set.
+    def run(self) -> str:
+        """Execute the interferometric observation using self.interferometer, self.snap, self.delay_line.
 
         Returns
         -------
         str
             Path to the saved .npz file.
         """
-        interferometer.point(self.alt_deg, self.az_deg)
+        self.interferometer.point(self.alt_deg, self.az_deg)
 
         tau = None
-        if self.baseline_ew_m is not None and delay_line is not None:
+        if self.baseline_ew_m is not None and self.delay_line is not None:
             tau = geometric_delay_ns(
                 self.alt_deg, self.az_deg,
                 self.baseline_ew_m, self.baseline_ns_m,
                 lat=self.lat,
                 delay_max_ns=self.delay_max_ns,
             )
-            delay_line.delay_ns(tau)
+            self.delay_line.delay_ns(tau)
 
         # NOTE: snap.get_corr() is a placeholder — confirm snap_spec API before use.
-        data = snap.get_corr(self.duration_sec)
+        data = self.snap.get_corr(self.duration_sec)
 
         path = make_path(self.outdir, self.prefix, 'corr')
         np.savez(
@@ -107,10 +92,10 @@ class SunExperiment(InterfExperiment):
     """
     prefix: str = 'sun'
 
-    def run(self, interferometer, snap, delay_line=None) -> str:
+    def run(self) -> str:
         alt, az, *_ = compute_sun_pointing(self.lat, self.lon, self.obs_alt)
         self.alt_deg, self.az_deg = alt, az
-        return super().run(interferometer, snap, delay_line)
+        return super().run()
 
 
 @dataclass
@@ -121,7 +106,7 @@ class MoonExperiment(InterfExperiment):
     """
     prefix: str = 'moon'
 
-    def run(self, interferometer, snap, delay_line=None) -> str:
+    def run(self) -> str:
         alt, az, *_ = compute_moon_pointing(self.lat, self.lon, self.obs_alt)
         self.alt_deg, self.az_deg = alt, az
-        return super().run(interferometer, snap, delay_line)
+        return super().run()

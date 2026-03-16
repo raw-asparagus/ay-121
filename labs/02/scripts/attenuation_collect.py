@@ -105,13 +105,14 @@ def _capture(*, set_id, cable_length_m, lo_hz, siggen_amp_dbm, sdr, synth):
     cable_length_tag = f"{cable_length_m:.3f}".replace(".", "p")
     prefix = f"ATTEN-set{set_id:04d}-LO{lo_mhz}-L{cable_length_tag}m"
     exp = CalExperiment(
+        sdr=sdr, synth=synth,
         **COMMON_CAPTURE,
         center_freq=lo_hz,
         outdir=OUTDIR, prefix=prefix,
         siggen_freq_mhz=SIGGEN_FREQ_MHZ,
         siggen_amp_dbm=siggen_amp_dbm,
     )
-    return exp.run(sdr, synth=synth)
+    return exp.run()
 
 
 # ---------------------------------------------------------------------------

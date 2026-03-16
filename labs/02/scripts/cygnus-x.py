@@ -61,15 +61,15 @@ COMMON = dict(
 
 # ---------------------------------------------------------------------------
 
-def build_plan(alt_deg, az_deg):
+def build_plan(alt_deg, az_deg, sdr):
     """Build several copies of (FREQ_1, FREQ_2) frequency-switched experiment list."""
     pointing = dict(alt_deg=alt_deg, az_deg=az_deg)
     experiments = []
 
     for i in range(ITERATIONS):
-        experiments.append(ObsExperiment(prefix=f'CYGX-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
+        experiments.append(ObsExperiment(sdr=sdr, prefix=f'CYGX-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
                                          **pointing, **COMMON))
-        experiments.append(ObsExperiment(prefix=f'CYGX-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
+        experiments.append(ObsExperiment(sdr=sdr, prefix=f'CYGX-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
                                          **pointing, **COMMON))
 
     return experiments
@@ -104,7 +104,10 @@ def main():
     input('  Press Enter once the horn is pointed and you are ready to begin: ')
     print()
 
-    experiments = build_plan(alt, az)
+    sdr = SDR(direct=False, center_freq=FREQ_1,
+              sample_rate=COMMON['sample_rate'], gain=COMMON['gain'])
+
+    experiments = build_plan(alt, az, sdr)
     total = len(experiments)
 
     print(f'Starting {total} captures...')
@@ -112,11 +115,8 @@ def main():
     print(f'  Output: {OUTDIR}/')
     print()
 
-    sdr = SDR(direct=False, center_freq=FREQ_1,
-              sample_rate=COMMON['sample_rate'], gain=COMMON['gain'])
-
     try:
-        runner = QueueRunner(experiments=experiments, sdr=sdr, confirm=False)
+        runner = QueueRunner(experiments=experiments, confirm=False)
         t0 = time.time()
         paths = runner.run()
         elapsed = time.time() - t0

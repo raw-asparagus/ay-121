@@ -90,11 +90,12 @@ def prompt_float_default(prompt: str, default: float) -> float:
 def _capture(*, set_id, lo_hz, sdr):
     lo_mhz = int(round(lo_hz / 1e6))
     exp = ObsExperiment(
+        sdr=sdr,
         **COMMON_CAPTURE,
         center_freq=lo_hz,
         outdir=OUTDIR, prefix=f"UNKNOWN-set{set_id:04d}-LO{lo_mhz}",
     )
-    return exp.run(sdr)
+    return exp.run()
 
 
 # ---------------------------------------------------------------------------

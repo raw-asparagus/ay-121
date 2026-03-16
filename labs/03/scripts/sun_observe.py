@@ -112,16 +112,19 @@ def main():
 
     for i in range(N_CAPTURES):
         exp = SunExperiment(
-            duration_sec  = DURATION_SEC,
-            outdir        = OUTDIR,
-            prefix        = f'sun-{i:03d}',
-            baseline_ew_m = BASELINE_EW_M,
-            baseline_ns_m = BASELINE_NS_M,
-            delay_max_ns  = DELAY_MAX_NS,
+            interferometer = interferometer,
+            snap           = None,  # replace None with snap object
+            delay_line     = delay_line,
+            duration_sec   = DURATION_SEC,
+            outdir         = OUTDIR,
+            prefix         = f'sun-{i:03d}',
+            baseline_ew_m  = BASELINE_EW_M,
+            baseline_ns_m  = BASELINE_NS_M,
+            delay_max_ns   = DELAY_MAX_NS,
         )
 
         print(f'[{i + 1:3d}/{N_CAPTURES}] ', end='', flush=True)
-        path = exp.run(interferometer, snap=None, delay_line=delay_line)  # replace None with snap object
+        path = exp.run()
         paths.append(path)
         print(f'Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  τ_g≈{_last_tau(path):.2f}ns  → {path}')
 

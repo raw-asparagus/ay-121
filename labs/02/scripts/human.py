@@ -57,14 +57,14 @@ SETTLE_SEC = 120
 
 # ---------------------------------------------------------------------------
 
-def build_plan():
+def build_plan(sdr):
     """Build several copies of (FREQ_1, FREQ_2) frequency-switched experiment list."""
     experiments = []
 
     for i in range(ITERATIONS):
-        experiments.append(ObsExperiment(prefix=f'HUMAN-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
+        experiments.append(ObsExperiment(sdr=sdr, prefix=f'HUMAN-{FREQ_1 / 1e6:.0f}-{i}', center_freq=FREQ_1,
                                          **COMMON))
-        experiments.append(ObsExperiment(prefix=f'HUMAN-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
+        experiments.append(ObsExperiment(sdr=sdr, prefix=f'HUMAN-{FREQ_2 / 1e6:.0f}-{i}', center_freq=FREQ_2,
                                          **COMMON))
 
     return experiments
@@ -92,7 +92,9 @@ def main():
         time.sleep(1)
     print()
 
-    experiments = build_plan()
+    sdr = SDR(direct=False, center_freq=FREQ_1, sample_rate=2.56e6, gain=0.0)
+
+    experiments = build_plan(sdr)
     total = len(experiments)
 
     print(f'Starting {total} captures...')
@@ -100,10 +102,8 @@ def main():
     print(f'  Output: {OUTDIR}/')
     print()
 
-    sdr = SDR(direct=False, center_freq=FREQ_1, sample_rate=2.56e6, gain=0.0)
-
     try:
-        runner = QueueRunner(experiments=experiments, sdr=sdr, confirm=False)
+        runner = QueueRunner(experiments=experiments, confirm=False)
         t0 = time.time()
         paths = runner.run()
         elapsed = time.time() - t0

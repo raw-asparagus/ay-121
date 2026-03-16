@@ -42,7 +42,6 @@ Fit baseline from the output in a notebook by modelling fringe phase:
 where φ₀ absorbs pointing-offset and instrumental phase.
 """
 
-import math
 import sys
 import time
 
@@ -58,52 +57,11 @@ from ugradiolab import SunExperiment, compute_sun_pointing
 OUTDIR      = 'data/lab03/sun_calibration'
 MIN_ALT_DEG = 15.0   # elevation floor; abort below this
 
-DURATION_SEC = 10.0  # integration time per SNAP capture
-OBS_WINDOW_SEC = 15 * 60  # 15-minute observation window
-N_CAPTURES = round(OBS_WINDOW_SEC / DURATION_SEC)  # = 90
-
-# Estimated baseline range (metres) — used only for pre-run diagnostics.
-# Exact value is *fitted* from the fringe data; Phase 2 uses that fitted value.
-BASELINE_EW_EST_MIN_M = 10.0
-BASELINE_EW_EST_MAX_M = 20.0
-
-# Expected inter-antenna pointing offset (degrees).
-# Used to estimate fringe visibility reduction in the pre-run summary.
-ANTENNA_POINTING_OFFSET_DEG = 1.0
-
-# Approximate X-band primary beam FWHM (degrees).
-# A 10 GHz horn with ~30 cm aperture → FWHM ~ 15–20°; conservative estimate.
-PRIMARY_BEAM_FWHM_DEG = 20.0
-
-# Observing frequency (Hz) — NCH X-band interferometer centre frequency.
-OBS_FREQ_HZ = 10.0e9
+EST_DUMP_SEC = 0.625
+N_CAPTURES = 180
+EST_OBS_WINDOW_SEC = N_CAPTURES * EST_DUMP_SEC
 
 # ---------------------------------------------------------------------------
-
-
-def _fringe_period_sec(baseline_m: float, dec_deg: float, freq_hz: float) -> float:
-    """Expected fringe period (seconds) for a given EW baseline and Sun declination."""
-    lam = 3e8 / freq_hz                     # wavelength (m)
-    omega_earth = 2 * math.pi / 86164.0     # sidereal rate (rad/s)
-    cos_dec = math.cos(math.radians(dec_deg))
-    if cos_dec < 1e-6:
-        return float('inf')
-    return lam / (baseline_m * cos_dec * omega_earth)
-
-
-def _visibility_factor(offset_deg: float, beam_fwhm_deg: float) -> float:
-    """Approximate fringe visibility reduction from inter-antenna pointing offset.
-
-    Models each antenna beam as a Gaussian.  The cross-correlation visibility
-    for a source at the beam centre of antenna 1 but offset by `offset_deg`
-    from antenna 2's beam centre is:
-
-        V = exp(-offset_deg² / (4 * sigma²))
-
-    where sigma = FWHM / (2 * sqrt(2 * ln 2)).
-    """
-    sigma_deg = beam_fwhm_deg / (2.0 * math.sqrt(2.0 * math.log(2.0)))
-    return math.exp(-(offset_deg ** 2) / (4.0 * sigma_deg ** 2))
 
 
 def check_sun_visible(min_alt_deg):
@@ -121,26 +79,11 @@ def check_sun_visible(min_alt_deg):
     return alt, az, dec
 
 
-def print_observation_plan(dec_deg: float) -> None:
+def print_observation_plan() -> None:
     """Print a diagnostic summary of the planned observation."""
-    t_min = _fringe_period_sec(BASELINE_EW_EST_MIN_M, dec_deg, OBS_FREQ_HZ)
-    t_max = _fringe_period_sec(BASELINE_EW_EST_MAX_M, dec_deg, OBS_FREQ_HZ)
-    n_cycles_min = OBS_WINDOW_SEC / t_min
-    n_cycles_max = OBS_WINDOW_SEC / t_max
-
-    vis = _visibility_factor(ANTENNA_POINTING_OFFSET_DEG, PRIMARY_BEAM_FWHM_DEG)
 
     print('  Observation plan')
-    print(f'    Duration       : {N_CAPTURES} × {DURATION_SEC:.0f}s = {OBS_WINDOW_SEC / 60:.0f} min')
-    print(f'    Baseline range : {BASELINE_EW_EST_MIN_M:.0f}–{BASELINE_EW_EST_MAX_M:.0f} m (estimate; fitted from data)')
-    print(f'    Fringe period  : {t_max:.0f}–{t_min:.0f}s  (at Dec = {dec_deg:.1f}°)')
-    print(f'    Fringe cycles  : ~{n_cycles_max:.0f}–{n_cycles_min:.0f} over {OBS_WINDOW_SEC / 60:.0f} min')
-    print(f'    Points/cycle   : ~{DURATION_SEC / t_max:.1f}–{DURATION_SEC / t_min:.1f} (10 s captures)')
-    print()
-    print(f'  Pointing offset : {ANTENNA_POINTING_OFFSET_DEG:.1f}° between antennas (expected)')
-    print(f'  Beam FWHM est.  : {PRIMARY_BEAM_FWHM_DEG:.0f}°')
-    print(f'  Visibility loss : {(1.0 - vis) * 100:.1f}%  '
-          f'(fringes remain detectable; φ₀ absorbs residual phase)')
+    print(f'    Duration       : {N_CAPTURES} × {EST_DUMP_SEC:.3f}s = {EST_OBS_WINDOW_SEC / 60:.0f} min')
     print()
     print('  No delay-line compensation — recording raw fringes for baseline fit.')
     print()
@@ -152,9 +95,9 @@ def main():
     print()
     print('Checking Sun position ...')
     print()
-    alt, az, dec = check_sun_visible(MIN_ALT_DEG)
+    check_sun_visible(MIN_ALT_DEG)
 
-    print_observation_plan(dec)
+    print_observation_plan()
 
     input('  Connect hardware, then press Enter to begin: ')
     print()
@@ -165,20 +108,22 @@ def main():
     snap.initialize(mode='corr', sample_rate=500)
     snap.input.use_adc()
 
-    # --- Capture loop (back-to-back, no sleep) ---
-    paths  = []
-    t0     = time.time()
+    # --- Capture loop (one file per SNAP dump, ~0.625 s each) ---
+    # A single SunExperiment is reused; _prev_cnt is carried between calls so
+    # read_data() blocks until the next fresh accumulation (no duplicate dumps).
+    exp = SunExperiment(
+        interferometer = interferometer,
+        snap           = snap,
+        outdir         = OUTDIR,
+        prefix         = 'sun-cal-000',
+        # baseline_ew_m=None (default) → no delay applied in Phase 1
+    )
+
+    paths = []
+    t0    = time.time()
 
     for i in range(N_CAPTURES):
-        exp = SunExperiment(
-            interferometer = interferometer,
-            snap           = snap,
-            duration_sec   = DURATION_SEC,
-            outdir         = OUTDIR,
-            prefix         = f'sun-cal-{i:03d}',
-            # baseline_ew_m=None (default) → no delay applied in Phase 1
-        )
-
+        exp.prefix = f'sun-cal-{i:03d}'
         print(f'[{i + 1:3d}/{N_CAPTURES}] ', end='', flush=True)
         path = exp.run()
         paths.append(path)

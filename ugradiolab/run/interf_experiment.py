@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -20,12 +21,13 @@ class InterfExperiment(Experiment):
     ----------
     interferometer : ugradio.interf.Interferometer
         Connected interferometer controller.
-    snap : snap_spec object
-        SNAP correlator; must provide get_corr(duration_sec).
+    snap : snap_spec.snap.UGRadioSnap
+        Initialised SNAP correlator (mode='corr'). Calls read_data(prev_cnt)
+        repeatedly for duration_sec and averages the corr01 spectra.
     delay_line : ugradio.interf_delay.DelayClient, optional
         Connected delay-line client. Used only when baseline_ew_m is set.
     duration_sec : float
-        Integration time passed to snap.get_corr().
+        Total integration window (seconds); read_data() dumps are averaged.
     baseline_ew_m : float or None
         East-west baseline in metres, fit from fringe data. None disables delay.
     baseline_ns_m : float
@@ -64,13 +66,23 @@ class InterfExperiment(Experiment):
             )
             self.delay_line.delay_ns(tau)
 
-        # NOTE: snap.get_corr() is a placeholder — confirm snap_spec API before use.
-        data = self.snap.get_corr(self.duration_sec)
+        # Accumulate snap_spec read_data() dumps for duration_sec, then average.
+        t_end    = time.time() + self.duration_sec
+        spectra  = []
+        prev_cnt = None
+        while time.time() < t_end:
+            d        = self.snap.read_data(prev_cnt=prev_cnt)
+            spectra.append(d['corr01'])
+            prev_cnt = d['acc_cnt']
+        corr      = np.mean(spectra, axis=0)   # complex128, shape (1024,)
+        unix_time = d['time']
 
         path = make_path(self.outdir, self.prefix, 'corr')
         np.savez(
             path,
-            data          = data,
+            corr          = corr,
+            unix_time     = unix_time,
+            n_acc         = len(spectra),
             alt_deg       = self.alt_deg,
             az_deg        = self.az_deg,
             duration_sec  = self.duration_sec,

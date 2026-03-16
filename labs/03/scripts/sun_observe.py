@@ -23,9 +23,7 @@ import sys
 
 import ugradio.interf as interf
 import ugradio.interf_delay as interf_delay
-
-# NOTE: confirm snap_spec import path before running
-# import snap_spec
+from snap_spec.snap import UGRadioSnap
 
 from ugradiolab import SunExperiment, compute_sun_pointing
 
@@ -105,7 +103,8 @@ def main():
     # --- Hardware setup ---
     interferometer = interf.Interferometer()
     delay_line     = interf_delay.DelayClient()
-    # snap = snap_spec.Snap(...)   # TODO: confirm snap_spec API
+    snap = UGRadioSnap(host='localhost', stream_1=0, stream_2=1)
+    snap.initialize(mode='corr', sample_rate=500)
 
     # --- Capture loop ---
     paths = []
@@ -113,7 +112,7 @@ def main():
     for i in range(N_CAPTURES):
         exp = SunExperiment(
             interferometer = interferometer,
-            snap           = None,  # replace None with snap object
+            snap           = snap,
             delay_line     = delay_line,
             duration_sec   = DURATION_SEC,
             outdir         = OUTDIR,

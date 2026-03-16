@@ -74,7 +74,8 @@ class InterfExperiment(Experiment):
             d        = self.snap.read_data(prev_cnt=prev_cnt)
             spectra.append(d['corr01'])
             prev_cnt = d['acc_cnt']
-        corr      = np.mean(spectra, axis=0)   # complex128, shape (1024,)
+        corr_full = np.mean(spectra, axis=0)          # complex128, shape (1024,)
+        corr      = corr_full[:len(corr_full) // 2]   # positive-frequency half (0–511)
         unix_time = d['time']
 
         path = make_path(self.outdir, self.prefix, 'corr')
@@ -83,6 +84,8 @@ class InterfExperiment(Experiment):
             corr          = corr,
             unix_time     = unix_time,
             n_acc         = len(spectra),
+            f_s_hz        = 500e6,
+            f_rf0_hz      = 10.0e9,
             alt_deg       = self.alt_deg,
             az_deg        = self.az_deg,
             duration_sec  = self.duration_sec,

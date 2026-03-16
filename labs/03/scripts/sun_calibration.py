@@ -163,6 +163,7 @@ def main():
     interferometer = interf.Interferometer()
     snap = UGRadioSnap(host='localhost', stream_1=0, stream_2=1)
     snap.initialize(mode='corr', sample_rate=500)
+    snap.input.use_adc()
 
     # --- Capture loop (back-to-back, no sleep) ---
     paths  = []

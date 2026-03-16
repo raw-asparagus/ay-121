@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Lab 3 Phase 1 — Sun fringe calibration.
 
-Tracks the Sun over a 30-minute window without delay-line compensation.
+Tracks the Sun over a 15-minute window without delay-line compensation.
 The raw fringe pattern as a function of hour angle is used to fit the
 interferometer baseline (BASELINE_EW_M, BASELINE_NS_M).  The fitted values
 go into sun_observe.py for Phase 2.
 
 Baseline estimate: 10–20 m.  At X-band (~10 GHz) this gives a fringe period
 of roughly 21–41 seconds (depending on the Sun's declination), so 10 s
-captures resolve 2–4 points per fringe cycle.  Over 30 minutes (~1800 s) you
-accumulate 44–86 fringe cycles — more than enough for a reliable fit.
+captures resolve 2–4 points per fringe cycle.  Over 15 minutes (~900 s) you
+accumulate 22–43 fringe cycles — sufficient for a reliable baseline fit.
 
 Pointing offset note
 --------------------
@@ -61,8 +61,8 @@ OUTDIR      = 'data/lab03/sun_calibration'
 MIN_ALT_DEG = 15.0   # elevation floor; abort below this
 
 DURATION_SEC = 10.0  # integration time per SNAP capture
-OBS_WINDOW_SEC = 30 * 60  # 30-minute observation window
-N_CAPTURES = round(OBS_WINDOW_SEC / DURATION_SEC)  # = 180
+OBS_WINDOW_SEC = 15 * 60  # 15-minute observation window
+N_CAPTURES = round(OBS_WINDOW_SEC / DURATION_SEC)  # = 90
 
 # Estimated baseline range (metres) — used only for pre-run diagnostics.
 # Exact value is *fitted* from the fringe data; Phase 2 uses that fitted value.
@@ -188,28 +188,6 @@ def main():
     total_elapsed = time.time() - t0
     print()
     print(f'Done. {len(paths)} files saved to {OUTDIR}/ in {total_elapsed:.0f}s')
-    print()
-    print('Next steps:')
-    print('  1. Load the .npz files in a notebook and extract fringe phase vs time.')
-    print()
-    print('  2. Convert capture timestamps to hour angle ha(t) using LST and Sun RA.')
-    print()
-    print('  3. Fit the fringe phase with a 3-parameter model:')
-    print('       φ(t) = 2π f₀ (B_ew / c) cos(dec) sin(ha(t)) + φ₀')
-    print()
-    print('     φ₀ is a free constant phase offset that absorbs:')
-    print('       - Instrumental phase (cable length difference, LO offsets)')
-    print('       - Residual phase from the ~1° inter-antenna pointing offset')
-    print('     Do NOT force φ₀ = 0; fitting it is essential with uncalibrated pointing.')
-    print()
-    print('  4. Optionally extend to a 2D fit if NS baseline is non-negligible:')
-    print('       φ(t) = 2π f₀ [(B_ew/c) cos(dec) sin(ha(t))')
-    print('                    + (B_ns/c) (sin(dec) cos(lat) - cos(dec) sin(lat) cos(ha(t)))]')
-    print('              + φ₀')
-    print()
-    print(f'  5. Expected B_ew range: {BASELINE_EW_EST_MIN_M:.0f}–{BASELINE_EW_EST_MAX_M:.0f} m.')
-    print('     Copy the fitted BASELINE_EW_M (and BASELINE_NS_M if non-zero)')
-    print('     into labs/03/scripts/sun_observe.py for Phase 2.')
 
 
 if __name__ == '__main__':

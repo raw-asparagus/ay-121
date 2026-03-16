@@ -81,7 +81,8 @@ class InterfExperiment(Experiment):
         path = make_path(self.outdir, self.prefix, 'corr')
         np.savez(
             path,
-            corr          = corr,
+            corr_i        = corr.real,
+            corr_q        = corr.imag,
             unix_time     = unix_time,
             n_acc         = len(spectra),
             f_s_hz        = 500e6,

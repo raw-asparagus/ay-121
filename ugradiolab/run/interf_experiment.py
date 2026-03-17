@@ -96,10 +96,13 @@ class InterfExperiment(Experiment):
         spectra           = []
         d                 = None
         prev_cnt          = None
+        unix_time_start   = None
         consecutive_errors = 0
         while time.time() < t_end:
             try:
                 d        = self.snap.read_data(prev_cnt=prev_cnt)
+                if unix_time_start is None:
+                    unix_time_start = d['time']
                 spectra.append(d['corr01'])
                 prev_cnt = d['acc_cnt']
                 consecutive_errors = 0
@@ -111,22 +114,26 @@ class InterfExperiment(Experiment):
                         'read_data() failures — another process may hold the board.'
                     )
                 spectra.clear()
-                prev_cnt = None
+                prev_cnt        = None
+                unix_time_start = None
 
         if not spectra:
             raise RuntimeError('No valid SNAP dumps collected within the capture window.')
 
         self._verify_on_target('post-capture')
 
-        corr      = np.mean(spectra, axis=0)   # complex128, all 1024 channels
-        unix_time = d['time']
+        corr          = np.mean(spectra, axis=0)   # complex128, all 1024 channels
+        corr_std      = np.std(spectra,  axis=0)   # per-channel scatter across dumps
+        unix_time_end = d['time']
 
         path = make_path(self.outdir, self.prefix, 'corr')
         np.savez(
             path,
-            corr          = corr,
-            unix_time     = unix_time,
-            n_acc         = len(spectra),
+            corr            = corr,
+            corr_std        = corr_std,
+            unix_time_start = unix_time_start,
+            unix_time_end   = unix_time_end,
+            n_acc           = len(spectra),
             f_s_hz        = 500e6,
             # SNAP uses a 2048-point real FFT → 1024 unique positive-frequency channels.
             # Channel spacing: Δf = f_s / n_fft = 500/2048 = 244.1 kHz/channel.
@@ -143,6 +150,8 @@ class InterfExperiment(Experiment):
             f_rf0_hz      = 9790e6,
             alt_deg       = self.alt_deg,
             az_deg        = self.az_deg,
+            ra_deg        = getattr(self, 'ra_deg',  np.nan),
+            dec_deg       = getattr(self, 'dec_deg', np.nan),
             duration_sec  = self.duration_sec,
             baseline_ew_m = np.nan if self.baseline_ew_m is None else self.baseline_ew_m,
             baseline_ns_m = self.baseline_ns_m,

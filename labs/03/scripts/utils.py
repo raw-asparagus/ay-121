@@ -56,10 +56,20 @@ def setup_hardware(snap_retries=5):
     raise RuntimeError(f'SNAP initialization failed after {snap_retries} attempts.')
 
 
-def reinit_snap(snap):
-    """Reinitialise the SNAP correlator after a capture failure (force=True)."""
-    try:
-        snap.initialize(mode='corr', sample_rate=500, force=True)
-        snap.input.use_adc()
-    except Exception as exc:
-        print(f'  WARNING: reinitialize failed ({exc}) — continuing anyway')
+def reinit_snap(snap, retries=5):
+    """Reinitialise the SNAP correlator after a capture failure (force=True).
+
+    Retries up to *retries* times because align_adc() is non-deterministic.
+    Raises RuntimeError if all attempts fail so the caller knows the SNAP is
+    in an unusable state (rather than silently collecting corrupted data).
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            snap.initialize(mode='corr', sample_rate=500, force=True)
+            snap.input.use_adc()
+            if attempt > 1:
+                print(f'  SNAP re-initialized on attempt {attempt}.')
+            return
+        except Exception as exc:
+            print(f'  SNAP reinit attempt {attempt}/{retries} failed ({exc}), retrying...')
+    raise RuntimeError(f'SNAP re-initialization failed after {retries} attempts.')

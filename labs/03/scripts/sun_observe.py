@@ -42,8 +42,8 @@ BASELINE_NS_M = 0.0    # e.g.  0.12  — north-south baseline in metres (often ~
 DELAY_MAX_NS  = None   # e.g. 32.4
 
 # Capture parameters
-DURATION_SEC  = 10.0   # integration time per SNAP capture
-N_CAPTURES    = 120    # total captures (~20 min at 10s each)
+DUMP_SEC   = 0.625   # SNAP accumulation period: ACC_LEN×SPEC_PER_ACC×1024/f_s
+N_CAPTURES = 1920    # total dumps (~20 min at ~0.625s each)
 
 # ---------------------------------------------------------------------------
 
@@ -92,9 +92,8 @@ def main():
 
     print(f'  Baseline    : B_ew = {BASELINE_EW_M:.4f} m,  B_ns = {BASELINE_NS_M:.4f} m')
     print(f'  Delay clip  : ±{DELAY_MAX_NS} ns')
-    print(f'  Captures    : {N_CAPTURES}')
-    print(f'  Duration    : {DURATION_SEC}s per capture')
-    print(f'  Total time  : ~{N_CAPTURES * DURATION_SEC / 60:.0f} min')
+    print(f'  Dumps       : {N_CAPTURES}  (~{DUMP_SEC:.3f}s each)')
+    print(f'  Total time  : ~{N_CAPTURES * DUMP_SEC / 60:.0f} min')
     print(f'  Output      : {OUTDIR}/')
     print()
     input('  Connect hardware, then press Enter to begin: ')
@@ -107,23 +106,25 @@ def main():
     snap.initialize(mode='corr', sample_rate=500)
     snap.input.use_adc()
 
-    # --- Capture loop ---
+    # --- Capture loop (one file per SNAP dump, ~0.625 s each) ---
+    # A single SunExperiment is reused; _prev_cnt is carried between calls so
+    # read_data() blocks until the next fresh accumulation (no duplicate dumps).
+    exp = SunExperiment(
+        interferometer = interferometer,
+        snap           = snap,
+        delay_line     = delay_line,
+        outdir         = OUTDIR,
+        prefix         = 'sun-000000',
+        baseline_ew_m  = BASELINE_EW_M,
+        baseline_ns_m  = BASELINE_NS_M,
+        delay_max_ns   = DELAY_MAX_NS,
+    )
+
     paths = []
 
     for i in range(N_CAPTURES):
-        exp = SunExperiment(
-            interferometer = interferometer,
-            snap           = snap,
-            delay_line     = delay_line,
-            duration_sec   = DURATION_SEC,
-            outdir         = OUTDIR,
-            prefix         = f'sun-{i:03d}',
-            baseline_ew_m  = BASELINE_EW_M,
-            baseline_ns_m  = BASELINE_NS_M,
-            delay_max_ns   = DELAY_MAX_NS,
-        )
-
-        print(f'[{i + 1:3d}/{N_CAPTURES}] ', end='', flush=True)
+        exp.prefix = f'sun-{i:06d}'
+        print(f'[{i + 1:6d}/{N_CAPTURES}] ', end='', flush=True)
         path = exp.run()
         paths.append(path)
         print(f'Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  τ_g≈{_last_tau(path):.2f}ns  → {path}')

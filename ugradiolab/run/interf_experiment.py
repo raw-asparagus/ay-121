@@ -1,4 +1,3 @@
-import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -11,7 +10,13 @@ from .experiment import Experiment
 
 @dataclass
 class InterfExperiment(Experiment):
-    """Interferometric observation: point both antennas, optionally set delay, capture.
+    """Interferometric observation: point both antennas, optionally set delay, capture one SNAP dump.
+
+    Each call to run() reads exactly one accumulation from the SNAP correlator
+    (~0.625 s at ACC_LEN=38150, SPEC_PER_ACC=8, f_s=500 MHz) and saves it as a
+    separate .npz file.  Passing prev_cnt between successive run() calls ensures
+    each dump is a fresh accumulation — the SNAP blocks until the next one is
+    ready rather than returning the same buffer twice.
 
     Delay compensation requires a calibrated baseline. Leave baseline_ew_m=None
     (the default) to skip delay entirely — the appropriate mode when running the
@@ -22,32 +27,34 @@ class InterfExperiment(Experiment):
     interferometer : ugradio.interf.Interferometer
         Connected interferometer controller.
     snap : snap_spec.snap.UGRadioSnap
-        Initialised SNAP correlator (mode='corr'). Calls read_data(prev_cnt)
-        repeatedly for duration_sec and averages the corr01 spectra.
+        Initialised SNAP correlator (mode='corr').
     delay_line : ugradio.interf_delay.DelayClient, optional
         Connected delay-line client. Used only when baseline_ew_m is set.
-    duration_sec : float
-        Total integration window (seconds); read_data() dumps are averaged.
     baseline_ew_m : float or None
         East-west baseline in metres, fit from fringe data. None disables delay.
     baseline_ns_m : float
         North-south baseline in metres. Ignored when baseline_ew_m is None.
     delay_max_ns : float or None
         Hardware delay limit; clips the computed delay when provided.
+    _prev_cnt : int or None
+        Last acc_cnt returned by the SNAP; updated automatically after each run().
+        Do not set manually — it is managed by successive run() calls.
     """
     interferometer: object      = field(default=None, repr=False, compare=False)
     snap:           object      = field(default=None, repr=False, compare=False)
     delay_line:     object      = field(default=None, repr=False, compare=False)
-    duration_sec:   float       = 10.0
     baseline_ew_m:  float | None = None
     baseline_ns_m:  float       = 0.0
     delay_max_ns:   float | None = None
+    _prev_cnt:      int | None  = field(default=None, repr=False, compare=False)
 
     def _run_summary(self) -> list[str]:
-        return [f'  duration={self.duration_sec}s']
+        return []
 
     def run(self) -> str:
-        """Execute the interferometric observation using self.interferometer, self.snap, self.delay_line.
+        """Capture one SNAP dump, save to .npz, and return the file path.
+
+        Blocks until a new accumulation is available (via prev_cnt handshake).
 
         Returns
         -------
@@ -66,29 +73,23 @@ class InterfExperiment(Experiment):
             )
             self.delay_line.delay_ns(tau)
 
-        # Accumulate snap_spec read_data() dumps for duration_sec, then average.
-        t_end    = time.time() + self.duration_sec
-        spectra  = []
-        prev_cnt = None
-        while time.time() < t_end:
-            d        = self.snap.read_data(prev_cnt=prev_cnt)
-            spectra.append(d['corr01'])
-            prev_cnt = d['acc_cnt']
-        corr_full = np.mean(spectra, axis=0)          # complex128, shape (1024,)
+        # Read exactly one new accumulation; blocks until acc_cnt changes.
+        d = self.snap.read_data(prev_cnt=self._prev_cnt)
+        self._prev_cnt = d['acc_cnt']
+
+        corr_full = d['corr01']                        # complex128, shape (1024,)
         corr      = corr_full[:len(corr_full) // 2]   # positive-frequency half (0–511)
-        unix_time = d['time']
 
         path = make_path(self.outdir, self.prefix, 'corr')
         np.savez(
             path,
-            corr          = corr,
-            unix_time     = unix_time,
-            n_acc         = len(spectra),
+            corr_i        = corr.real,
+            corr_q        = corr.imag,
+            unix_time     = d['time'],
             f_s_hz        = 500e6,
             f_rf0_hz      = 10.0e9,
             alt_deg       = self.alt_deg,
             az_deg        = self.az_deg,
-            duration_sec  = self.duration_sec,
             baseline_ew_m = np.nan if self.baseline_ew_m is None else self.baseline_ew_m,
             baseline_ns_m = self.baseline_ns_m,
             delay_ns      = np.nan if tau is None else tau,

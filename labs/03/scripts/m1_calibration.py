@@ -86,9 +86,6 @@ def main():
     print('  No delay-line compensation — recording raw fringes for baseline fit.')
     print()
 
-    input('  Connect hardware, then press Enter to begin: ')
-    print()
-
     # --- Hardware setup ---
     interferometer = interf.Interferometer()
     snap = UGRadioSnap(host='localhost', stream_1=0, stream_2=1)

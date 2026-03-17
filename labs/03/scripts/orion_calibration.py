@@ -113,7 +113,11 @@ def main():
         )
 
         print(f'[{i + 1:3d}/{N_CAPTURES}] ', end='', flush=True)
-        path = exp.run()
+        try:
+            path = exp.run()
+        except RuntimeError as exc:
+            print(f'SKIP  ({exc})')
+            continue
         paths.append(path)
         elapsed = time.time() - t0
         print(f'Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  t={elapsed:.0f}s  → {path}')

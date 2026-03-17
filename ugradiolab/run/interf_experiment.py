@@ -70,17 +70,35 @@ class InterfExperiment(Experiment):
 
         # Accumulate snap_spec read_data() dumps for duration_sec, then average.
         # read_data(prev_cnt) blocks until acc_cnt changes, then asserts the counter
-        # did not advance again *during* the read.  If it did (accumulation period
-        # shorter than transfer time), an AssertionError is raised — discard that
-        # dump, reset prev_cnt so the next call reads whatever is freshest, and retry.
-        t_end    = time.time() + self.duration_sec
-        spectra  = []
-        d        = None
-        prev_cnt = None
+        # did not advance again *during* the read.  If it did (another process is
+        # using the board), an AssertionError is raised: discard all spectra collected
+        # so far (the ADC state is unknown), reset prev_cnt, and retry from scratch.
+        # Three consecutive failures raises RuntimeError so the caller can skip the
+        # capture entirely rather than spinning indefinitely.
+        _MAX_RETRIES = 3
+        t_end             = time.time() + self.duration_sec
+        spectra           = []
+        d                 = None
+        prev_cnt          = None
+        consecutive_errors = 0
         while time.time() < t_end:
-            d        = self.snap.read_data(prev_cnt=prev_cnt)
-            spectra.append(d['corr01'])
-            prev_cnt = d['acc_cnt']
+            try:
+                d        = self.snap.read_data(prev_cnt=prev_cnt)
+                spectra.append(d['corr01'])
+                prev_cnt = d['acc_cnt']
+                consecutive_errors = 0
+            except AssertionError:
+                consecutive_errors += 1
+                if consecutive_errors >= _MAX_RETRIES:
+                    raise RuntimeError(
+                        f'SNAP board interference: {consecutive_errors} consecutive '
+                        'read_data() failures — another process may hold the board.'
+                    )
+                spectra.clear()
+                prev_cnt = None
+
+        if not spectra:
+            raise RuntimeError('No valid SNAP dumps collected within the capture window.')
 
         corr      = np.mean(spectra, axis=0)   # complex128, all 1024 channels
         unix_time = d['time']

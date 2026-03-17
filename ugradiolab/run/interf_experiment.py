@@ -43,10 +43,22 @@ class InterfExperiment(Experiment):
     duration_sec:   float       = 10.0
     baseline_ew_m:  float | None = None
     baseline_ns_m:  float       = 0.0
-    delay_max_ns:   float | None = 64.8  # hardware limit confirmed: ugradio.interf_delay.MAX_DELAY
+    delay_max_ns:      float | None = 64.8  # hardware limit confirmed: ugradio.interf_delay.MAX_DELAY
+    pointing_tol_deg:  float        = 1.0   # reject capture if either antenna drifts beyond this
 
     def _run_summary(self) -> list[str]:
         return [f'  duration={self.duration_sec}s']
+
+    def _verify_on_target(self, when: str) -> None:
+        """Raise RuntimeError if either antenna is off-target by more than pointing_tol_deg."""
+        pos = self.interferometer.get_pointing()
+        for name, (alt, az) in pos.items():
+            err = float(np.hypot(alt - self.alt_deg, az - self.az_deg))
+            if err > self.pointing_tol_deg:
+                raise RuntimeError(
+                    f'{when}: antenna {name} is {err:.2f}° off-target '
+                    f'(tolerance {self.pointing_tol_deg}°) — telescope may have been slewed.'
+                )
 
     def run(self) -> str:
         """Execute the interferometric observation using self.interferometer, self.snap, self.delay_line.
@@ -57,6 +69,7 @@ class InterfExperiment(Experiment):
             Path to the saved .npz file.
         """
         self.interferometer.point(self.alt_deg, self.az_deg)
+        self._verify_on_target('post-slew')
 
         tau = None
         if self.baseline_ew_m is not None and self.delay_line is not None:
@@ -99,6 +112,8 @@ class InterfExperiment(Experiment):
 
         if not spectra:
             raise RuntimeError('No valid SNAP dumps collected within the capture window.')
+
+        self._verify_on_target('post-capture')
 
         corr      = np.mean(spectra, axis=0)   # complex128, all 1024 channels
         unix_time = d['time']

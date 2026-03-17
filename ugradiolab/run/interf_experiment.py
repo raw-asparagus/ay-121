@@ -67,15 +67,20 @@ class InterfExperiment(Experiment):
             self.delay_line.delay_ns(tau)
 
         # Accumulate snap_spec read_data() dumps for duration_sec, then average.
+        # read_data(prev_cnt) blocks until acc_cnt changes, then asserts the counter
+        # did not advance again *during* the read.  If it did (accumulation period
+        # shorter than transfer time), an AssertionError is raised — discard that
+        # dump, reset prev_cnt so the next call reads whatever is freshest, and retry.
         t_end    = time.time() + self.duration_sec
         spectra  = []
+        d        = None
         prev_cnt = None
         while time.time() < t_end:
             d        = self.snap.read_data(prev_cnt=prev_cnt)
             spectra.append(d['corr01'])
             prev_cnt = d['acc_cnt']
-        corr_full = np.mean(spectra, axis=0)          # complex128, shape (1024,)
-        corr      = corr_full[:len(corr_full) // 2]   # positive-frequency half (0–511)
+
+        corr      = np.mean(spectra, axis=0)   # complex128, all 1024 channels
         unix_time = d['time']
 
         path = make_path(self.outdir, self.prefix, 'corr')
@@ -85,7 +90,11 @@ class InterfExperiment(Experiment):
             unix_time     = unix_time,
             n_acc         = len(spectra),
             f_s_hz        = 500e6,
-            f_rf0_hz      = 10.0e9,
+            # Sky RF frequency at SNAP channel 0.
+            # LO chain: LO1=8750 MHz, LO2=1540 MHz, f_s=500 MHz
+            #   IF2 = LO1 + LO2 - f_sky  →  aliases from 2nd Nyquist zone
+            #   f_sky(ch=0) = LO1 + LO2 - f_s = 8750 + 1540 - 500 = 9790 MHz
+            f_rf0_hz      = 9790e6,
             alt_deg       = self.alt_deg,
             az_deg        = self.az_deg,
             duration_sec  = self.duration_sec,

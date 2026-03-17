@@ -61,8 +61,10 @@ DURATION_SEC = 10.0  # integration time per SNAP capture
 OBS_WINDOW_SEC = 1 * 60  # 15-minute observation window
 N_CAPTURES = round(OBS_WINDOW_SEC / DURATION_SEC)  # = 90
 
-# Observing frequency (Hz) — NCH X-band interferometer centre frequency.
-OBS_FREQ_HZ = 10.0e9
+# Centre of the observable RF band (Hz).
+# LO chain: LO1=8750 MHz, LO2=1540 MHz, f_s=500 MHz
+#   Band: (LO1+LO2-f_s) to (LO1+LO2-f_s/2) = 9790–10040 MHz  →  centre ≈ 9915 MHz
+OBS_FREQ_HZ = 9.915e9
 
 # ---------------------------------------------------------------------------
 
@@ -106,9 +108,8 @@ def main():
 
     # --- Hardware setup ---
     interferometer = interf.Interferometer()
-    snap = UGRadioSnap()
-    # Force reinitialize snap
-    snap.initialize(mode='corr', force=True)
+    snap = UGRadioSnap(host='localhost', stream_1=0, stream_2=1)
+    snap.initialize(mode='corr', sample_rate=500, force=True)
     snap.input.use_adc()
 
     # --- Capture loop (back-to-back, no sleep) ---

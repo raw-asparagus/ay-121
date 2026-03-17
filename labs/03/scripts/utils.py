@@ -57,13 +57,7 @@ def setup_hardware(snap_retries=5):
 
 
 def reinit_snap(snap):
-    """Reinitialise the SNAP correlator after a capture failure.
-
-    Called after a RuntimeError from exp.run() to recover from board
-    contention or accumulator corruption before the next capture attempt.
-    Failures are printed as warnings rather than propagated so the outer
-    loop can continue.
-    """
+    """Reinitialise the SNAP correlator after a capture failure (force=True)."""
     try:
         snap.initialize(mode='corr', sample_rate=500, force=True)
         snap.input.use_adc()

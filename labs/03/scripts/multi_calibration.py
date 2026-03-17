@@ -48,7 +48,7 @@ MOON_OUTDIR = 'data/lab03/moon_calibration'
 M17_OUTDIR  = 'data/lab03/m17_calibration'
 
 BASELINE_EST_M   = 12.5   # baseline estimate for fringe-rate duration calculation (m)
-TARGET_PHASE_DEG = 45.0   # desired fringe phase advance per capture (deg)
+TARGET_PHASE_DEG = 30.0   # desired fringe phase advance per capture (deg)
 
 # ---------------------------------------------------------------------------
 

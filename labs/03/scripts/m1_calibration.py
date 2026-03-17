@@ -27,10 +27,12 @@ Fit baseline from output using the standard fringe model:
     φ(t) = 2π f₀ (B_ew / c) cos(dec) sin(ha(t)) + φ₀
 """
 
+import math
 import sys
 import time
 
 import ugradio.interf as interf
+import ugradio.nch as nch
 from snap_spec.snap import UGRadioSnap
 
 from ugradiolab import RadecExperiment, compute_radec_pointing
@@ -49,15 +51,43 @@ M1_DEC_DEG = +22.0145   # +22° 00' 52"
 OUTDIR       = 'data/lab03/m1_calibration'
 MIN_ALT_DEG  = 15.0   # elevation floor; abort below this
 
-DURATION_SEC   = 10.0       # integration time per SNAP capture
-OBS_WINDOW_SEC = 60 * 60    # 15-minute observation window
-N_CAPTURES     = round(OBS_WINDOW_SEC / DURATION_SEC)  # = 90
+OBS_WINDOW_SEC  = 15 * 60   # total observation window (s)
+BASELINE_EST_M  = 15.0      # baseline estimate used only for duration optimisation (m)
+TARGET_PHASE_DEG = 60.0     # desired fringe phase advance per capture (deg)
+OBS_FREQ_HZ     = 9.915e9   # centre of RF band (LO1=8750 MHz, LO2=1540 MHz)
 
 # ---------------------------------------------------------------------------
 
 
+def _lst_deg(jd):
+    """Greenwich Mean Sidereal Time + observer longitude → LST in degrees."""
+    T = (jd - 2451545.0) / 36525.0
+    g = (280.46061837 + 360.98564736629 * (jd - 2451545.0)
+         + T ** 2 * 0.000387933 - T ** 3 / 38710000.0)
+    return (g + nch.lon) % 360.0
+
+
+def _optimal_duration(ha_deg, dec_deg):
+    """Return capture duration (s) giving TARGET_PHASE_DEG of fringe phase advance.
+
+    Uses the instantaneous fringe rate:
+        rate = f_RF * (B_ew/c) * cos(dec) * ω_Earth * |cos(HA)|   [cycles/s]
+        τ    = (TARGET_PHASE_DEG / 360) / rate
+    Clamped to [5, 60] s.
+    """
+    omega_e = 2 * math.pi / 86164.0
+    rate = (OBS_FREQ_HZ * BASELINE_EST_M / 299792458.0
+            * math.cos(math.radians(dec_deg))
+            * omega_e
+            * abs(math.cos(math.radians(ha_deg))))
+    if rate < 1e-12:
+        return 60.0
+    tau = (TARGET_PHASE_DEG / 360.0) / rate
+    return max(5.0, min(60.0, tau))
+
+
 def check_m1_visible(min_alt_deg):
-    """Print current M1 position and return (alt, az).  Exits if below limit."""
+    """Print current M1 position and return (alt, az, jd).  Exits if below limit."""
     alt, az, jd = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
     print(f'  M1 position :  Alt = {alt:.2f}°,  Az = {az:.2f}°')
     print(f'  Julian date :  {jd:.5f}')
@@ -68,7 +98,7 @@ def check_m1_visible(min_alt_deg):
         print('  M1 transits ~74° above the horizon from Berkeley.')
         print('  It is visible (>15°) for roughly 10 h each day.')
         sys.exit(1)
-    return alt, az
+    return alt, az, jd
 
 
 def main():
@@ -77,11 +107,23 @@ def main():
     print()
     print('Checking M1 position ...')
     print()
-    check_m1_visible(MIN_ALT_DEG)
+    _, _, jd = check_m1_visible(MIN_ALT_DEG)
+
+    ha_deg = (_lst_deg(jd) - M1_RA_DEG) % 360.0
+    if ha_deg > 180.0:
+        ha_deg -= 360.0
+
+    duration_sec = _optimal_duration(ha_deg, M1_DEC_DEG)
+    n_captures   = round(OBS_WINDOW_SEC / duration_sec)
+    t_fringe_est = duration_sec * 360.0 / TARGET_PHASE_DEG
 
     print('  Observation plan')
-    print(f'    Duration : {N_CAPTURES} × {DURATION_SEC:.0f}s = {OBS_WINDOW_SEC / 60:.0f} min')
-    print(f'    Source   : M1 / Crab Nebula  RA={M1_RA_DEG:.4f}°  Dec={M1_DEC_DEG:.4f}°')
+    print(f'    Source         : M1 / Crab Nebula  RA={M1_RA_DEG:.4f}°  Dec={M1_DEC_DEG:.4f}°')
+    print(f'    HA at start    : {ha_deg:.1f}°')
+    print(f'    Baseline est.  : {BASELINE_EST_M:.0f} m  (duration optimisation only)')
+    print(f'    T_fringe est.  : {t_fringe_est:.0f} s')
+    print(f'    Duration/cap   : {duration_sec:.1f} s  ({TARGET_PHASE_DEG:.0f}° phase/cap)')
+    print(f'    N captures     : {n_captures} × {duration_sec:.1f} s = {OBS_WINDOW_SEC / 60:.0f} min')
     print()
     print('  No delay-line compensation — recording raw fringes for baseline fit.')
     print()
@@ -96,19 +138,19 @@ def main():
     paths = []
     t0    = time.time()
 
-    for i in range(N_CAPTURES):
+    for i in range(n_captures):
         exp = RadecExperiment(
             interferometer = interferometer,
             snap           = snap,
             ra_deg         = M1_RA_DEG,
             dec_deg        = M1_DEC_DEG,
-            duration_sec   = DURATION_SEC,
+            duration_sec   = duration_sec,
             outdir         = OUTDIR,
             prefix         = f'm1-cal-{i:03d}',
             # baseline_ew_m=None (default) → no delay applied
         )
 
-        print(f'[{i + 1:3d}/{N_CAPTURES}] ', end='', flush=True)
+        print(f'[{i + 1:3d}/{n_captures}] ', end='', flush=True)
         try:
             path = exp.run()
         except RuntimeError as exc:

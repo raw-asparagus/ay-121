@@ -1,5 +1,5 @@
 from .drivers import SignalGenerator
-from .drivers import compute_sun_pointing, compute_moon_pointing, geometric_delay_ns
+from .drivers import compute_sun_pointing, compute_moon_pointing, compute_radec_pointing, geometric_delay_ns
 from .models import Record, Spectrum, SmoothMethod
 from .pointing import (
     compute_pointing,
@@ -12,5 +12,5 @@ from .pointing import (
     galactic_to_altaz,
     altaz_to_galactic,
 )
-from .run import Experiment, SDRExperiment, CalExperiment, ObsExperiment, InterfExperiment, SunExperiment, MoonExperiment, QueueRunner
+from .run import Experiment, SDRExperiment, CalExperiment, ObsExperiment, InterfExperiment, SunExperiment, MoonExperiment, RadecExperiment, QueueRunner
 from .utils import get_unix_time

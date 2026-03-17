@@ -2,9 +2,10 @@ import time
 from dataclasses import dataclass, field
 
 import numpy as np
-import ugradio.nch as nch
 
-from ..drivers.interferometer import compute_sun_pointing, compute_moon_pointing, geometric_delay_ns
+from ..drivers.interferometer import (
+    compute_sun_pointing, compute_moon_pointing, compute_radec_pointing, geometric_delay_ns,
+)
 from ..utils import make_path
 from .experiment import Experiment
 
@@ -33,7 +34,8 @@ class InterfExperiment(Experiment):
     baseline_ns_m : float
         North-south baseline in metres. Ignored when baseline_ew_m is None.
     delay_max_ns : float or None
-        Hardware delay limit; clips the computed delay when provided.
+        Hardware delay limit in ns; clips the computed delay. Confirmed value:
+        64.8 ns (ugradio.interf_delay.MAX_DELAY, calibrated 2019-03-21).
     """
     interferometer: object      = field(default=None, repr=False, compare=False)
     snap:           object      = field(default=None, repr=False, compare=False)
@@ -41,7 +43,7 @@ class InterfExperiment(Experiment):
     duration_sec:   float       = 10.0
     baseline_ew_m:  float | None = None
     baseline_ns_m:  float       = 0.0
-    delay_max_ns:   float | None = None
+    delay_max_ns:   float | None = 64.8  # hardware limit confirmed: ugradio.interf_delay.MAX_DELAY
 
     def _run_summary(self) -> list[str]:
         return [f'  duration={self.duration_sec}s']
@@ -92,8 +94,10 @@ class InterfExperiment(Experiment):
             f_s_hz        = 500e6,
             # Sky RF frequency at SNAP channel 0.
             # LO chain: LO1=8750 MHz, LO2=1540 MHz, f_s=500 MHz
-            #   IF2 = LO1 + LO2 - f_sky  →  aliases from 2nd Nyquist zone
-            #   f_sky(ch=0) = LO1 + LO2 - f_s = 8750 + 1540 - 500 = 9790 MHz
+            #   IF2 = LO1 + LO2 - f_sky  (e.g. 10 GHz → IF2 = 290 MHz)
+            #   ADC Nyquist = 250 MHz; IF2 in 2nd zone aliases: f_dig = f_s - IF2
+            #   Channel 0 has f_dig = 0  →  IF2 = f_s  →  f_sky = LO1+LO2-f_s
+            #   f_sky(ch=0) = 8750 + 1540 - 500 = 9790 MHz
             f_rf0_hz      = 9790e6,
             alt_deg       = self.alt_deg,
             az_deg        = self.az_deg,
@@ -132,5 +136,31 @@ class MoonExperiment(InterfExperiment):
 
     def run(self) -> str:
         alt, az, *_ = compute_moon_pointing(self.lat, self.lon, self.obs_alt)
+        self.alt_deg, self.az_deg = alt, az
+        return super().run()
+
+
+@dataclass
+class RadecExperiment(InterfExperiment):
+    """Interferometric observation of a fixed J2000 (RA, Dec) target.
+
+    Computes current alt/az from the supplied equatorial coordinates at run time
+    and delegates to InterfExperiment.  Use this for catalog sources such as
+    Cas A, Tau A, Cyg A, or Orion A.
+
+    Parameters
+    ----------
+    ra_deg : float
+        J2000 right ascension in degrees.
+    dec_deg : float
+        J2000 declination in degrees.
+    """
+    ra_deg:  float = 0.0
+    dec_deg: float = 0.0
+
+    def run(self) -> str:
+        alt, az, _ = compute_radec_pointing(
+            self.ra_deg, self.dec_deg, self.lat, self.lon, self.obs_alt,
+        )
         self.alt_deg, self.az_deg = alt, az
         return super().run()

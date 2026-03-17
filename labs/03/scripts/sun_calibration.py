@@ -55,10 +55,10 @@ from ugradiolab import SunExperiment, compute_sun_pointing
 # ---------------------------------------------------------------------------
 
 OUTDIR      = 'data/lab03/sun_calibration'
-MIN_ALT_DEG = 5.0   # elevation floor; abort below this
+MIN_ALT_DEG = 15.0   # elevation floor; abort below this
 
 DURATION_SEC = 10.0  # integration time per SNAP capture
-OBS_WINDOW_SEC = 10 * 60  # 15-minute observation window
+OBS_WINDOW_SEC = 8 * 60  # 8-minute observation window
 N_CAPTURES = round(OBS_WINDOW_SEC / DURATION_SEC)  # = 90
 
 # Centre of the observable RF band (Hz).

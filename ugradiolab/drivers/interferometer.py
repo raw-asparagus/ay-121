@@ -72,6 +72,34 @@ def compute_moon_pointing(
     return alt, az, ra, dec, jd
 
 
+def compute_radec_pointing(
+    ra_deg: float,
+    dec_deg: float,
+    lat: float = nch.lat,
+    lon: float = nch.lon,
+    obs_alt: float = nch.alt,
+) -> tuple[float, float, float]:
+    """Return (alt, az, jd) for a fixed J2000 (RA, Dec) source at the current time.
+
+    Parameters
+    ----------
+    ra_deg, dec_deg : float
+        J2000 equatorial coordinates in degrees.
+    lat, lon : float
+        Observer latitude/longitude in degrees. Defaults to NCH.
+    obs_alt : float
+        Observer altitude in metres. Defaults to NCH.
+
+    Returns
+    -------
+    (alt_deg, az_deg, jd)
+    """
+    unix_t = get_unix_time()
+    jd = timing.julian_date(unix_t)
+    alt, az = coord.get_altaz(ra_deg, dec_deg, jd=jd, lat=lat, lon=lon, alt=obs_alt)
+    return alt, az, jd
+
+
 # ---------------------------------------------------------------------------
 # Geometric Delay
 # ---------------------------------------------------------------------------

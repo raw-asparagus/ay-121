@@ -38,8 +38,8 @@ MIN_ALT_DEG  = 15.0   # elevation floor; abort below this
 BASELINE_EW_M = None   # e.g. 19.86  — east-west baseline in metres
 BASELINE_NS_M = 0.0    # e.g.  0.12  — north-south baseline in metres (often ~0)
 
-# Hardware delay limit — confirm from ugradio.interf_delay.DelayClient docs.
-DELAY_MAX_NS  = None   # e.g. 32.4
+# Hardware delay limit (ugradio.interf_delay.MAX_DELAY, calibrated 2019-03-21).
+DELAY_MAX_NS  = 64.8
 
 # Capture parameters
 DUMP_SEC   = 0.625   # SNAP accumulation period: ACC_LEN×SPEC_PER_ACC×1024/f_s
@@ -53,8 +53,6 @@ def check_config():
     missing = []
     if BASELINE_EW_M is None:
         missing.append('BASELINE_EW_M')
-    if DELAY_MAX_NS is None:
-        missing.append('DELAY_MAX_NS')
     if missing:
         print('ERROR: the following must be set before running Phase 2:')
         for name in missing:

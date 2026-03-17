@@ -54,6 +54,9 @@ M17_OUTDIR  = 'data/lab03/m17_calibration'
 BASELINE_EST_M   = 12.5   # baseline estimate for fringe-rate duration calculation (m)
 TARGET_PHASE_DEG = 30.0   # desired fringe phase advance per capture (deg)
 
+SLEW_TOL_DEG     = 0.3    # skip point() if antennas are already within this of target;
+                           # at 0.3° max amplitude loss is ~0.04%, phase loss is 0%
+
 # ---------------------------------------------------------------------------
 
 
@@ -98,6 +101,7 @@ def make_experiment(target, interferometer, snap, capture_index):
             duration_sec   = _sun_duration(),
             outdir         = SUN_OUTDIR,
             prefix         = f'sun-{capture_index:03d}',
+            slew_tol_deg   = SLEW_TOL_DEG,
         )
     if target == 'moon':
         return MoonExperiment(
@@ -106,6 +110,7 @@ def make_experiment(target, interferometer, snap, capture_index):
             duration_sec   = _moon_duration(),
             outdir         = MOON_OUTDIR,
             prefix         = f'moon-{capture_index:03d}',
+            slew_tol_deg   = SLEW_TOL_DEG,
         )
     # M17
     jd_now   = time.time() / 86400.0 + 2440587.5
@@ -121,6 +126,7 @@ def make_experiment(target, interferometer, snap, capture_index):
         duration_sec   = duration,
         outdir         = M17_OUTDIR,
         prefix         = f'm17-{capture_index:03d}',
+        slew_tol_deg   = SLEW_TOL_DEG,
     )
 
 

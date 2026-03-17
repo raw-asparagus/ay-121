@@ -45,6 +45,8 @@ class InterfExperiment(Experiment):
     baseline_ns_m:  float       = 0.0
     delay_max_ns:      float | None = 64.8  # hardware limit confirmed: ugradio.interf_delay.MAX_DELAY
     pointing_tol_deg:  float        = 1.0   # reject capture if either antenna drifts beyond this
+    slew_tol_deg:      float        = 0.0   # skip point() when both antennas are already within this
+                                            # of the target (0.0 = always slew, preserving old behaviour)
 
     def _run_summary(self) -> list[str]:
         return [f'  duration={self.duration_sec}s']
@@ -60,18 +62,36 @@ class InterfExperiment(Experiment):
                     f'(tolerance {self.pointing_tol_deg}°) — telescope may have been slewed.'
                 )
 
-    def run(self) -> str:
-        """Execute the interferometric observation using self.interferometer, self.snap, self.delay_line.
+    def _max_pointing_error_deg(self) -> float:
+        """Return the max angular error across both antennas relative to the current target."""
+        pos = self.interferometer.get_pointing()
+        return max(
+            float(np.hypot(alt - self.alt_deg, az - self.az_deg))
+            for _, (alt, az) in pos.items()
+        )
+
+    def _collect(self) -> tuple[str, dict]:
+        """Point, capture, verify — return (path, data_dict) without saving.
+
+        Separated from run() so that async subclasses can hand the dict to a
+        background thread for np.savez() while immediately starting the next
+        pointing + collection cycle.
 
         Returns
         -------
-        str
-            Path to the saved .npz file.
+        tuple[str, dict]
+            path     : destination path (directory already created by make_path)
+            data_dict: kwargs ready to pass directly to np.savez(path, **data_dict)
         """
-        try:
-            self.interferometer.point(self.alt_deg, self.az_deg)
-        except AssertionError as exc:
-            raise RuntimeError(f'pointing out of range: {exc}') from exc
+        already_on_target = (
+            self.slew_tol_deg > 0.0
+            and self._max_pointing_error_deg() <= self.slew_tol_deg
+        )
+        if not already_on_target:
+            try:
+                self.interferometer.point(self.alt_deg, self.az_deg)
+            except AssertionError as exc:
+                raise RuntimeError(f'pointing out of range: {exc}') from exc
         self._verify_on_target('post-slew')
 
         tau = None
@@ -92,11 +112,11 @@ class InterfExperiment(Experiment):
         # Three consecutive failures raises RuntimeError so the caller can skip the
         # capture entirely rather than spinning indefinitely.
         _MAX_RETRIES = 3
-        t_end             = time.time() + self.duration_sec
-        spectra           = []
-        d                 = None
-        prev_cnt          = None
-        unix_time_start   = None
+        t_end              = time.time() + self.duration_sec
+        spectra            = []
+        d                  = None
+        prev_cnt           = None
+        unix_time_start    = None
         consecutive_errors = 0
         while time.time() < t_end:
             try:
@@ -127,14 +147,13 @@ class InterfExperiment(Experiment):
         unix_time_end = d['time']
 
         path = make_path(self.outdir, self.prefix, 'corr')
-        np.savez(
-            path,
+        data = dict(
             corr            = corr,
             corr_std        = corr_std,
             unix_time_start = unix_time_start,
             unix_time_end   = unix_time_end,
             n_acc           = len(spectra),
-            f_s_hz        = 500e6,
+            f_s_hz          = 500e6,
             # SNAP uses a 2048-point real FFT → 1024 unique positive-frequency channels.
             # Channel spacing: Δf = f_s / n_fft = 500/2048 = 244.1 kHz/channel.
             # All 1024 channels are unique (not hermitian mirrors).
@@ -146,20 +165,32 @@ class InterfExperiment(Experiment):
             #   IF2=290 MHz is in 2nd Nyquist zone (250–500 MHz); aliases to f_s−IF2
             #   Channel 0: f_alias=0 → IF2=f_s → f_sky = LO1+LO2−f_s = 9790 MHz
             #   10 GHz sky → channel ≈ (10000−9790)/0.2441 ≈ 860
-            n_fft         = 2048,
-            f_rf0_hz      = 9790e6,
-            alt_deg       = self.alt_deg,
-            az_deg        = self.az_deg,
-            ra_deg        = getattr(self, 'ra_deg',  np.nan),
-            dec_deg       = getattr(self, 'dec_deg', np.nan),
-            duration_sec  = self.duration_sec,
-            baseline_ew_m = np.nan if self.baseline_ew_m is None else self.baseline_ew_m,
-            baseline_ns_m = self.baseline_ns_m,
-            delay_ns      = np.nan if tau is None else tau,
-            lat           = self.lat,
-            lon           = self.lon,
-            obs_alt       = self.obs_alt,
+            n_fft           = 2048,
+            f_rf0_hz        = 9790e6,
+            alt_deg         = self.alt_deg,
+            az_deg          = self.az_deg,
+            ra_deg          = getattr(self, 'ra_deg',  np.nan),
+            dec_deg         = getattr(self, 'dec_deg', np.nan),
+            duration_sec    = self.duration_sec,
+            baseline_ew_m   = np.nan if self.baseline_ew_m is None else self.baseline_ew_m,
+            baseline_ns_m   = self.baseline_ns_m,
+            delay_ns        = np.nan if tau is None else tau,
+            lat             = self.lat,
+            lon             = self.lon,
+            obs_alt         = self.obs_alt,
         )
+        return path, data
+
+    def run(self) -> str:
+        """Execute the interferometric observation using self.interferometer, self.snap, self.delay_line.
+
+        Returns
+        -------
+        str
+            Path to the saved .npz file.
+        """
+        path, data = self._collect()
+        np.savez(path, **data)
         return path
 
 

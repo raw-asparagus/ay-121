@@ -80,9 +80,6 @@ def main():
     print(f'    Window         : {OBS_WINDOW_SEC / 60:.0f} min  (variable N captures)')
     print()
 
-    input('  Connect hardware, then press Enter to begin: ')
-    print()
-
     # --- Hardware setup ---
     interferometer, snap = setup_hardware()
 

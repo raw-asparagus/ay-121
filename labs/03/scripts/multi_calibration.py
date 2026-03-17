@@ -153,10 +153,11 @@ def main():
     n_saved  = {'sun': 0, 'moon': 0, 'm17': 0}
 
     def make_fn():
-        result = select_target()
-        if result is None:
+        while True:
+            result = select_target()
+            if result is not None:
+                break
             time.sleep(30)
-            return make_fn()
         target, _alt, _az = result
         idx = counters[target]
         counters[target] += 1

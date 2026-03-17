@@ -80,10 +80,10 @@ class AsyncSunExperiment(AsyncInterfExperiment):
 
     prefix: str = 'sun'
 
-    def run(self) -> str:
+    def _prepare(self) -> tuple[float, float]:
         alt, az, *_ = compute_sun_pointing(self.lat, self.lon, self.obs_alt)
         self.alt_deg, self.az_deg = alt, az
-        return super().run()
+        return alt, az
 
 
 @dataclass
@@ -92,10 +92,10 @@ class AsyncMoonExperiment(AsyncInterfExperiment):
 
     prefix: str = 'moon'
 
-    def run(self) -> str:
+    def _prepare(self) -> tuple[float, float]:
         alt, az, *_ = compute_moon_pointing(self.lat, self.lon, self.obs_alt)
         self.alt_deg, self.az_deg = alt, az
-        return super().run()
+        return alt, az
 
 
 @dataclass
@@ -105,9 +105,9 @@ class AsyncRadecExperiment(AsyncInterfExperiment):
     ra_deg:  float = 0.0
     dec_deg: float = 0.0
 
-    def run(self) -> str:
+    def _prepare(self) -> tuple[float, float]:
         alt, az, _ = compute_radec_pointing(
             self.ra_deg, self.dec_deg, self.lat, self.lon, self.obs_alt,
         )
         self.alt_deg, self.az_deg = alt, az
-        return super().run()
+        return alt, az

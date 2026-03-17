@@ -45,8 +45,6 @@ class InterfExperiment(Experiment):
     baseline_ns_m:  float       = 0.0
     delay_max_ns:      float | None = 64.8  # hardware limit confirmed: ugradio.interf_delay.MAX_DELAY
     pointing_tol_deg:  float        = 1.0   # reject capture if either antenna drifts beyond this
-    slew_tol_deg:      float        = 0.0   # skip point() when both antennas are already within this
-                                            # of the target (0.0 = always slew, preserving old behaviour)
 
     def _run_summary(self) -> list[str]:
         return [f'  duration={self.duration_sec}s']
@@ -62,39 +60,21 @@ class InterfExperiment(Experiment):
                     f'(tolerance {self.pointing_tol_deg}°) — telescope may have been slewed.'
                 )
 
-    def _max_pointing_error_deg(self) -> float:
-        """Return the max angular error across both antennas relative to the current target."""
-        pos = self.interferometer.get_pointing()
-        return max(
-            float(np.hypot(alt - self.alt_deg, az - self.az_deg))
-            for _, (alt, az) in pos.items()
-        )
+    def _prepare(self) -> tuple[float, float]:
+        """Ephemeris lookup: set self.alt_deg/az_deg and return (alt, az).
 
-    def _collect(self) -> tuple[str, dict]:
-        """Point, capture, verify — return (path, data_dict) without saving.
-
-        Separated from run() so that async subclasses can hand the dict to a
-        background thread for np.savez() while immediately starting the next
-        pointing + collection cycle.
-
-        Returns
-        -------
-        tuple[str, dict]
-            path     : destination path (directory already created by make_path)
-            data_dict: kwargs ready to pass directly to np.savez(path, **data_dict)
+        Base implementation returns the already-set values unchanged.
+        Subclasses override to compute current pointing from source coordinates.
+        Called by _collect() before every slew, and by ContinuousCapture before
+        firing the non-blocking point().
         """
-        already_on_target = (
-            self.slew_tol_deg > 0.0
-            and self._max_pointing_error_deg() <= self.slew_tol_deg
-        )
-        if not already_on_target:
-            try:
-                self.interferometer.point(self.alt_deg, self.az_deg)
-            except AssertionError as exc:
-                raise RuntimeError(f'pointing out of range: {exc}') from exc
-        self._verify_on_target('post-slew')
+        return self.alt_deg, self.az_deg
 
-        tau = None
+    def _compute_tau(self) -> float | None:
+        """Compute geometric delay, apply to delay line, and return tau_ns.
+
+        Returns None when baseline_ew_m is not set or delay_line is not connected.
+        """
         if self.baseline_ew_m is not None and self.delay_line is not None:
             tau = geometric_delay_ns(
                 self.alt_deg, self.az_deg,
@@ -103,14 +83,30 @@ class InterfExperiment(Experiment):
                 delay_max_ns=self.delay_max_ns,
             )
             self.delay_line.delay_ns(tau)
+            return tau
+        return None
 
-        # Accumulate snap_spec read_data() dumps for duration_sec, then average.
-        # read_data(prev_cnt) blocks until acc_cnt changes, then asserts the counter
-        # did not advance again *during* the read.  If it did (another process is
-        # using the board), an AssertionError is raised: discard all spectra collected
-        # so far (the ADC state is unknown), reset prev_cnt, and retry from scratch.
-        # Three consecutive failures raises RuntimeError so the caller can skip the
-        # capture entirely rather than spinning indefinitely.
+    def _read_data(self, tau=None) -> dict:
+        """SNAP accumulation loop — return data dict without saving.
+
+        Accumulates read_data() dumps for duration_sec, then averages.
+        read_data(prev_cnt) blocks until acc_cnt changes, then asserts the counter
+        did not advance again *during* the read.  If it did (another process is
+        using the board), an AssertionError is raised: discard all spectra collected
+        so far (the ADC state is unknown), reset prev_cnt, and retry from scratch.
+        Three consecutive failures raises RuntimeError so the caller can skip the
+        capture entirely rather than spinning indefinitely.
+
+        Parameters
+        ----------
+        tau : float or None
+            Geometric delay in ns (from _compute_tau). Stored in the data dict.
+
+        Returns
+        -------
+        dict
+            Keys ready to pass directly to np.savez(path, **data).
+        """
         _MAX_RETRIES = 3
         t_end              = time.time() + self.duration_sec
         spectra            = []
@@ -140,14 +136,11 @@ class InterfExperiment(Experiment):
         if not spectra:
             raise RuntimeError('No valid SNAP dumps collected within the capture window.')
 
-        self._verify_on_target('post-capture')
-
         corr          = np.mean(spectra, axis=0)   # complex128, all 1024 channels
         corr_std      = np.std(spectra,  axis=0)   # per-channel scatter across dumps
         unix_time_end = d['time']
 
-        path = make_path(self.outdir, self.prefix, 'corr')
-        data = dict(
+        return dict(
             corr            = corr,
             corr_std        = corr_std,
             unix_time_start = unix_time_start,
@@ -179,6 +172,19 @@ class InterfExperiment(Experiment):
             lon             = self.lon,
             obs_alt         = self.obs_alt,
         )
+
+    def _collect(self) -> tuple[str, dict]:
+        """Point, capture, verify — return (path, data_dict) without saving."""
+        self._prepare()
+        try:
+            self.interferometer.point(self.alt_deg, self.az_deg)
+        except AssertionError as exc:
+            raise RuntimeError(f'pointing out of range: {exc}') from exc
+        self._verify_on_target('post-slew')
+        tau  = self._compute_tau()
+        data = self._read_data(tau)
+        self._verify_on_target('post-collect')
+        path = make_path(self.outdir, self.prefix, 'corr')
         return path, data
 
     def run(self) -> str:
@@ -202,10 +208,10 @@ class SunExperiment(InterfExperiment):
     """
     prefix: str = 'sun'
 
-    def run(self) -> str:
+    def _prepare(self) -> tuple[float, float]:
         alt, az, *_ = compute_sun_pointing(self.lat, self.lon, self.obs_alt)
         self.alt_deg, self.az_deg = alt, az
-        return super().run()
+        return alt, az
 
 
 @dataclass
@@ -216,10 +222,10 @@ class MoonExperiment(InterfExperiment):
     """
     prefix: str = 'moon'
 
-    def run(self) -> str:
+    def _prepare(self) -> tuple[float, float]:
         alt, az, *_ = compute_moon_pointing(self.lat, self.lon, self.obs_alt)
         self.alt_deg, self.az_deg = alt, az
-        return super().run()
+        return alt, az
 
 
 @dataclass
@@ -240,9 +246,9 @@ class RadecExperiment(InterfExperiment):
     ra_deg:  float = 0.0
     dec_deg: float = 0.0
 
-    def run(self) -> str:
+    def _prepare(self) -> tuple[float, float]:
         alt, az, _ = compute_radec_pointing(
             self.ra_deg, self.dec_deg, self.lat, self.lon, self.obs_alt,
         )
         self.alt_deg, self.az_deg = alt, az
-        return super().run()
+        return alt, az

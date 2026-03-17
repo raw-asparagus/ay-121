@@ -8,3 +8,4 @@ from .async_experiment import (
     AsyncRadecExperiment,
 )
 from .queue import QueueRunner
+from .continuous import ContinuousCapture

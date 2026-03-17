@@ -12,5 +12,5 @@ from .pointing import (
     galactic_to_altaz,
     altaz_to_galactic,
 )
-from .run import Experiment, SDRExperiment, CalExperiment, ObsExperiment, InterfExperiment, SunExperiment, MoonExperiment, RadecExperiment, QueueRunner
+from .run import Experiment, SDRExperiment, CalExperiment, ObsExperiment, InterfExperiment, SunExperiment, MoonExperiment, RadecExperiment, QueueRunner, ContinuousCapture
 from .utils import get_unix_time

@@ -20,6 +20,7 @@ import time
 import numpy as np
 
 from ugradiolab import (
+    ContinuousCapture,
     MoonExperiment,
     RadecExperiment,
     SunExperiment,
@@ -53,9 +54,6 @@ M17_OUTDIR  = 'data/lab03/m17_calibration'
 
 BASELINE_EST_M   = 12.5   # baseline estimate for fringe-rate duration calculation (m)
 TARGET_PHASE_DEG = 30.0   # desired fringe phase advance per capture (deg)
-
-SLEW_TOL_DEG     = 0.3    # skip point() if antennas are already within this of target;
-                           # at 0.3° max amplitude loss is ~0.04%, phase loss is 0%
 
 # ---------------------------------------------------------------------------
 
@@ -101,7 +99,6 @@ def make_experiment(target, interferometer, snap, capture_index):
             duration_sec   = _sun_duration(),
             outdir         = SUN_OUTDIR,
             prefix         = f'sun-{capture_index:03d}',
-            slew_tol_deg   = SLEW_TOL_DEG,
         )
     if target == 'moon':
         return MoonExperiment(
@@ -110,7 +107,6 @@ def make_experiment(target, interferometer, snap, capture_index):
             duration_sec   = _moon_duration(),
             outdir         = MOON_OUTDIR,
             prefix         = f'moon-{capture_index:03d}',
-            slew_tol_deg   = SLEW_TOL_DEG,
         )
     # M17
     jd_now   = time.time() / 86400.0 + 2440587.5
@@ -126,7 +122,6 @@ def make_experiment(target, interferometer, snap, capture_index):
         duration_sec   = duration,
         outdir         = M17_OUTDIR,
         prefix         = f'm17-{capture_index:03d}',
-        slew_tol_deg   = SLEW_TOL_DEG,
     )
 
 
@@ -154,41 +149,42 @@ def main():
     print()
     print('Press Ctrl-C to stop.\n')
 
-    counters  = {'sun': 0, 'moon': 0, 'm17': 0}
-    n_saved   = {'sun': 0, 'moon': 0, 'm17': 0}
-    prev_target = None
+    counters = {'sun': 0, 'moon': 0, 'm17': 0}
+    n_saved  = {'sun': 0, 'moon': 0, 'm17': 0}
 
-    while True:
+    def make_fn():
         result = select_target()
-
-        target, alt, az = result
+        if result is None:
+            time.sleep(30)
+            return make_fn()
+        target, _alt, _az = result
         idx = counters[target]
+        counters[target] += 1
+        return make_experiment(target, interferometer, snap, idx)
 
-        if target != prev_target:
-            print(f'\n[Target → {target.upper()}]  Alt={alt:.1f}°  Az={az:.1f}°')
-            prev_target = target
-
-        exp = make_experiment(target, interferometer, snap, idx)
-        dur = exp.duration_sec
-
+    def on_save(path, exp):
+        target = exp.prefix.split('-')[0]   # 'sun-001' → 'sun'
+        n_saved[target] += 1
         if target == 'sun':
             ha = _sun_ha_deg()
         elif target == 'm17':
             ha = _ha_deg(M17_RA_DEG)
         else:
-            ha = float('nan')   # Moon RA changes too fast; skip
-
+            ha = float('nan')
         ha_str = f'{ha:+.2f}°' if np.isfinite(ha) else 'n/a'
-        print(f'  [{target} {idx + 1:3d}]  dur={dur:.1f}s  HA={ha_str}  ', end='', flush=True)
-        try:
-            path = exp.run()
-            n_saved[target] += 1
-            print(f'Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  → {path}')
-        except RuntimeError as exc:
-            print(f'SKIP  ({exc})')
-            reinit_snap(snap)
+        idx = n_saved[target]
+        print(
+            f'  [{target} {idx:3d}]  dur={exp.duration_sec:.1f}s  HA={ha_str}'
+            f'  Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  → {path}'
+        )
 
-        counters[target] += 1
+    pipeline = ContinuousCapture(interferometer, snap)
+    try:
+        pipeline.run(make_fn, on_save=on_save)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        pipeline.flush()
 
 
 if __name__ == '__main__':

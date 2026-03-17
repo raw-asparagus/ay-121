@@ -35,13 +35,25 @@ def optimal_duration(ha_deg, dec_deg, baseline_m, target_phase_deg,
     return max(5.0, min(60.0, tau))
 
 
-def setup_hardware():
-    """Initialise interferometer and SNAP correlator.  Returns (interferometer, snap)."""
+def setup_hardware(snap_retries=5):
+    """Initialise interferometer and SNAP correlator.  Returns (interferometer, snap).
+
+    snap.initialize() calls align_adc(), which is non-deterministic: the ADC
+    ramp test occasionally fails on the first attempt.  snap_retries controls
+    how many times initialization is retried before raising.
+    """
     interferometer = interf.Interferometer()
     snap = UGRadioSnap(host='localhost', stream_1=0, stream_2=1)
-    snap.initialize(mode='corr', sample_rate=500, force=True)
-    snap.input.use_adc()
-    return interferometer, snap
+    for attempt in range(1, snap_retries + 1):
+        try:
+            snap.initialize(mode='corr', sample_rate=500, force=True)
+            snap.input.use_adc()
+            if attempt > 1:
+                print(f'  SNAP initialized on attempt {attempt}.')
+            return interferometer, snap
+        except AssertionError as exc:
+            print(f'  SNAP init attempt {attempt}/{snap_retries} failed ({exc}), retrying...')
+    raise RuntimeError(f'SNAP initialization failed after {snap_retries} attempts.')
 
 
 def reinit_snap(snap):

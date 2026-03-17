@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import logging
-import time
 from concurrent.futures import Future, ThreadPoolExecutor
 
 import numpy as np
 
 from ..utils import make_path
-
-log = logging.getLogger(__name__)
 
 
 class ContinuousCapture:
@@ -41,21 +37,6 @@ class ContinuousCapture:
           next_exp = prefetch_future.result()       ← instant
 
     Duty cycle:  ~93 %  (only ~300 ms of serial overhead per capture).
-
-    Timing log
-    ----------
-    Enable DEBUG logging to see a per-capture breakdown of every timed step::
-
-        import logging
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format='%(asctime)s  %(message)s',
-            datefmt='%H:%M:%S',
-        )
-
-    Each capture prints one ``TIMING`` line showing milliseconds for:
-    ``point``, ``wait_blocked`` (>0 means slew outlasted collection),
-    ``verify_post``, ``prefetch_blocked``, ``gap_total``.
 
     Parameters
     ----------
@@ -97,18 +78,12 @@ class ContinuousCapture:
         next_exp = make_experiment_fn()
         next_exp._prepare()
 
-        cap_idx = 0
-
         while True:
-            t_loop_start = time.perf_counter()
-
             # ── Fire slew ─────────────────────────────────────────────────
-            t0 = time.perf_counter()
             try:
                 self._interf.point(next_exp.alt_deg, next_exp.az_deg, wait=False)
             except (AssertionError, TimeoutError, OSError) as exc:
                 raise RuntimeError(f'pointing failed: {exc}') from exc
-            t_point = time.perf_counter() - t0
 
             # ── Launch background: wait() + prefetch N+2 ──────────────────
             self._wait_future = self._executor.submit(self._interf.wait)
@@ -120,16 +95,9 @@ class ContinuousCapture:
             self._prefetch_future = self._executor.submit(_prefetch)
 
             # ── Collect ────────────────────────────────────────────────────
-            t0 = time.perf_counter()
             exp._verify_on_target('pre-collect')
-            t_pre_verify = time.perf_counter() - t0
-
-            t0 = time.perf_counter()
             tau  = exp._compute_tau()
             data = exp._read_data(tau)
-            t_collect = time.perf_counter() - t0
-
-            t_post_collect = time.perf_counter()
 
             # ── Save ───────────────────────────────────────────────────────
             path = make_path(exp.outdir, exp.prefix, 'corr')
@@ -138,48 +106,18 @@ class ContinuousCapture:
                 on_save(path, exp)
 
             # ── Join slew ─────────────────────────────────────────────────
-            t0 = time.perf_counter()
             try:
                 self._wait_future.result()
             except (TimeoutError, OSError) as exc:
                 raise RuntimeError(f'interferometer.wait() failed: {exc}') from exc
-            t_wait_blocked = time.perf_counter() - t0
             self._wait_future = None
 
             # ── Advance ────────────────────────────────────────────────────
             exp = next_exp
-            t0 = time.perf_counter()
-            exp._verify_on_target('post-slew')
-            t_post_verify = time.perf_counter() - t0
 
             # ── Collect prefetched N+2 ─────────────────────────────────────
-            t0 = time.perf_counter()
             next_exp = self._prefetch_future.result()
-            t_prefetch_blocked = time.perf_counter() - t0
             self._prefetch_future = None
-
-            t_gap = time.perf_counter() - t_post_collect
-
-            log.debug(
-                'cap %3d  TIMING (ms)'
-                '  point=%5.0f'
-                '  pre_verify=%4.0f'
-                '  collect=%6.0f'
-                '  wait_blocked=%5.0f'
-                '  post_verify=%4.0f'
-                '  prefetch_blocked=%5.0f'
-                '  gap_total=%5.0f',
-                cap_idx,
-                t_point            * 1e3,
-                t_pre_verify       * 1e3,
-                t_collect          * 1e3,
-                t_wait_blocked     * 1e3,
-                t_post_verify      * 1e3,
-                t_prefetch_blocked * 1e3,
-                t_gap              * 1e3,
-            )
-
-            cap_idx += 1
 
     def flush(self) -> None:
         """Block until all pending saves complete; surface any errors."""

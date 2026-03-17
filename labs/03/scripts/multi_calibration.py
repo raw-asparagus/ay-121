@@ -15,16 +15,9 @@ Output:
     data/lab03/m17_calibration/m17-NNN_corr_<timestamp>.npz
 """
 
-import logging
 import time
 
 import numpy as np
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s  %(message)s',
-    datefmt='%H:%M:%S',
-)
 
 from ugradiolab import (
     ContinuousCapture,

@@ -178,8 +178,8 @@ class InterfExperiment(Experiment):
         self._prepare()
         try:
             self.interferometer.point(self.alt_deg, self.az_deg)
-        except AssertionError as exc:
-            raise RuntimeError(f'pointing out of range: {exc}') from exc
+        except (AssertionError, TimeoutError, OSError) as exc:
+            raise RuntimeError(f'pointing failed: {exc}') from exc
         self._verify_on_target('post-slew')
         tau  = self._compute_tau()
         data = self._read_data(tau)

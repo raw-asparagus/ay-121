@@ -125,12 +125,18 @@ class InterfExperiment(Experiment):
             unix_time     = unix_time,
             n_acc         = len(spectra),
             f_s_hz        = 500e6,
-            # Sky RF frequency at SNAP channel 0.
+            # SNAP uses a 2048-point real FFT → 1024 unique positive-frequency channels.
+            # Channel spacing: Δf = f_s / n_fft = 500/2048 = 244.1 kHz/channel.
+            # All 1024 channels are unique (not hermitian mirrors).
+            # Frequency axis: f_sky(k) = f_rf0_hz + k * f_s/n_fft
+            #
+            # f_rf0_hz derivation (sky RF at channel 0):
             # LO chain: LO1=8750 MHz, LO2=1540 MHz, f_s=500 MHz
             #   IF2 = LO1 + LO2 - f_sky  (e.g. 10 GHz → IF2 = 290 MHz)
-            #   ADC Nyquist = 250 MHz; IF2 in 2nd zone aliases: f_dig = f_s - IF2
-            #   Channel 0 has f_dig = 0  →  IF2 = f_s  →  f_sky = LO1+LO2-f_s
-            #   f_sky(ch=0) = 8750 + 1540 - 500 = 9790 MHz
+            #   IF2=290 MHz is in 2nd Nyquist zone (250–500 MHz); aliases to f_s−IF2
+            #   Channel 0: f_alias=0 → IF2=f_s → f_sky = LO1+LO2−f_s = 9790 MHz
+            #   10 GHz sky → channel ≈ (10000−9790)/0.2441 ≈ 860
+            n_fft         = 2048,
             f_rf0_hz      = 9790e6,
             alt_deg       = self.alt_deg,
             az_deg        = self.az_deg,

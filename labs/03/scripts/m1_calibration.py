@@ -50,7 +50,7 @@ OUTDIR       = 'data/lab03/m1_calibration'
 MIN_ALT_DEG  = 15.0   # elevation floor; abort below this
 
 DURATION_SEC   = 10.0       # integration time per SNAP capture
-OBS_WINDOW_SEC = 15 * 60    # 15-minute observation window
+OBS_WINDOW_SEC = 60 * 60    # 15-minute observation window
 N_CAPTURES     = round(OBS_WINDOW_SEC / DURATION_SEC)  # = 90
 
 # ---------------------------------------------------------------------------

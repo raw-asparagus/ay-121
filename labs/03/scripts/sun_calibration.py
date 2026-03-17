@@ -63,7 +63,8 @@ N_CAPTURES = round(OBS_WINDOW_SEC / DURATION_SEC)  # = 90
 
 # Centre of the observable RF band (Hz).
 # LO chain: LO1=8750 MHz, LO2=1540 MHz, f_s=500 MHz
-#   Band: (LO1+LO2-f_s) to (LO1+LO2-f_s/2) = 9790–10040 MHz  →  centre ≈ 9915 MHz
+#   SNAP: 2048-pt real FFT → 1024 channels, Δf=244 kHz/ch
+#   Band: 9790–10040 MHz  →  centre ≈ 9915 MHz  (ch 512 of 1024)
 OBS_FREQ_HZ = 9.915e9
 
 # ---------------------------------------------------------------------------

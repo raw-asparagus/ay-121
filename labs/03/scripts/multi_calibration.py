@@ -17,6 +17,8 @@ Output:
 
 import time
 
+import numpy as np
+
 from ugradiolab import (
     MoonExperiment,
     RadecExperiment,
@@ -35,6 +37,8 @@ from utils import lst_deg, optimal_duration, reinit_snap, setup_hardware
 M17_RA_DEG  = 275.1083   # 18h 20m 26s
 M17_DEC_DEG = -16.1767   # -16° 10' 36"
 
+NCH_LON_DEG = -122.2573  # NCH site longitude (degrees east)
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -51,6 +55,23 @@ BASELINE_EST_M   = 12.5   # baseline estimate for fringe-rate duration calculati
 TARGET_PHASE_DEG = 30.0   # desired fringe phase advance per capture (deg)
 
 # ---------------------------------------------------------------------------
+
+
+def _ha_deg(ra_deg):
+    """Current hour angle [degrees] for a source at ra_deg."""
+    jd  = time.time() / 86400.0 + 2440587.5
+    ha  = (lst_deg(jd) - ra_deg) % 360.0
+    if ha > 180.0:
+        ha -= 360.0
+    return ha
+
+
+def _sun_ha_deg():
+    _, _, sun_ra, _, jd = compute_sun_pointing()
+    ha = (lst_deg(jd) - sun_ra) % 360.0
+    if ha > 180.0:
+        ha -= 360.0
+    return ha
 
 
 def select_target():
@@ -144,7 +165,15 @@ def main():
         exp = make_experiment(target, interferometer, snap, idx)
         dur = exp.duration_sec
 
-        print(f'  [{target} {idx + 1:3d}]  dur={dur:.1f}s  ', end='', flush=True)
+        if target == 'sun':
+            ha = _sun_ha_deg()
+        elif target == 'm17':
+            ha = _ha_deg(M17_RA_DEG)
+        else:
+            ha = float('nan')   # Moon RA changes too fast; skip
+
+        ha_str = f'{ha:+.2f}°' if np.isfinite(ha) else 'n/a'
+        print(f'  [{target} {idx + 1:3d}]  dur={dur:.1f}s  HA={ha_str}  ', end='', flush=True)
         try:
             path = exp.run()
             n_saved[target] += 1

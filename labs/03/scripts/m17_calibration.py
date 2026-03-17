@@ -122,7 +122,7 @@ def main():
             continue
         paths.append(path)
         elapsed = time.time() - t0
-        print(f'Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  dur={duration_sec:.1f}s  t={elapsed:.0f}s  → {path}')
+        print(f'dur={duration_sec:.1f}s  HA={ha_now:+.2f}°  Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  t={elapsed:.0f}s  → {path}')
         i += 1
 
     total_elapsed = time.time() - t0

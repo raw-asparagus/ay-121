@@ -20,12 +20,15 @@ Output:
 """
 
 import sys
+import time
 
 import ugradio.interf as interf
 import ugradio.interf_delay as interf_delay
 from snap_spec.snap import UGRadioSnap
 
 from ugradiolab import SunExperiment, compute_sun_pointing
+
+from utils import lst_deg
 
 # ---------------------------------------------------------------------------
 # Configuration — fill in after Phase 1 baseline fit
@@ -125,7 +128,11 @@ def main():
         print(f'[{i + 1:6d}/{N_CAPTURES}] ', end='', flush=True)
         path = exp.run()
         paths.append(path)
-        print(f'Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  τ_g≈{_last_tau(path):.2f}ns  → {path}')
+        _, _, sun_ra, _, jd_now = compute_sun_pointing()
+        ha_now = (lst_deg(jd_now) - sun_ra) % 360.0
+        if ha_now > 180.0:
+            ha_now -= 360.0
+        print(f'HA={ha_now:+.2f}°  Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  τ_g≈{_last_tau(path):.2f}ns  → {path}')
 
     print()
     print(f'Done. {len(paths)} files saved to {OUTDIR}/')

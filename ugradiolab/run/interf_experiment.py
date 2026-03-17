@@ -68,7 +68,10 @@ class InterfExperiment(Experiment):
         str
             Path to the saved .npz file.
         """
-        self.interferometer.point(self.alt_deg, self.az_deg)
+        try:
+            self.interferometer.point(self.alt_deg, self.az_deg)
+        except AssertionError as exc:
+            raise RuntimeError(f'pointing out of range: {exc}') from exc
         self._verify_on_target('post-slew')
 
         tau = None

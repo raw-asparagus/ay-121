@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
-"""Lab 3 — Orion A (M42) fringe calibration.
+"""Lab 3 — M17 / Omega Nebula (Sgr B) fringe calibration.
 
-Tracks Orion A without delay-line compensation to fit the interferometer
-baseline (BASELINE_EW_M) from the raw fringe pattern.  This is identical in
-procedure to sun_calibration.py but uses a fixed catalog position.
+Tracks M17 without delay-line compensation to fit the interferometer baseline
+(BASELINE_EW_M) from the raw fringe pattern.
 
-Source: Orion A / M42 (Orion Nebula HII region core)
-  RA  =  83.8221°  (J2000 = 5h 35m 17.3s)
-  Dec =  -5.3911°  (J2000 = -5° 23' 28")
-  S(10 GHz) ≈ 340 Jy
+Source: M17 / Omega Nebula / Swan Nebula (HII region in Sagittarius)
+  RA  = 275.1083°  (J2000 = 18h 20m 26s)
+  Dec = -16.1767°  (J2000 = -16° 10' 36")
+  S(10 GHz) ≈ 500 Jy
 
 Visibility from Berkeley (lat 37.9°N):
-  Culmination altitude ≈ 46.7°  (culminates due south, Az ≈ 180°)
-  Above 15° for roughly 6 hours each night (rises ~E, sets ~W)
+  Culmination altitude ≈ 35.9°  (culminates due south, Az ≈ 180°)
+  Above 15° for roughly 7.4 hours each day
 
 Usage:
-    python orion_calibration.py
+    python m17_calibration.py
 
 Output:
-    data/lab03/orion_calibration/orion-cal-NNN_corr_<timestamp>.npz
+    data/lab03/m17_calibration/m17-cal-NNN_corr_<timestamp>.npz
 """
 
 import sys
@@ -32,55 +31,53 @@ from utils import lst_deg, optimal_duration, reinit_snap, setup_hardware
 # Source catalog position (J2000)
 # ---------------------------------------------------------------------------
 
-ORION_RA_DEG  =  83.8221   # 5h 35m 17.3s
-ORION_DEC_DEG =  -5.3911   # -5° 23' 28"
+M17_RA_DEG  = 275.1083   # 18h 20m 26s
+M17_DEC_DEG = -16.1767   # -16° 10' 36"
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-OUTDIR       = 'data/lab03/orion_calibration'
+OUTDIR       = 'data/lab03/m17_calibration'
 MIN_ALT_DEG  = 6.25   # elevation floor; hardware limit is 6°
 
-OBS_WINDOW_SEC   = 15 * 60  # total observation window (s)
-BASELINE_EST_M   = 15.0     # baseline estimate used only for duration optimisation (m)
-TARGET_PHASE_DEG = 60.0     # desired fringe phase advance per capture (deg)
+OBS_WINDOW_SEC   = 6 * 60 * 60   # total observation window (s)
+BASELINE_EST_M   = 12.5          # baseline estimate used only for duration optimisation (m)
+TARGET_PHASE_DEG = 90.0          # desired fringe phase advance per capture (deg)
 
 # ---------------------------------------------------------------------------
 
 
-def check_orion_visible(min_alt_deg):
-    """Print current Orion position and return (alt, az, jd).  Exits if below limit."""
-    alt, az, jd = compute_radec_pointing(ORION_RA_DEG, ORION_DEC_DEG)
-    print(f'  Orion A position:  Alt = {alt:.2f}°,  Az = {az:.2f}°')
-    print(f'  Julian date     :  {jd:.5f}')
+def check_m17_visible(min_alt_deg):
+    """Print current M17 position and return (alt, az, jd).  Exits if below limit."""
+    alt, az, jd = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
+    print(f'  M17 position :  Alt = {alt:.2f}°,  Az = {az:.2f}°')
+    print(f'  Julian date  :  {jd:.5f}')
     print()
     if alt < min_alt_deg:
-        print(f'  ERROR: Orion A is only {alt:.1f}° above the horizon '
+        print(f'  ERROR: M17 is only {alt:.1f}° above the horizon '
               f'(minimum: {min_alt_deg}°).')
-        print('  Orion A transits ~47° above the horizon from Berkeley.')
-        print('  It is visible (>15°) for roughly 6 h each night.')
+        print('  M17 transits ~36° above the horizon from Berkeley.')
+        print('  It is visible (>15°) for roughly 7.4 h each day.')
         sys.exit(1)
     return alt, az, jd
 
 
 def main():
-    print('Lab 3 — Orion A fringe calibration (no delay compensation)')
-    print('=' * 70)
+    print('Lab 3 — M17 / Omega Nebula fringe calibration (no delay compensation)')
+    print('=' * 80)
     print()
-    print('Checking Orion A position ...')
+    print('Checking M17 position ...')
     print()
-    _, _, jd = check_orion_visible(MIN_ALT_DEG)
+    _, _, jd = check_m17_visible(MIN_ALT_DEG)
 
-    ha_deg = (lst_deg(jd) - ORION_RA_DEG) % 360.0
+    ha_deg = (lst_deg(jd) - M17_RA_DEG) % 360.0
     if ha_deg > 180.0:
         ha_deg -= 360.0
 
     print('  Observation plan')
-    print(f'    Source         : Orion A  RA={ORION_RA_DEG:.4f}°  Dec={ORION_DEC_DEG:.4f}°')
+    print(f'    Source         : M17 / Omega Nebula  RA={M17_RA_DEG:.4f}°  Dec={M17_DEC_DEG:.4f}°')
     print(f'    Window         : {OBS_WINDOW_SEC / 60:.0f} min  (variable N captures)')
-    print()
-    print('  No delay-line compensation — recording raw fringes for baseline fit.')
     print()
 
     input('  Connect hardware, then press Enter to begin: ')
@@ -97,24 +94,24 @@ def main():
 
     while time.time() < t_end:
         jd_now = time.time() / 86400.0 + 2440587.5
-        ha_now = (lst_deg(jd_now) - ORION_RA_DEG) % 360.0
+        ha_now = (lst_deg(jd_now) - M17_RA_DEG) % 360.0
         if ha_now > 180.0:
             ha_now -= 360.0
-        duration_sec = optimal_duration(ha_now, ORION_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+        duration_sec = optimal_duration(ha_now, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
 
-        alt_now, _, _ = compute_radec_pointing(ORION_RA_DEG, ORION_DEC_DEG)
+        alt_now, _, _ = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
         if alt_now < MIN_ALT_DEG:
-            print(f'  Orion A below {MIN_ALT_DEG}° ({alt_now:.1f}°) — stopping.')
+            print(f'  M17 below {MIN_ALT_DEG}° ({alt_now:.1f}°) — stopping.')
             break
 
         exp = RadecExperiment(
             interferometer = interferometer,
             snap           = snap,
-            ra_deg         = ORION_RA_DEG,
-            dec_deg        = ORION_DEC_DEG,
+            ra_deg         = M17_RA_DEG,
+            dec_deg        = M17_DEC_DEG,
             duration_sec   = duration_sec,
             outdir         = OUTDIR,
-            prefix         = f'orion-cal-{i:03d}',
+            prefix         = f'm17-cal-{i:03d}',
             # baseline_ew_m=None (default) → no delay applied
         )
 

@@ -1,0 +1,59 @@
+"""Shared helpers for Lab 3 interferometer calibration scripts."""
+
+import math
+
+import ugradio.interf as interf
+import ugradio.nch as nch
+from snap_spec.snap import UGRadioSnap
+
+
+def lst_deg(jd):
+    """Return Local Sidereal Time in degrees for the NCH site."""
+    T = (jd - 2451545.0) / 36525.0
+    g = (280.46061837 + 360.98564736629 * (jd - 2451545.0)
+         + T ** 2 * 0.000387933 - T ** 3 / 38710000.0)
+    return (g + nch.lon) % 360.0
+
+
+def optimal_duration(ha_deg, dec_deg, baseline_m, target_phase_deg,
+                     obs_freq_hz=9.915e9):
+    """Return capture duration (s) giving target_phase_deg of fringe phase advance.
+
+    Uses the instantaneous fringe rate:
+        rate = f_RF * (B_ew/c) * cos(dec) * ω_Earth * |cos(HA)|   [cycles/s]
+        τ    = (target_phase_deg / 360) / rate
+    Clamped to [5, 60] s.
+    """
+    omega_e = 2 * math.pi / 86164.0
+    rate = (obs_freq_hz * baseline_m / 299792458.0
+            * math.cos(math.radians(dec_deg))
+            * omega_e
+            * abs(math.cos(math.radians(ha_deg))))
+    if rate < 1e-12:
+        return 60.0
+    tau = (target_phase_deg / 360.0) / rate
+    return max(5.0, min(60.0, tau))
+
+
+def setup_hardware():
+    """Initialise interferometer and SNAP correlator.  Returns (interferometer, snap)."""
+    interferometer = interf.Interferometer()
+    snap = UGRadioSnap(host='localhost', stream_1=0, stream_2=1)
+    snap.initialize(mode='corr', sample_rate=500, force=True)
+    snap.input.use_adc()
+    return interferometer, snap
+
+
+def reinit_snap(snap):
+    """Reinitialise the SNAP correlator after a capture failure.
+
+    Called after a RuntimeError from exp.run() to recover from board
+    contention or accumulator corruption before the next capture attempt.
+    Failures are printed as warnings rather than propagated so the outer
+    loop can continue.
+    """
+    try:
+        snap.initialize(mode='corr', sample_rate=500, force=True)
+        snap.input.use_adc()
+    except Exception as exc:
+        print(f'  WARNING: reinitialize failed ({exc}) — continuing anyway')

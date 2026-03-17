@@ -7,35 +7,25 @@ Tracks M1 without delay-line compensation to fit the interferometer baseline
 Source: M1 / Crab Nebula / Tau A (supernova remnant)
   RA  =  83.6331°  (J2000 = 5h 34m 31.9s)
   Dec = +22.0145°  (J2000 = +22° 00' 52")
-  S(10 GHz) ≈ 500 Jy  (power-law spectrum S ∝ ν^{-0.30}; relatively flat at X-band)
+  S(10 GHz) ≈ 496 Jy
 
 Visibility from Berkeley (lat 37.9°N):
-  Transit altitude ≈ 74.1°  (transits due south, Az ≈ 180°)
+  Culmination altitude ≈ 74.1°  (culminates due south, Az ≈ 180°)
   Above 15° for roughly 10 hours each day
-
-Fringe period (B_ew ~ 15 m, Dec = +22°):
-  T_fringe = λ / (B_ew · cos(dec) · ω_Earth) ≈ 30 s
-  10 s captures give ~3 points per fringe cycle.
 
 Usage:
     python m1_calibration.py
 
 Output:
     data/lab03/m1_calibration/m1-cal-NNN_corr_<timestamp>.npz
-
-Fit baseline from output using the standard fringe model:
-    φ(t) = 2π f₀ (B_ew / c) cos(dec) sin(ha(t)) + φ₀
 """
 
-import math
 import sys
 import time
 
-import ugradio.interf as interf
-import ugradio.nch as nch
-from snap_spec.snap import UGRadioSnap
-
 from ugradiolab import RadecExperiment, compute_radec_pointing
+
+from utils import lst_deg, optimal_duration, reinit_snap, setup_hardware
 
 # ---------------------------------------------------------------------------
 # Source catalog position (J2000)
@@ -49,41 +39,13 @@ M1_DEC_DEG = +22.0145   # +22° 00' 52"
 # ---------------------------------------------------------------------------
 
 OUTDIR       = 'data/lab03/m1_calibration'
-MIN_ALT_DEG  = 15.0   # elevation floor; abort below this
+MIN_ALT_DEG  = 6.25   # elevation floor; hardware limit is 6°
 
-OBS_WINDOW_SEC  = 15 * 60   # total observation window (s)
-BASELINE_EST_M  = 15.0      # baseline estimate used only for duration optimisation (m)
-TARGET_PHASE_DEG = 60.0     # desired fringe phase advance per capture (deg)
-OBS_FREQ_HZ     = 9.915e9   # centre of RF band (LO1=8750 MHz, LO2=1540 MHz)
+OBS_WINDOW_SEC   = 15 * 60   # total observation window (s)
+BASELINE_EST_M   = 15.0      # baseline estimate used only for duration optimisation (m)
+TARGET_PHASE_DEG = 60.0      # desired fringe phase advance per capture (deg)
 
 # ---------------------------------------------------------------------------
-
-
-def _lst_deg(jd):
-    """Greenwich Mean Sidereal Time + observer longitude → LST in degrees."""
-    T = (jd - 2451545.0) / 36525.0
-    g = (280.46061837 + 360.98564736629 * (jd - 2451545.0)
-         + T ** 2 * 0.000387933 - T ** 3 / 38710000.0)
-    return (g + nch.lon) % 360.0
-
-
-def _optimal_duration(ha_deg, dec_deg):
-    """Return capture duration (s) giving TARGET_PHASE_DEG of fringe phase advance.
-
-    Uses the instantaneous fringe rate:
-        rate = f_RF * (B_ew/c) * cos(dec) * ω_Earth * |cos(HA)|   [cycles/s]
-        τ    = (TARGET_PHASE_DEG / 360) / rate
-    Clamped to [5, 60] s.
-    """
-    omega_e = 2 * math.pi / 86164.0
-    rate = (OBS_FREQ_HZ * BASELINE_EST_M / 299792458.0
-            * math.cos(math.radians(dec_deg))
-            * omega_e
-            * abs(math.cos(math.radians(ha_deg))))
-    if rate < 1e-12:
-        return 60.0
-    tau = (TARGET_PHASE_DEG / 360.0) / rate
-    return max(5.0, min(60.0, tau))
 
 
 def check_m1_visible(min_alt_deg):
@@ -109,36 +71,38 @@ def main():
     print()
     _, _, jd = check_m1_visible(MIN_ALT_DEG)
 
-    ha_deg = (_lst_deg(jd) - M1_RA_DEG) % 360.0
+    ha_deg = (lst_deg(jd) - M1_RA_DEG) % 360.0
     if ha_deg > 180.0:
         ha_deg -= 360.0
 
-    duration_sec = _optimal_duration(ha_deg, M1_DEC_DEG)
-    n_captures   = round(OBS_WINDOW_SEC / duration_sec)
-    t_fringe_est = duration_sec * 360.0 / TARGET_PHASE_DEG
-
     print('  Observation plan')
     print(f'    Source         : M1 / Crab Nebula  RA={M1_RA_DEG:.4f}°  Dec={M1_DEC_DEG:.4f}°')
-    print(f'    HA at start    : {ha_deg:.1f}°')
-    print(f'    Baseline est.  : {BASELINE_EST_M:.0f} m  (duration optimisation only)')
-    print(f'    T_fringe est.  : {t_fringe_est:.0f} s')
-    print(f'    Duration/cap   : {duration_sec:.1f} s  ({TARGET_PHASE_DEG:.0f}° phase/cap)')
-    print(f'    N captures     : {n_captures} × {duration_sec:.1f} s = {OBS_WINDOW_SEC / 60:.0f} min')
+    print(f'    Window         : {OBS_WINDOW_SEC / 60:.0f} min  (variable N captures)')
     print()
     print('  No delay-line compensation — recording raw fringes for baseline fit.')
     print()
 
     # --- Hardware setup ---
-    interferometer = interf.Interferometer()
-    snap = UGRadioSnap(host='localhost', stream_1=0, stream_2=1)
-    snap.initialize(mode='corr', sample_rate=500, force=True)
-    snap.input.use_adc()
+    interferometer, snap = setup_hardware()
 
-    # --- Capture loop ---
+    # --- Time-bounded capture loop with per-capture duration ---
     paths = []
     t0    = time.time()
+    t_end = t0 + OBS_WINDOW_SEC
+    i     = 0
 
-    for i in range(n_captures):
+    while time.time() < t_end:
+        jd_now = time.time() / 86400.0 + 2440587.5
+        ha_now = (lst_deg(jd_now) - M1_RA_DEG) % 360.0
+        if ha_now > 180.0:
+            ha_now -= 360.0
+        duration_sec = optimal_duration(ha_now, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+
+        alt_now, _, _ = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
+        if alt_now < MIN_ALT_DEG:
+            print(f'  M1 below {MIN_ALT_DEG}° ({alt_now:.1f}°) — stopping.')
+            break
+
         exp = RadecExperiment(
             interferometer = interferometer,
             snap           = snap,
@@ -150,15 +114,18 @@ def main():
             # baseline_ew_m=None (default) → no delay applied
         )
 
-        print(f'[{i + 1:3d}/{n_captures}] ', end='', flush=True)
+        print(f'[{i + 1:3d}] ', end='', flush=True)
         try:
             path = exp.run()
         except RuntimeError as exc:
             print(f'SKIP  ({exc})')
+            reinit_snap(snap)
+            i += 1
             continue
         paths.append(path)
         elapsed = time.time() - t0
-        print(f'Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  t={elapsed:.0f}s  → {path}')
+        print(f'Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  dur={duration_sec:.1f}s  t={elapsed:.0f}s  → {path}')
+        i += 1
 
     total_elapsed = time.time() - t0
     print()

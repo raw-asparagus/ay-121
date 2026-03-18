@@ -83,30 +83,48 @@ def _sun_ha_deg():
 
 
 def select_target():
-    """Return (name, alt, az) for the highest-priority visible target, or None."""
-    sun_alt,  sun_az,  *_ = compute_sun_pointing()
-    moon_alt, moon_az, *_ = compute_moon_pointing()
-    m17_alt,  m17_az,  *_ = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
-    m1_alt,   m1_az,   *_ = compute_radec_pointing(M1_RA_DEG,  M1_DEC_DEG)
+    """Return (name, alt, az, duration) for the highest-priority visible target, or None.
 
+    Computes each source's pointing only as needed (short-circuits on first visible
+    target) and folds in the capture duration so callers need not re-query ephemeris.
+    """
+    sun_alt, sun_az, sun_ra, sun_dec, jd = compute_sun_pointing()
     if sun_alt >= SUN_MIN_ALT_DEG:
-        return 'sun', sun_alt, sun_az
+        ha = (lst_deg(jd) - sun_ra) % 360.0
+        if ha > 180.0:
+            ha -= 360.0
+        return 'sun', sun_alt, sun_az, optimal_duration(ha, sun_dec, BASELINE_EST_M, TARGET_PHASE_DEG)
+
+    moon_alt, moon_az, *_ = compute_moon_pointing()
     if moon_alt >= MOON_MIN_ALT_DEG:
-        return 'moon', moon_alt, moon_az
+        return 'moon', moon_alt, moon_az, 10.0  # Moon: fixed 10 s (moves too fast for fringe-rate formula)
+
+    jd_now = time.time() / 86400.0 + 2440587.5
+
+    m17_alt, m17_az, *_ = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
     if m17_alt >= M17_MIN_ALT_DEG:
-        return 'm17', m17_alt, m17_az
+        ha = (lst_deg(jd_now) - M17_RA_DEG) % 360.0
+        if ha > 180.0:
+            ha -= 360.0
+        return 'm17', m17_alt, m17_az, optimal_duration(ha, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+
+    m1_alt, m1_az, *_ = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
     if m1_alt >= M1_MIN_ALT_DEG:
-        return 'm1', m1_alt, m1_az
+        ha = (lst_deg(jd_now) - M1_RA_DEG) % 360.0
+        if ha > 180.0:
+            ha -= 360.0
+        return 'm1', m1_alt, m1_az, optimal_duration(ha, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+
     return None
 
 
-def make_experiment(target, interferometer, snap, capture_index):
-    """Build the appropriate Experiment object for *target*."""
+def make_experiment(target, interferometer, snap, capture_index, duration):
+    """Build the appropriate Experiment object for *target* with pre-computed *duration*."""
     if target == 'sun':
         return SunExperiment(
             interferometer = interferometer,
             snap           = snap,
-            duration_sec   = _sun_duration(),
+            duration_sec   = duration,
             outdir         = SUN_OUTDIR,
             prefix         = f'sun-{capture_index:03d}',
         )
@@ -114,17 +132,11 @@ def make_experiment(target, interferometer, snap, capture_index):
         return MoonExperiment(
             interferometer = interferometer,
             snap           = snap,
-            duration_sec   = _moon_duration(),
+            duration_sec   = duration,
             outdir         = MOON_OUTDIR,
             prefix         = f'moon-{capture_index:03d}',
         )
-    jd_now = time.time() / 86400.0 + 2440587.5
-
     if target == 'm17':
-        ha_now = (lst_deg(jd_now) - M17_RA_DEG) % 360.0
-        if ha_now > 180.0:
-            ha_now -= 360.0
-        duration = optimal_duration(ha_now, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
         return RadecExperiment(
             interferometer = interferometer,
             snap           = snap,
@@ -134,12 +146,7 @@ def make_experiment(target, interferometer, snap, capture_index):
             outdir         = M17_OUTDIR,
             prefix         = f'm17-{capture_index:03d}',
         )
-
     # M1
-    ha_now = (lst_deg(jd_now) - M1_RA_DEG) % 360.0
-    if ha_now > 180.0:
-        ha_now -= 360.0
-    duration = optimal_duration(ha_now, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
     return RadecExperiment(
         interferometer = interferometer,
         snap           = snap,
@@ -149,20 +156,6 @@ def make_experiment(target, interferometer, snap, capture_index):
         outdir         = M1_OUTDIR,
         prefix         = f'm1-{capture_index:03d}',
     )
-
-
-def _sun_duration():
-    """Fringe-rate-based capture duration for the Sun."""
-    _, _, sun_ra, sun_dec, jd = compute_sun_pointing()
-    ha = (lst_deg(jd) - sun_ra) % 360.0
-    if ha > 180.0:
-        ha -= 360.0
-    return optimal_duration(ha, sun_dec, BASELINE_EST_M, TARGET_PHASE_DEG)
-
-
-def _moon_duration():
-    """Fixed 10 s captures for the Moon (moves too fast for fringe-rate formula)."""
-    return 10.0
 
 
 def main():
@@ -184,10 +177,10 @@ def main():
             if result is not None:
                 break
             time.sleep(30)
-        target, _alt, _az = result
+        target, _alt, _az, duration = result
         idx = counters[target]
         counters[target] += 1
-        return make_experiment(target, interferometer, snap, idx)
+        return make_experiment(target, interferometer, snap, idx, duration)
 
     def on_save(path, exp):
         target = exp.prefix.split('-')[0]   # 'sun-001' → 'sun'

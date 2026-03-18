@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import ClassVar
@@ -33,9 +34,10 @@ class AsyncInterfExperiment(InterfExperiment):
     to drain the save queue and surface any I/O errors.
     """
 
-    # Class-level thread pool and pending-future list shared across all instances.
+    # Class-level thread pool, pending-future list, and lock shared across all instances.
     _executor: ClassVar[ThreadPoolExecutor] = ThreadPoolExecutor(max_workers=2)
     _futures:  ClassVar[list[Future]]       = []
+    _lock:     ClassVar[threading.Lock]     = threading.Lock()  # guards _futures (Issue 6)
 
     def run(self) -> str:
         """Point, collect, then save asynchronously.
@@ -50,7 +52,8 @@ class AsyncInterfExperiment(InterfExperiment):
         """
         path, data = self._collect()
         future = self._executor.submit(np.savez, path, **data)
-        AsyncInterfExperiment._futures.append(future)
+        with AsyncInterfExperiment._lock:
+            AsyncInterfExperiment._futures.append(future)
         return path
 
     @classmethod
@@ -60,13 +63,15 @@ class AsyncInterfExperiment(InterfExperiment):
         Re-raises the first I/O error encountered (if any), after waiting for
         all futures to finish.  Clears the future list on exit.
         """
+        with cls._lock:
+            futures = list(cls._futures)
+            cls._futures.clear()
         errors = []
-        for f in cls._futures:
+        for f in futures:
             try:
                 f.result()
             except Exception as exc:
                 errors.append(exc)
-        cls._futures.clear()
         if errors:
             raise RuntimeError(
                 f'{len(errors)} async save(s) failed:\n'

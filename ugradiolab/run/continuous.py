@@ -23,7 +23,8 @@ class ContinuousCapture:
 
         bootstrap:  point(N0, wait=True) → verify → pre-fetch N1
         loop:
-          point(next_exp, wait=False)              ← fire slew (concurrent with collect)
+          next_exp._prepare()                       ← refresh ephemeris at slew-fire time
+          point(next_exp, wait=False)               ← fire slew (concurrent with collect)
           submit interferometer.wait()              ← background
           submit make_experiment_fn() + _prepare() ← background
           verify exp pre-collect
@@ -32,7 +33,7 @@ class ContinuousCapture:
           submit np.savez(exp)                      ← background
           on_save callback
           wait_future.result()                      ← instant for small slews
-          exp._verify_on_target('post-slew')        ← ~200 ms
+          next_exp._verify_on_target('post-slew')   ← confirm pointing before next collect
           exp = next_exp
           next_exp = prefetch_future.result()       ← instant
 
@@ -80,6 +81,7 @@ class ContinuousCapture:
 
         while True:
             # ── Fire slew ─────────────────────────────────────────────────
+            next_exp._prepare()   # refresh ephemeris at slew-fire time (Issue 2)
             try:
                 self._interf.point(next_exp.alt_deg, next_exp.az_deg, wait=False)
             except (AssertionError, TimeoutError, OSError) as exc:
@@ -111,6 +113,7 @@ class ContinuousCapture:
             except (TimeoutError, OSError) as exc:
                 raise RuntimeError(f'interferometer.wait() failed: {exc}') from exc
             self._wait_future = None
+            next_exp._verify_on_target('post-slew')  # confirm pointing before next collect (Issue 1)
 
             # ── Advance ────────────────────────────────────────────────────
             exp = next_exp
@@ -135,5 +138,6 @@ class ContinuousCapture:
             if exc is not None:
                 errors.append(exc)
         self._futures.clear()
+        self._executor.shutdown(wait=True)  # release worker threads (Issue 5)
         if errors:
             raise RuntimeError(f'{len(errors)} save(s) failed: {errors}')

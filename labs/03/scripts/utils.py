@@ -32,7 +32,7 @@ def optimal_duration(ha_deg, dec_deg, baseline_m, target_phase_deg,
     if rate < 1e-12:
         return 60.0
     tau = (target_phase_deg / 360.0) / rate
-    return max(2.0, min(60.0, tau))
+    return max(1.0, min(60.0, tau))
 
 
 def setup_hardware(snap_retries=5):

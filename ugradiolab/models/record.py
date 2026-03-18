@@ -222,7 +222,7 @@ class Record:
         iq = (raw[..., 0].astype(np.float32)
               + 1j * raw[..., 1].astype(np.float32))
 
-        t   = get_unix_time()
+        t   = get_unix_time(skip_net=True)
         jd  = timing.julian_date(t)
 
         kwargs = dict(

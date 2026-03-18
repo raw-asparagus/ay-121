@@ -40,7 +40,7 @@ def compute_sun_pointing(
     -------
     (alt_deg, az_deg, ra_deg, dec_deg, jd)
     """
-    unix_t = get_unix_time()
+    unix_t = get_unix_time(skip_net=True)
     jd = timing.julian_date(unix_t)
     ra, dec = coord.sunpos(jd)
     alt, az = coord.get_altaz(ra, dec, jd=jd, lat=lat, lon=lon, alt=obs_alt)
@@ -65,7 +65,7 @@ def compute_moon_pointing(
     -------
     (alt_deg, az_deg, ra_deg, dec_deg, jd)
     """
-    unix_t = get_unix_time()
+    unix_t = get_unix_time(skip_net=True)
     jd = timing.julian_date(unix_t)
     ra, dec = coord.moonpos(jd, lat, lon, obs_alt)
     alt, az = coord.get_altaz(ra, dec, jd=jd, lat=lat, lon=lon, alt=obs_alt)
@@ -94,7 +94,7 @@ def compute_radec_pointing(
     -------
     (alt_deg, az_deg, jd)
     """
-    unix_t = get_unix_time()
+    unix_t = get_unix_time(skip_net=True)
     jd = timing.julian_date(unix_t)
     alt, az = coord.get_altaz(ra_deg, dec_deg, jd=jd, lat=lat, lon=lon, alt=obs_alt)
     return alt, az, jd

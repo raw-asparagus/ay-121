@@ -11,12 +11,15 @@ def make_path(outdir: str, prefix: str, tag: str) -> str:
     return os.path.join(outdir, f'{prefix}_{tag}_{ts}.npz')
 
 
-def get_unix_time(timeout: float = 2.0) -> float:
+def get_unix_time(timeout: float = 2.0, skip_net=False) -> float:
     """Return the current Unix time.
 
     Tries to fetch time from an NTP server first. If that fails for any reason,
     falls back to the local system clock.
     """
+    if skip_net:
+        return timing.unix_time()
+
     client = ntplib.NTPClient()
 
     try:

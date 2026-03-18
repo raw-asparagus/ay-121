@@ -162,7 +162,7 @@ def compute_pointing(
     -------
     (alt_deg, az_deg, ra_deg, dec_deg, jd)
     """
-    unix_t = get_unix_time()
+    unix_t = get_unix_time(skip_net=True)
     jd = timing.julian_date(unix_t)
 
     gc = ac.SkyCoord(l=gal_l * u.deg, b=gal_b * u.deg, frame="galactic")

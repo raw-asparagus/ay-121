@@ -5,6 +5,7 @@ Priority (highest first):
   1. Sun  — observed when alt ≥ SUN_MIN_ALT_DEG  (6.25°)
   2. Moon — observed when alt ≥ MOON_MIN_ALT_DEG (6.25°)
   3. M17  — fallback target when neither Sun nor Moon is up
+  4. M1   — lowest priority fallback (Crab Nebula)
 
 Usage:
     python multi_calibration.py
@@ -13,6 +14,7 @@ Output:
     data/lab03/sun_calibration/sun-NNN_corr_<timestamp>.npz
     data/lab03/moon_calibration/moon-NNN_corr_<timestamp>.npz
     data/lab03/m17_calibration/m17-NNN_corr_<timestamp>.npz
+    data/lab03/m1_calibration/m1-NNN_corr_<timestamp>.npz
 """
 
 import time
@@ -38,6 +40,9 @@ from utils import lst_deg, optimal_duration, reinit_snap, setup_hardware
 M17_RA_DEG  = 275.1083   # 18h 20m 26s
 M17_DEC_DEG = -16.1767   # -16° 10' 36"
 
+M1_RA_DEG   =  83.6331   # 05h 34m 31.9s  (Crab Nebula)
+M1_DEC_DEG  = +22.0145   # +22° 00' 52"
+
 NCH_LON_DEG = -122.2573  # NCH site longitude (degrees east)
 
 # ---------------------------------------------------------------------------
@@ -47,10 +52,12 @@ NCH_LON_DEG = -122.2573  # NCH site longitude (degrees east)
 SUN_MIN_ALT_DEG  = 6.25
 MOON_MIN_ALT_DEG = 6.25
 M17_MIN_ALT_DEG  = 6.25   # just above hardware floor of 6°
+M1_MIN_ALT_DEG   = 6.25
 
 SUN_OUTDIR  = 'data/lab03/sun_calibration'
 MOON_OUTDIR = 'data/lab03/moon_calibration'
 M17_OUTDIR  = 'data/lab03/m17_calibration'
+M1_OUTDIR   = 'data/lab03/m1_calibration'
 
 BASELINE_EST_M   = 12.5   # baseline estimate for fringe-rate duration calculation (m)
 TARGET_PHASE_DEG = 30.0   # desired fringe phase advance per capture (deg)
@@ -80,6 +87,7 @@ def select_target():
     sun_alt,  sun_az,  *_ = compute_sun_pointing()
     moon_alt, moon_az, *_ = compute_moon_pointing()
     m17_alt,  m17_az,  *_ = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
+    m1_alt,   m1_az,   *_ = compute_radec_pointing(M1_RA_DEG,  M1_DEC_DEG)
 
     if sun_alt >= SUN_MIN_ALT_DEG:
         return 'sun', sun_alt, sun_az
@@ -87,6 +95,8 @@ def select_target():
         return 'moon', moon_alt, moon_az
     if m17_alt >= M17_MIN_ALT_DEG:
         return 'm17', m17_alt, m17_az
+    if m1_alt >= M1_MIN_ALT_DEG:
+        return 'm1', m1_alt, m1_az
     return None
 
 
@@ -108,20 +118,36 @@ def make_experiment(target, interferometer, snap, capture_index):
             outdir         = MOON_OUTDIR,
             prefix         = f'moon-{capture_index:03d}',
         )
-    # M17
-    jd_now   = time.time() / 86400.0 + 2440587.5
-    ha_now   = (lst_deg(jd_now) - M17_RA_DEG) % 360.0
+    jd_now = time.time() / 86400.0 + 2440587.5
+
+    if target == 'm17':
+        ha_now = (lst_deg(jd_now) - M17_RA_DEG) % 360.0
+        if ha_now > 180.0:
+            ha_now -= 360.0
+        duration = optimal_duration(ha_now, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+        return RadecExperiment(
+            interferometer = interferometer,
+            snap           = snap,
+            ra_deg         = M17_RA_DEG,
+            dec_deg        = M17_DEC_DEG,
+            duration_sec   = duration,
+            outdir         = M17_OUTDIR,
+            prefix         = f'm17-{capture_index:03d}',
+        )
+
+    # M1
+    ha_now = (lst_deg(jd_now) - M1_RA_DEG) % 360.0
     if ha_now > 180.0:
         ha_now -= 360.0
-    duration = optimal_duration(ha_now, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+    duration = optimal_duration(ha_now, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
     return RadecExperiment(
         interferometer = interferometer,
         snap           = snap,
-        ra_deg         = M17_RA_DEG,
-        dec_deg        = M17_DEC_DEG,
+        ra_deg         = M1_RA_DEG,
+        dec_deg        = M1_DEC_DEG,
         duration_sec   = duration,
-        outdir         = M17_OUTDIR,
-        prefix         = f'm17-{capture_index:03d}',
+        outdir         = M1_OUTDIR,
+        prefix         = f'm1-{capture_index:03d}',
     )
 
 
@@ -140,7 +166,7 @@ def _moon_duration():
 
 
 def main():
-    print('Lab 3 — Multi-target calibration  (Sun > Moon > M17)')
+    print('Lab 3 — Multi-target calibration  (Sun > Moon > M17 > M1)')
     print('=' * 80)
     print()
     print('Initialising hardware ...')
@@ -149,8 +175,8 @@ def main():
     print()
     print('Press Ctrl-C to stop.\n')
 
-    counters = {'sun': 0, 'moon': 0, 'm17': 0}
-    n_saved  = {'sun': 0, 'moon': 0, 'm17': 0}
+    counters = {'sun': 0, 'moon': 0, 'm17': 0, 'm1': 0}
+    n_saved  = {'sun': 0, 'moon': 0, 'm17': 0, 'm1': 0}
 
     def make_fn():
         while True:
@@ -170,6 +196,8 @@ def main():
             ha = _sun_ha_deg()
         elif target == 'm17':
             ha = _ha_deg(M17_RA_DEG)
+        elif target == 'm1':
+            ha = _ha_deg(M1_RA_DEG)
         else:
             ha = float('nan')
         ha_str = f'{ha:+.2f}°' if np.isfinite(ha) else 'n/a'

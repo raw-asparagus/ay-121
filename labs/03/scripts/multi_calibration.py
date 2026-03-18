@@ -49,10 +49,10 @@ NCH_LON_DEG = -122.2573  # NCH site longitude (degrees east)
 # Configuration
 # ---------------------------------------------------------------------------
 
-SUN_MIN_ALT_DEG  = 6.25
-MOON_MIN_ALT_DEG = 6.25
-M17_MIN_ALT_DEG  = 6.25   # just above hardware floor of 6°
-M1_MIN_ALT_DEG   = 6.25
+SUN_MIN_ALT_DEG  = 10.0
+MOON_MIN_ALT_DEG = 10.0
+M17_MIN_ALT_DEG  = 10.0
+M1_MIN_ALT_DEG   = 10.0
 
 SUN_OUTDIR  = 'data/lab03/sun_calibration'
 MOON_OUTDIR = 'data/lab03/moon_calibration'

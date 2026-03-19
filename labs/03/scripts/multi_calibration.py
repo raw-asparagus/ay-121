@@ -200,7 +200,7 @@ def main():
             f'  Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  → {path}'
         )
 
-    pipeline = ContinuousCapture(interferometer, snap)
+    pipeline = ContinuousCapture(interferometer, snap, verify_every_n=5)
     try:
         pipeline.run(make_fn, on_save=on_save)
     except KeyboardInterrupt:

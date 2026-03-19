@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ..drivers.interferometer import (
-    compute_sun_pointing, compute_moon_pointing, compute_radec_pointing, geometric_delay_ns,
+    compute_sun_pointing, compute_moon_pointing, compute_radec_pointing,
 )
 from ..utils import make_path
 from .experiment import Experiment
@@ -12,11 +12,10 @@ from .experiment import Experiment
 
 @dataclass
 class InterfExperiment(Experiment):
-    """Interferometric observation: point both antennas, optionally set delay, capture.
+    """Interferometric observation: point both antennas, capture.
 
-    Delay compensation requires a calibrated baseline. Leave baseline_ew_m=None
-    (the default) to skip delay entirely — the appropriate mode when running the
-    initial Sun calibration to determine the baseline from fringe data.
+    Geometric delay correction is applied in post-processing using the saved
+    alt_deg/az_deg and the known baseline.
 
     Parameters
     ----------
@@ -25,26 +24,13 @@ class InterfExperiment(Experiment):
     snap : snap_spec.snap.UGRadioSnap
         Initialised SNAP correlator (mode='corr'). Calls read_data(prev_cnt)
         repeatedly for duration_sec and averages the corr01 spectra.
-    delay_line : ugradio.interf_delay.DelayClient, optional
-        Connected delay-line client. Used only when baseline_ew_m is set.
     duration_sec : float
         Total integration window (seconds); read_data() dumps are averaged.
-    baseline_ew_m : float or None
-        East-west baseline in metres, fit from fringe data. None disables delay.
-    baseline_ns_m : float
-        North-south baseline in metres. Ignored when baseline_ew_m is None.
-    delay_max_ns : float or None
-        Hardware delay limit in ns; clips the computed delay. Confirmed value:
-        64.8 ns (ugradio.interf_delay.MAX_DELAY, calibrated 2019-03-21).
     """
-    interferometer: object      = field(default=None, repr=False, compare=False)
-    snap:           object      = field(default=None, repr=False, compare=False)
-    delay_line:     object      = field(default=None, repr=False, compare=False)
-    duration_sec:   float       = 10.0
-    baseline_ew_m:  float | None = None
-    baseline_ns_m:  float       = 0.0
-    delay_max_ns:      float | None = 64.8  # hardware limit confirmed: ugradio.interf_delay.MAX_DELAY
-    pointing_tol_deg:  float        = 1.0   # reject capture if either antenna drifts beyond this
+    interferometer: object = field(default=None, repr=False, compare=False)
+    snap:           object = field(default=None, repr=False, compare=False)
+    duration_sec:   float  = 10.0
+    pointing_tol_deg: float = 1.0   # reject capture if either antenna drifts beyond this
 
     def _run_summary(self) -> list[str]:
         return [f'  duration={self.duration_sec}s']
@@ -73,23 +59,7 @@ class InterfExperiment(Experiment):
         """
         return self.alt_deg, self.az_deg
 
-    def _compute_tau(self) -> float | None:
-        """Compute geometric delay, apply to delay line, and return tau_ns.
-
-        Returns None when baseline_ew_m is not set or delay_line is not connected.
-        """
-        if self.baseline_ew_m is not None and self.delay_line is not None:
-            tau = geometric_delay_ns(
-                self.alt_deg, self.az_deg,
-                self.baseline_ew_m, self.baseline_ns_m,
-                lat=self.lat,
-                delay_max_ns=self.delay_max_ns,
-            )
-            self.delay_line.delay_ns(tau)
-            return tau
-        return None
-
-    def _read_data(self, tau=None) -> dict:
+    def _read_data(self) -> dict:
         """SNAP accumulation loop — return data dict without saving.
 
         Accumulates read_data() dumps for duration_sec, then averages.
@@ -99,11 +69,6 @@ class InterfExperiment(Experiment):
         so far (the ADC state is unknown), reset prev_cnt, and retry from scratch.
         Three consecutive failures raises RuntimeError so the caller can skip the
         capture entirely rather than spinning indefinitely.
-
-        Parameters
-        ----------
-        tau : float or None
-            Geometric delay in ns (from _compute_tau). Stored in the data dict.
 
         Returns
         -------
@@ -168,9 +133,6 @@ class InterfExperiment(Experiment):
             ra_deg          = getattr(self, 'ra_deg',  np.nan),
             dec_deg         = getattr(self, 'dec_deg', np.nan),
             duration_sec    = self.duration_sec,
-            baseline_ew_m   = np.nan if self.baseline_ew_m is None else self.baseline_ew_m,
-            baseline_ns_m   = self.baseline_ns_m,
-            delay_ns        = np.nan if tau is None else tau,
             lat             = self.lat,
             lon             = self.lon,
             obs_alt         = self.obs_alt,
@@ -184,14 +146,13 @@ class InterfExperiment(Experiment):
         except (AssertionError, TimeoutError, OSError) as exc:
             raise RuntimeError(f'pointing failed: {exc}') from exc
         self._verify_on_target('post-slew')
-        tau  = self._compute_tau()
-        data = self._read_data(tau)
+        data = self._read_data()
         self._verify_on_target('post-collect')
         path = make_path(self.outdir, self.prefix, 'corr')
         return path, data
 
     def run(self) -> str:
-        """Execute the interferometric observation using self.interferometer, self.snap, self.delay_line.
+        """Execute the interferometric observation using self.interferometer and self.snap.
 
         Returns
         -------

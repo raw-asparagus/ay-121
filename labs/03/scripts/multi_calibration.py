@@ -95,25 +95,25 @@ def select_target():
             ha -= 360.0
         return 'sun', sun_alt, sun_az, optimal_duration(ha, sun_dec, BASELINE_EST_M, TARGET_PHASE_DEG)
 
-    moon_alt, moon_az, *_ = compute_moon_pointing()
-    if moon_alt >= MOON_MIN_ALT_DEG:
-        return 'moon', moon_alt, moon_az, 10.0  # Moon: fixed 10 s (moves too fast for fringe-rate formula)
-
-    jd_now = time.time() / 86400.0 + 2440587.5
-
-    m17_alt, m17_az, *_ = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
-    if m17_alt >= M17_MIN_ALT_DEG:
-        ha = (lst_deg(jd_now) - M17_RA_DEG) % 360.0
-        if ha > 180.0:
-            ha -= 360.0
-        return 'm17', m17_alt, m17_az, optimal_duration(ha, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
-
-    m1_alt, m1_az, *_ = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
-    if m1_alt >= M1_MIN_ALT_DEG:
-        ha = (lst_deg(jd_now) - M1_RA_DEG) % 360.0
-        if ha > 180.0:
-            ha -= 360.0
-        return 'm1', m1_alt, m1_az, optimal_duration(ha, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+    # moon_alt, moon_az, *_ = compute_moon_pointing()
+    # if moon_alt >= MOON_MIN_ALT_DEG:
+    #     return 'moon', moon_alt, moon_az, 10.0  # Moon: fixed 10 s (moves too fast for fringe-rate formula)
+    #
+    # jd_now = time.time() / 86400.0 + 2440587.5
+    #
+    # m17_alt, m17_az, *_ = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
+    # if m17_alt >= M17_MIN_ALT_DEG:
+    #     ha = (lst_deg(jd_now) - M17_RA_DEG) % 360.0
+    #     if ha > 180.0:
+    #         ha -= 360.0
+    #     return 'm17', m17_alt, m17_az, optimal_duration(ha, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+    #
+    # m1_alt, m1_az, *_ = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
+    # if m1_alt >= M1_MIN_ALT_DEG:
+    #     ha = (lst_deg(jd_now) - M1_RA_DEG) % 360.0
+    #     if ha > 180.0:
+    #         ha -= 360.0
+    #     return 'm1', m1_alt, m1_az, optimal_duration(ha, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
 
     return None
 

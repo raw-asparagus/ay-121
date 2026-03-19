@@ -17,6 +17,7 @@ Output:
     data/lab03/m1_calibration/m1-NNN_corr_<timestamp>.npz
 """
 
+import threading
 import time
 
 import numpy as np
@@ -31,7 +32,7 @@ from ugradiolab import (
     compute_sun_pointing,
 )
 
-from utils import lst_deg, optimal_duration, reinit_snap, setup_hardware
+from utils import lst_deg, optimal_duration, setup_hardware
 
 # ---------------------------------------------------------------------------
 # Source catalog position (J2000)
@@ -68,18 +69,20 @@ TARGET_PHASE_DEG = 15.0   # desired fringe phase advance per capture (deg)
 def _ha_deg(ra_deg):
     """Current hour angle [degrees] for a source at ra_deg."""
     jd  = time.time() / 86400.0 + 2440587.5
-    ha  = (lst_deg(jd) - ra_deg) % 360.0
-    if ha > 180.0:
-        ha -= 360.0
-    return ha
+    return _wrap_signed_deg(lst_deg(jd) - ra_deg)
+
+
+def _wrap_signed_deg(value):
+    """Wrap an angle to (-180, 180] degrees."""
+    wrapped = value % 360.0
+    if wrapped > 180.0:
+        wrapped -= 360.0
+    return wrapped
 
 
 def _sun_ha_deg():
     _, _, sun_ra, _, jd = compute_sun_pointing()
-    ha = (lst_deg(jd) - sun_ra) % 360.0
-    if ha > 180.0:
-        ha -= 360.0
-    return ha
+    return _wrap_signed_deg(lst_deg(jd) - sun_ra)
 
 
 def select_target():
@@ -90,30 +93,22 @@ def select_target():
     """
     sun_alt, sun_az, sun_ra, sun_dec, jd = compute_sun_pointing()
     if sun_alt >= SUN_MIN_ALT_DEG:
-        ha = (lst_deg(jd) - sun_ra) % 360.0
-        if ha > 180.0:
-            ha -= 360.0
+        ha = _wrap_signed_deg(lst_deg(jd) - sun_ra)
         return 'sun', sun_alt, sun_az, optimal_duration(ha, sun_dec, BASELINE_EST_M, TARGET_PHASE_DEG)
 
-    # moon_alt, moon_az, *_ = compute_moon_pointing()
-    # if moon_alt >= MOON_MIN_ALT_DEG:
-    #     return 'moon', moon_alt, moon_az, 10.0  # Moon: fixed 10 s (moves too fast for fringe-rate formula)
-    #
-    # jd_now = time.time() / 86400.0 + 2440587.5
-    #
-    # m17_alt, m17_az, *_ = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
-    # if m17_alt >= M17_MIN_ALT_DEG:
-    #     ha = (lst_deg(jd_now) - M17_RA_DEG) % 360.0
-    #     if ha > 180.0:
-    #         ha -= 360.0
-    #     return 'm17', m17_alt, m17_az, optimal_duration(ha, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
-    #
-    # m1_alt, m1_az, *_ = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
-    # if m1_alt >= M1_MIN_ALT_DEG:
-    #     ha = (lst_deg(jd_now) - M1_RA_DEG) % 360.0
-    #     if ha > 180.0:
-    #         ha -= 360.0
-    #     return 'm1', m1_alt, m1_az, optimal_duration(ha, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+    moon_alt, moon_az, *_ = compute_moon_pointing()
+    if moon_alt >= MOON_MIN_ALT_DEG:
+        return 'moon', moon_alt, moon_az, 10.0
+
+    m17_alt, m17_az, m17_jd = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
+    if m17_alt >= M17_MIN_ALT_DEG:
+        ha = _wrap_signed_deg(lst_deg(m17_jd) - M17_RA_DEG)
+        return 'm17', m17_alt, m17_az, optimal_duration(ha, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+
+    m1_alt, m1_az, m1_jd = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
+    if m1_alt >= M1_MIN_ALT_DEG:
+        ha = _wrap_signed_deg(lst_deg(m1_jd) - M1_RA_DEG)
+        return 'm1', m1_alt, m1_az, optimal_duration(ha, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
 
     return None
 
@@ -170,6 +165,7 @@ def main():
 
     counters = {'sun': 0, 'moon': 0, 'm17': 0, 'm1': 0}
     n_saved  = {'sun': 0, 'moon': 0, 'm17': 0, 'm1': 0}
+    save_lock = threading.Lock()
 
     def make_fn():
         while True:
@@ -184,7 +180,6 @@ def main():
 
     def on_save(path, exp):
         target = exp.prefix.split('-')[0]   # 'sun-001' → 'sun'
-        n_saved[target] += 1
         if target == 'sun':
             ha = _sun_ha_deg()
         elif target == 'm17':
@@ -194,11 +189,13 @@ def main():
         else:
             ha = float('nan')
         ha_str = f'{ha:+.2f}°' if np.isfinite(ha) else 'n/a'
-        idx = n_saved[target]
-        print(
-            f'  [{target} {idx:3d}]  dur={exp.duration_sec:.1f}s  HA={ha_str}'
-            f'  Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  → {path}'
-        )
+        with save_lock:
+            n_saved[target] += 1
+            idx = n_saved[target]
+            print(
+                f'  [{target} {idx:3d}]  dur={exp.duration_sec:.1f}s  HA={ha_str}'
+                f'  Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  → {path}'
+            )
 
     pipeline = ContinuousCapture(interferometer, snap, verify_every_n=5)
     try:

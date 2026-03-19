@@ -42,7 +42,8 @@ class InterfExperiment(Experiment):
             # Great-circle separation: azimuthal contribution scales as cos(alt)
             # to avoid over-rejection at high elevations (Issue 4).
             cos_alt = np.cos(np.radians(self.alt_deg))
-            err = float(np.hypot(alt - self.alt_deg, (az - self.az_deg) * cos_alt))
+            az_delta = (az - self.az_deg + 180.0) % 360.0 - 180.0
+            err = float(np.hypot(alt - self.alt_deg, az_delta * cos_alt))
             if err > self.pointing_tol_deg:
                 raise RuntimeError(
                     f'{when}: antenna {name} is {err:.2f}° off-target '

@@ -9,7 +9,6 @@ must be supplied explicitly by the caller.
 """
 
 import numpy as np
-import ugradio.coord as coord
 import ugradio.nch as nch
 import ugradio.timing as timing
 
@@ -40,6 +39,8 @@ def compute_sun_pointing(
     -------
     (alt_deg, az_deg, ra_deg, dec_deg, jd)
     """
+    import ugradio.coord as coord
+
     unix_t = get_unix_time(skip_net=True)
     jd = timing.julian_date(unix_t)
     ra, dec = coord.sunpos(jd)
@@ -65,6 +66,8 @@ def compute_moon_pointing(
     -------
     (alt_deg, az_deg, ra_deg, dec_deg, jd)
     """
+    import ugradio.coord as coord
+
     unix_t = get_unix_time(skip_net=True)
     jd = timing.julian_date(unix_t)
     ra, dec = coord.moonpos(jd, lat, lon, obs_alt)
@@ -94,6 +97,8 @@ def compute_radec_pointing(
     -------
     (alt_deg, az_deg, jd)
     """
+    import ugradio.coord as coord
+
     unix_t = get_unix_time(skip_net=True)
     jd = timing.julian_date(unix_t)
     alt, az = coord.get_altaz(ra_deg, dec_deg, jd=jd, lat=lat, lon=lon, alt=obs_alt)

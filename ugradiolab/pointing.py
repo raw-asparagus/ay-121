@@ -1,9 +1,6 @@
 import numpy as np
-import ugradio.coord as coord
 import ugradio.nch as nch
 import ugradio.timing as timing
-import astropy.coordinates as ac
-import astropy.units as u
 
 from .utils import get_unix_time
 
@@ -162,6 +159,10 @@ def compute_pointing(
     -------
     (alt_deg, az_deg, ra_deg, dec_deg, jd)
     """
+    import astropy.coordinates as ac
+    import astropy.units as u
+    import ugradio.coord as coord
+
     unix_t = get_unix_time(skip_net=True)
     jd = timing.julian_date(unix_t)
 

@@ -68,6 +68,7 @@ class ContinuousCapture:
         self._snap             = snap
         self._executor         = ThreadPoolExecutor(max_workers=pool_workers)
         self._futures:         list[Future] = []
+        self._callback_futures:list[Future] = []
         self._wait_future:     Future | None = None
         self._prefetch_future: Future | None = None
         self._verify_every_n   = verify_every_n
@@ -81,7 +82,9 @@ class ContinuousCapture:
         make_experiment_fn : callable() -> InterfExperiment
             Called once before each capture.  Must NOT call point() internally.
         on_save : callable(path, exp) -> None, optional
-            Called in the main thread immediately after save is submitted.
+            Submitted to the background pool immediately after save is submitted.
+            It may run concurrently with later capture cycles; callback errors are
+            surfaced by ``flush()``.
         """
         # ── Bootstrap ─────────────────────────────────────────────────────
         exp = make_experiment_fn()
@@ -191,7 +194,8 @@ class ContinuousCapture:
             self._futures.append(_prev_save_future)
             _prev_save_path   = path
             if on_save:
-                self._executor.submit(on_save, path, exp)
+                callback_future = self._executor.submit(on_save, path, exp)
+                self._callback_futures.append(callback_future)
 
             # ── Join slew (None-guarded: may have been drained by repoint) ─
             if self._wait_future is not None:
@@ -222,11 +226,24 @@ class ContinuousCapture:
         self._wait_future     = None
         self._prefetch_future = None
         errors = []
+        callback_errors = []
         for f in self._futures:
             exc = f.exception()
             if exc is not None:
                 errors.append(exc)
         self._futures.clear()
+        for f in self._callback_futures:
+            exc = f.exception()
+            if exc is not None:
+                callback_errors.append(exc)
+        self._callback_futures.clear()
         self._executor.shutdown(wait=True)  # release worker threads (Issue 5)
-        if errors:
-            raise RuntimeError(f'{len(errors)} save(s) failed: {errors}')
+        if errors or callback_errors:
+            parts = []
+            if errors:
+                parts.append(f'{len(errors)} save(s) failed: {errors}')
+            if callback_errors:
+                parts.append(
+                    f'{len(callback_errors)} on_save callback(s) failed: {callback_errors}'
+                )
+            raise RuntimeError('; '.join(parts))

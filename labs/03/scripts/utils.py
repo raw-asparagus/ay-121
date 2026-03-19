@@ -4,7 +4,6 @@ import math
 
 import ugradio.interf as interf
 import ugradio.nch as nch
-from snap_spec.snap import UGRadioSnap
 
 
 def lst_deg(jd):
@@ -22,7 +21,7 @@ def optimal_duration(ha_deg, dec_deg, baseline_m, target_phase_deg,
     Uses the instantaneous fringe rate:
         rate = f_RF * (B_ew/c) * cos(dec) * ω_Earth * |cos(HA)|   [cycles/s]
         τ    = (target_phase_deg / 360) / rate
-    Clamped to [5, 60] s.
+    Clamped to [1, 60] s.
     """
     omega_e = 2 * math.pi / 86164.0
     rate = (obs_freq_hz * baseline_m / 299792458.0
@@ -42,6 +41,8 @@ def setup_hardware(snap_retries=5):
     ramp test occasionally fails on the first attempt.  snap_retries controls
     how many times initialization is retried before raising.
     """
+    from snap_spec.snap import UGRadioSnap
+
     interferometer = interf.Interferometer()
     snap = UGRadioSnap(host='localhost', stream_1=0, stream_2=1)
     for attempt in range(1, snap_retries + 1):

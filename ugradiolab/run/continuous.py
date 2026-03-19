@@ -191,7 +191,7 @@ class ContinuousCapture:
             self._futures.append(_prev_save_future)
             _prev_save_path   = path
             if on_save:
-                on_save(path, exp)
+                self._executor.submit(on_save, path, exp)
 
             # ── Join slew (None-guarded: may have been drained by repoint) ─
             if self._wait_future is not None:

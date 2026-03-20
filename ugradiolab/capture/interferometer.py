@@ -180,13 +180,7 @@ class SunExperiment(InterfExperiment):
     prefix: str = 'sun'
 
     def _prepare(self) -> None:
-        """Refresh the current Sun pointing.
-
-        Notes
-        -----
-        This helper performs no local exception handling. Any exception raised
-        by the ephemeris lookup propagates to the caller.
-        """
+        """Refresh the current Sun pointing."""
         alt, az, *_ = compute_sun_pointing(self.lat, self.lon, self.obs_alt)
         self.alt_deg, self.az_deg = alt, az
 
@@ -203,13 +197,7 @@ class MoonExperiment(InterfExperiment):
     prefix: str = 'moon'
 
     def _prepare(self) -> None:
-        """Refresh the current Moon pointing.
-
-        Notes
-        -----
-        This helper performs no local exception handling. Any exception raised
-        by the ephemeris lookup propagates to the caller.
-        """
+        """Refresh the current Moon pointing."""
         alt, az, *_ = compute_moon_pointing(self.lat, self.lon, self.obs_alt)
         self.alt_deg, self.az_deg = alt, az
 
@@ -229,13 +217,7 @@ class RadecExperiment(InterfExperiment):
     dec_deg: float = 0.0
 
     def _prepare(self) -> None:
-        """Refresh the current pointing for the configured equatorial target.
-
-        Notes
-        -----
-        This helper performs no local exception handling. Any exception raised
-        by the ephemeris lookup propagates to the caller.
-        """
+        """Refresh the current pointing for the configured equatorial target."""
         alt, az, _ = compute_radec_pointing(
             self.ra_deg, self.dec_deg, self.lat, self.lon, self.obs_alt,
         )

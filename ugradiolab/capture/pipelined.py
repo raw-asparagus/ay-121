@@ -36,8 +36,7 @@ class PipelinedCapture:
     _cycle_count : int
         Number of completed pipeline cycles since the last reset.
 
-    Timeline::
-
+    Timeline:
         bootstrap:  point(N0, wait=True) → verify → pre-fetch N1
         loop:
           next_exp._prepare()                        ← refresh ephemeris at slew-fire time

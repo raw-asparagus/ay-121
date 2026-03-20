@@ -105,12 +105,16 @@ def select_target():
     m17_alt, m17_az, m17_jd = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
     if m17_alt >= M17_MIN_ALT_DEG:
         ha = _wrap_signed_deg(lst_deg(m17_jd) - M17_RA_DEG)
-        return 'm17', m17_alt, m17_az, optimal_duration(ha, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+        return 'm17', m17_alt, m17_az, optimal_duration(
+            ha, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG,
+        )
 
     m1_alt, m1_az, m1_jd = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
     if m1_alt >= M1_MIN_ALT_DEG:
         ha = _wrap_signed_deg(lst_deg(m1_jd) - M1_RA_DEG)
-        return 'm1', m1_alt, m1_az, optimal_duration(ha, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG)
+        return 'm1', m1_alt, m1_az, optimal_duration(
+            ha, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG,
+        )
 
     return None
 

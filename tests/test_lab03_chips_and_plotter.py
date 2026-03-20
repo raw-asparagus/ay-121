@@ -20,7 +20,8 @@ def _lab03_utils():
     try:
         chips = importlib.import_module("utils.chips")
         plotter = importlib.import_module("utils.plotter")
-        yield chips, plotter
+        dc = importlib.import_module("utils.dc")
+        yield chips, plotter, dc
     finally:
         if sys.path and sys.path[0] == lab03_path:
             sys.path.pop(0)
@@ -44,7 +45,7 @@ def test_segment_captures_by_gap_splits_at_all_large_breaks():
     paths = [Path(f"capture_{idx}.npz") for idx in range(len(files))]
     ha_deg_unsorted = np.array([2.0, -3.0, 4.0, -2.0, 1.0])
 
-    with _lab03_utils() as (chips, _plotter):
+    with _lab03_utils() as (chips, _plotter, _dc):
         sorted_caps = chips.sort_captures_by_mid_unix(files, paths)
         ha_deg = ha_deg_unsorted[sorted_caps.order]
 
@@ -69,7 +70,7 @@ def test_plot_interval_baseline_handles_three_chips():
         {"ha_ctr": -72.5, "B_EW": 12.0, "B_EW_err": 0.7, "chip": 2, "lo": -75.0, "hi": -70.0},
     ]
 
-    with _lab03_utils() as (_chips, plotter):
+    with _lab03_utils() as (_chips, plotter, _dc):
         fig, ax = plotter.plot_interval_baseline(
             ha_chips=ha_chips,
             baseline_lag_chips=[10.0, 11.0, 12.0],
@@ -104,7 +105,7 @@ def test_plot_lag_delay_summary_accepts_nonzero_example_chip():
         np.array([1.0, 0.6]),
     ]
 
-    with _lab03_utils() as (_chips, plotter):
+    with _lab03_utils() as (_chips, plotter, _dc):
         fig, axes = plotter.plot_lag_delay_summary(
             tau_axis_ns=np.linspace(-10.0, 10.0, 101),
             lag_amp=np.linspace(0.0, 1.0, 101),
@@ -122,3 +123,62 @@ def test_plot_lag_delay_summary_accepts_nonzero_example_chip():
 
         assert "chip 2" in axes[0].get_title()
         fig.canvas.draw()
+
+
+def _corr_capture(start: float, end: float, corr: np.ndarray) -> dict[str, np.ndarray | float]:
+    return {
+        "unix_time_start": start,
+        "unix_time_end": end,
+        "corr": np.asarray(corr, dtype=complex),
+    }
+
+
+def test_local_real_dc_correction_uses_chip_local_odd_window():
+    unix_chip = np.arange(7, dtype=float) * 10.0
+    files_chips = [[
+        _corr_capture(t - 1.0, t + 1.0, np.array([float(idx), 100.0 + idx]))
+        for idx, t in enumerate(unix_chip)
+    ]]
+
+    with _lab03_utils() as (_chips, _plotter, dc):
+        result = dc.local_real_dc_correction(
+            files_chips=files_chips,
+            unix_chips=[unix_chip],
+            bad_channels=[1],
+            nominal_fringe_period_sec=20.0,
+            window_periods=2.5,
+            min_window_caps=5,
+        )
+
+    expected_offset = np.array([1.0, 1.5, 2.0, 3.0, 4.0, 4.5, 5.0])
+    assert result.window_sec == 50.0
+    assert result.median_cadence_sec_chips == [10.0]
+    assert result.window_caps_chips == [5]
+    assert np.allclose(result.real_offset_chips[0][:, 0], expected_offset)
+    assert np.all(np.isnan(result.real_offset_chips[0][:, 1]))
+    assert np.allclose(result.corr_dc_chips[0][:, 0], np.arange(7) - expected_offset)
+    assert np.all(np.isnan(result.corr_dc_chips[0][:, 1]))
+
+
+def test_local_real_dc_correction_uses_full_chip_when_window_is_longer():
+    unix_chip = np.arange(4, dtype=float) * 10.0
+    files_chips = [[
+        _corr_capture(t - 1.0, t + 1.0, np.array([value]))
+        for t, value in zip(unix_chip, [0.0, 2.0, 10.0, 20.0], strict=True)
+    ]]
+
+    with _lab03_utils() as (_chips, _plotter, dc):
+        result = dc.local_real_dc_correction(
+            files_chips=files_chips,
+            unix_chips=[unix_chip],
+            bad_channels=[],
+            nominal_fringe_period_sec=40.0,
+            window_periods=2.5,
+            min_window_caps=5,
+        )
+
+    expected_offset = np.full((4,), 6.0)
+    assert result.window_sec == 100.0
+    assert result.window_caps_chips == [4]
+    assert np.allclose(result.real_offset_chips[0][:, 0], expected_offset)
+    assert np.allclose(result.corr_dc_chips[0][:, 0], np.array([-6.0, -4.0, 4.0, 14.0]))

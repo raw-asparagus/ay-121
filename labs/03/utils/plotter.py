@@ -500,17 +500,17 @@ def plot_channel_time_series(
         axes[3].plot(ha_deg, imag_chips[chip_idx], lw=LW_FINE, color=color)
 
     axes[0].axhline(1.0, color=NEUTRAL_COLOR, lw=LW_GUIDE, ls="--")
-    axes[0].set_ylabel(r"$|V_{12}|\,/\,\langle|V_{12}|\rangle_{\rm global}$")
+    axes[0].set_ylabel(r"$|V_{12,\rm dc}|\,/\,\langle|V_{12,\rm dc}|\rangle_{\rm global}$")
     axes[0].legend(fontsize=TICK_SIZE)
 
     axes[1].set_ylim(-180, 180)
-    axes[1].set_ylabel(r"$\arg(V_{12})$ [deg]")
+    axes[1].set_ylabel(r"$\arg(V_{12,\rm dc})$ [deg]")
 
     _zero_line(axes[2])
-    axes[2].set_ylabel(r"$\mathrm{Re}(V_{12})$")
+    axes[2].set_ylabel(r"$\mathrm{Re}(V_{12,\rm dc})$")
 
     _zero_line(axes[3])
-    axes[3].set_ylabel(r"$\mathrm{Im}(V_{12})$")
+    axes[3].set_ylabel(r"$\mathrm{Im}(V_{12,\rm dc})$")
     axes[3].set_xlabel("Hour angle")
     axes[3].xaxis.set_major_formatter(_ha_formatter())
 
@@ -544,7 +544,7 @@ def plot_unwrapped_phase_vs_ha_time(
             label=f"chip {chip_idx}",
         )
     ax.set_xlabel("Hour angle [s]")
-    ax.set_ylabel(r"$\arg(V_{12} - \langle V_{12}\rangle)$ [deg, unwrapped]")
+    ax.set_ylabel(r"$\arg(V_{12,\rm dc})$ [deg, unwrapped]")
     ax.set_xlim(*ha_time_limits_s)
     ax.legend(fontsize=TICK_SIZE)
     ax_top = ax.secondary_xaxis(

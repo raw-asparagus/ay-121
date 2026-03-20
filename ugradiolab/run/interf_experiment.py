@@ -10,6 +10,13 @@ from ..utils import make_path
 from .experiment import Experiment
 
 
+_F_S_HZ = 500e6
+_N_FFT = 2048
+_LO1_HZ = 8750e6
+_LO2_HZ = 1540e6
+_F_RF0_HZ = _LO1_HZ + _LO2_HZ
+
+
 @dataclass
 class InterfExperiment(Experiment):
     """Interferometric observation: point both antennas, capture.
@@ -115,20 +122,20 @@ class InterfExperiment(Experiment):
             unix_time_start = unix_time_start,
             unix_time_end   = unix_time_end,
             n_acc           = len(spectra),
-            f_s_hz          = 500e6,
+            f_s_hz          = _F_S_HZ,
             # SNAP uses a 2048-point real FFT → 1024 unique positive-frequency channels.
             # Channel spacing: Δf = f_s / n_fft = 500/2048 = 244.1 kHz/channel.
             # All 1024 channels are unique (not hermitian mirrors).
             # Frequency axis: f_sky(k) = f_rf0_hz + k * f_s/n_fft
             #
             # f_rf0_hz derivation (sky RF at channel 0):
-            # LO chain: LO1=8750 MHz, LO2=1540 MHz, f_s=500 MHz
-            #   IF2 = LO1 + LO2 - f_sky  (e.g. 10 GHz → IF2 = 290 MHz)
-            #   IF2=290 MHz is in 2nd Nyquist zone (250–500 MHz); aliases to f_s−IF2
-            #   Channel 0: f_alias=0 → IF2=f_s → f_sky = LO1+LO2−f_s = 9790 MHz
-            #   10 GHz sky → channel ≈ (10000−9790)/0.2441 ≈ 860
-            n_fft           = 2048,
-            f_rf0_hz        = 9790e6,
+            # LO chain: LO1=8750 MHz, LO2=1540 MHz.
+            # The 2nd SSB stage translates the selected IF1 band down to the
+            # sampled positive-frequency baseband, so channel 0 corresponds to
+            # f_sky = LO1 + LO2 = 10.290 GHz and each channel steps upward by
+            # Δf = f_s / n_fft.
+            n_fft           = _N_FFT,
+            f_rf0_hz        = _F_RF0_HZ,
             alt_deg         = self.alt_deg,
             az_deg          = self.az_deg,
             ra_deg          = getattr(self, 'ra_deg',  np.nan),

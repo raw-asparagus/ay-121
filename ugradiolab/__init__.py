@@ -1,5 +1,5 @@
 from .drivers import SignalGenerator
-from .drivers import compute_sun_pointing, compute_moon_pointing, compute_radec_pointing, geometric_delay_ns
+from .drivers import compute_sun_pointing, compute_moon_pointing, compute_radec_pointing
 from .models import Record, Spectrum, SmoothMethod
 from .pointing import (
     compute_pointing,

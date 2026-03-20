@@ -108,15 +108,11 @@ Returns `str` — path to the saved `.npz` file.
 |---|---|---|---|
 | `interferometer` | `object` | `None` | Interferometer controller (not in repr) |
 | `snap` | `object` | `None` | SNAP correlator (not in repr) |
-| `delay_line` | `object` | `None` | Delay-line client (not in repr) |
-| `duration_sec` | `float` | `10.0` | Integration time passed to snap.get_corr() |
-| `baseline_ew_m` | `float\|None` | `None` | East-west baseline in metres; `None` disables delay |
-| `baseline_ns_m` | `float` | `0.0` | North-south baseline in metres |
-| `delay_max_ns` | `float\|None` | `None` | Hardware delay limit |
+| `duration_sec` | `float` | `10.0` | Integration time for the SNAP accumulation loop |
 
 ### `run()`
 
-Points both antennas, optionally applies delay, captures correlation data.
+Points both antennas and captures correlation data.
 
 Returns `str` — path to the saved `.npz` file.
 

@@ -11,12 +11,11 @@ from ..utils import make_path
 class ContinuousCapture:
     """Pipelined capture loop: slew(N→N+1) and ephemeris(N+2) overlap with collect(N).
 
-    Four things run concurrently during each collection window:
+    Three things run concurrently during each collection window:
 
     1. ``interferometer.point() + .wait()``  — fires and joins the in-progress slew
     2. ``make_experiment_fn() + _prepare()`` — computes the N+2 experiment
     3. ``np.savez()`` of capture N-1         — saves the previous datum
-    4. ``exp._apply_tau(tau)``               — TCP delay-line write (when active)
 
     There is no separate post-slew verify.  Instead, the pre-collect verify at
     the start of cycle N+1 doubles as the post-slew check for the N→N+1 slew.
@@ -33,11 +32,8 @@ class ContinuousCapture:
           [verify exp pre-collect]                   ← skipped when cycle % verify_every_n != 0
                                                        on failure: discard prev save,
                                                        repoint blocking, retry, reset cycle count
-          tau = exp._compute_tau()                   ← pure math, instant
-          submit exp._apply_tau(tau)                 ← TCP delay write in background
-          data = exp._read_data(tau)                 ← collect N  (5–60 s)
-                                                       ↑ slew, ephemeris, prev save, delay all finish here
-          delay_future.result()                      ← join delay write (usually already done)
+          data = exp._read_data()                    ← collect N  (5–60 s)
+                                                       ↑ slew, ephemeris, prev save all finish here
           submit np.savez(exp)                       ← background
           on_save callback
           wait_future.result()                       ← instant for small slews

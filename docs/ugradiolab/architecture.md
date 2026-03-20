@@ -17,9 +17,11 @@ ugradiolab
 │   ├── experiment.py        → abc, ugradio.nch
 │   ├── sdr_experiment.py    → experiment, models.record, utils
 │   ├── interf_experiment.py → experiment, drivers.interferometer, utils
+│   ├── continuous.py        → utils
 │   └── queue.py             → (no hardware deps)
 │
 ├── drivers/
+│   ├── interferometer.py    → ugradio.nch, ugradio.timing, utils
 │   └── signal_generator.py  → time
 │
 └── utils.py             → ntplib, ugradio.timing
@@ -77,9 +79,10 @@ Experiment (ABC)              ← shared fields: alt_deg, az_deg, outdir, prefix
 ├── SDRExperiment (ABC)       ← adds sdr, nsamples, nblocks, sample_rate, center_freq, gain, direct
 │   ├── CalExperiment         ← adds synth, siggen_freq_mhz, siggen_amp_dbm
 │   └── ObsExperiment
-└── InterfExperiment          ← adds interferometer, snap, delay_line, duration_sec, baseline_*
+└── InterfExperiment          ← adds interferometer, snap, duration_sec, pointing_tol_deg
     ├── SunExperiment
-    └── MoonExperiment
+    ├── MoonExperiment
+    └── RadecExperiment
 ```
 
 Hardware is bound at construction time (e.g. `ObsExperiment(sdr=sdr, ...)`), so `run()` takes no arguments. The calling script opens hardware before the loop and closes it in `finally` — experiment objects hold a *reference* to already-open hardware, not ownership.

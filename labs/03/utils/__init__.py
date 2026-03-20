@@ -13,3 +13,10 @@ from .plotting import (
     ALPHA_BAR, ERRORBAR_CAPSIZE_SMALL, BAR_HEIGHT_STANDARD,
     WATERFALL_HA_MIN_PER_IN, WATERFALL_PANEL_HEIGHT_IN, WATERFALL_GAP_FACTOR,
 )
+from .chips import (
+    ChipSegmentation,
+    SortedCaptures,
+    mid_unix,
+    segment_captures_by_gap,
+    sort_captures_by_mid_unix,
+)

@@ -22,9 +22,15 @@ from .plotting import (
     LW_HAIRLINE,
     MARKER_MS_SMALL,
     NEUTRAL_COLOR,
+    NONARY_COLOR,
     PRIMARY_COLOR,
+    QUATERNARY_COLOR,
+    QUINARY_COLOR,
+    SENARY_COLOR,
+    SEPTENARY_COLOR,
     SCATTER_S_FINE,
     SECONDARY_COLOR,
+    TERTIARY_COLOR,
     TEXTWIDTH_IN,
     TICK_SIZE,
     WATERFALL_GAP_FACTOR,
@@ -36,7 +42,28 @@ from .plotting import (
     _zero_line,
 )
 
-CHIP_COLORS = (PRIMARY_COLOR, SECONDARY_COLOR)
+CHIP_COLORS = (
+    PRIMARY_COLOR,
+    SECONDARY_COLOR,
+    TERTIARY_COLOR,
+    QUATERNARY_COLOR,
+    QUINARY_COLOR,
+    SENARY_COLOR,
+    SEPTENARY_COLOR,
+    NONARY_COLOR,
+)
+
+
+def _chip_colors(n_chips: int) -> list[str]:
+    if n_chips <= len(CHIP_COLORS):
+        return list(CHIP_COLORS[:n_chips])
+
+    cmap = plt.get_cmap("tab20")
+    return [cmap(idx / max(n_chips - 1, 1)) for idx in range(n_chips)]
+
+
+def _peer_x_offset(peer_idx: int, peer_count: int, *, spacing_deg: float = 0.4) -> float:
+    return (peer_idx - 0.5 * (peer_count - 1)) * spacing_deg
 
 
 def _ha_fmt(deg: float, pos: float | None) -> str:
@@ -463,12 +490,14 @@ def plot_channel_time_series(
     ha_limits_deg: tuple[float, float],
 ) -> tuple[Figure, np.ndarray]:
     fig, axes = _stacked_panels(4, (TEXTWIDTH_IN, 8), (1, 1, 1, 1), 0.0)
+    chip_colors = _chip_colors(len(ha_chips))
 
     for chip_idx, ha_deg in enumerate(ha_chips):
-        axes[0].plot(ha_deg, amp_norm_chips[chip_idx], lw=LW_FINE, color=CHIP_COLORS[chip_idx], label=f"chip {chip_idx}")
-        axes[1].plot(ha_deg, phase_deg_chips[chip_idx], lw=LW_FINE, color=CHIP_COLORS[chip_idx])
-        axes[2].plot(ha_deg, real_chips[chip_idx], lw=LW_FINE, color=CHIP_COLORS[chip_idx])
-        axes[3].plot(ha_deg, imag_chips[chip_idx], lw=LW_FINE, color=CHIP_COLORS[chip_idx])
+        color = chip_colors[chip_idx]
+        axes[0].plot(ha_deg, amp_norm_chips[chip_idx], lw=LW_FINE, color=color, label=f"chip {chip_idx}")
+        axes[1].plot(ha_deg, phase_deg_chips[chip_idx], lw=LW_FINE, color=color)
+        axes[2].plot(ha_deg, real_chips[chip_idx], lw=LW_FINE, color=color)
+        axes[3].plot(ha_deg, imag_chips[chip_idx], lw=LW_FINE, color=color)
 
     axes[0].axhline(1.0, color=NEUTRAL_COLOR, lw=LW_GUIDE, ls="--")
     axes[0].set_ylabel(r"$|V_{12}|\,/\,\langle|V_{12}|\rangle_{\rm global}$")
@@ -505,12 +534,13 @@ def plot_unwrapped_phase_vs_ha_time(
     ha_time_limits_s: tuple[float, float],
 ) -> tuple[Figure, Axes]:
     fig, ax = _single_panel((TEXTWIDTH_IN, 3))
+    chip_colors = _chip_colors(len(ha_time_s_chips))
     for chip_idx, ha_time_s in enumerate(ha_time_s_chips):
         ax.plot(
             ha_time_s,
             phase_deg_chips[chip_idx],
             lw=LW_FINE,
-            color=CHIP_COLORS[chip_idx],
+            color=chip_colors[chip_idx],
             label=f"chip {chip_idx}",
         )
     ax.set_xlabel("Hour angle [s]")
@@ -542,14 +572,16 @@ def plot_fringe_rate_vs_frequency(
     df_hz: float,
 ) -> tuple[Figure, Axes]:
     fig, ax = _single_panel((TEXTWIDTH_IN, 3))
+    chip_colors = _chip_colors(len(dphi_dt_chips))
     for chip_idx, dphi_dt in enumerate(dphi_dt_chips):
-        ax.plot(f_sky_ghz, dphi_dt, lw=LW_FINE, color=CHIP_COLORS[chip_idx], label=f"chip {chip_idx}")
+        color = chip_colors[chip_idx]
+        ax.plot(f_sky_ghz, dphi_dt, lw=LW_FINE, color=color, label=f"chip {chip_idx}")
         ax.fill_between(
             f_sky_ghz,
             dphi_dt - dphi_dt_err_chips[chip_idx],
             dphi_dt + dphi_dt_err_chips[chip_idx],
             alpha=ALPHA_FILL,
-            color=CHIP_COLORS[chip_idx],
+            color=color,
         )
     _zero_line(ax)
     ax.set_xlim(*plot_band_ghz)
@@ -571,14 +603,16 @@ def plot_baseline_vs_frequency(
     df_hz: float,
 ) -> tuple[Figure, Axes]:
     fig, ax = _single_panel((TEXTWIDTH_IN, 3))
+    chip_colors = _chip_colors(len(baseline_chips))
     for chip_idx, baseline in enumerate(baseline_chips):
-        ax.plot(f_sky_ghz, baseline, lw=LW_FINE, color=CHIP_COLORS[chip_idx], label=f"chip {chip_idx}")
+        color = chip_colors[chip_idx]
+        ax.plot(f_sky_ghz, baseline, lw=LW_FINE, color=color, label=f"chip {chip_idx}")
         ax.fill_between(
             f_sky_ghz,
             baseline - baseline_err_chips[chip_idx],
             baseline + baseline_err_chips[chip_idx],
             alpha=ALPHA_FILL,
-            color=CHIP_COLORS[chip_idx],
+            color=color,
         )
     _zero_line(ax)
     ax.set_xlim(*plot_band_ghz)
@@ -596,6 +630,7 @@ def plot_lag_delay_summary(
     lag_amp: np.ndarray,
     tau_peak_ns: float,
     lag_snr: float,
+    example_chip_idx: int,
     capture_index: int,
     ha_chips: list[np.ndarray],
     tau_lag_chips: list[np.ndarray],
@@ -605,19 +640,20 @@ def plot_lag_delay_summary(
     ha_limits_deg: tuple[float, float],
 ) -> tuple[Figure, np.ndarray]:
     fig, axes = plt.subplots(2, 1, figsize=(TEXTWIDTH_IN, 6))
+    chip_colors = _chip_colors(len(ha_chips))
 
     ax = axes[0]
-    ax.plot(tau_axis_ns, lag_amp, lw=LW_FINE, color=CHIP_COLORS[0])
+    ax.plot(tau_axis_ns, lag_amp, lw=LW_FINE, color=chip_colors[example_chip_idx])
     ax.axvline(
         tau_peak_ns,
         color=NEUTRAL_COLOR,
         lw=LW_GUIDE,
         ls="--",
-        label=rf"$\tau={tau_peak_ns:.2f}$ ns  (chip 0, SNR$={lag_snr:.1f}$)",
+        label=rf"$\tau={tau_peak_ns:.2f}$ ns  (chip {example_chip_idx}, SNR$={lag_snr:.1f}$)",
     )
     ax.set_xlabel(r"$\tau$ [ns]")
     ax.set_ylabel(r"$|\mathrm{IFFT}(V_{12})|$")
-    ax.set_title(rf"Lag spectrum --- chip 0, capture {capture_index}", fontsize=TICK_SIZE)
+    ax.set_title(rf"Lag spectrum --- chip {example_chip_idx}, capture {capture_index}", fontsize=TICK_SIZE)
     ax.legend(fontsize=TICK_SIZE)
 
     ax = axes[1]
@@ -626,15 +662,16 @@ def plot_lag_delay_summary(
         sin_h_fine = np.linspace(sin_h.min(), sin_h.max(), 100)
         tau_fit = coeffs_lag_chips[chip_idx][0] + coeffs_lag_chips[chip_idx][1] * sin_h_fine
         ha_fine = np.degrees(np.arcsin(sin_h_fine))
+        color = chip_colors[chip_idx]
         ax.scatter(
             ha_deg,
             tau_lag_chips[chip_idx],
             s=SCATTER_S_FINE,
-            color=CHIP_COLORS[chip_idx],
+            color=color,
             zorder=3,
             label=rf"chip {chip_idx}  ($B_{{EW}}={baseline_lag_chips[chip_idx]:.3f}$ m)",
         )
-        ax.plot(ha_fine, tau_fit, color=CHIP_COLORS[chip_idx], lw=LW_GUIDE, ls="--")
+        ax.plot(ha_fine, tau_fit, color=color, lw=LW_GUIDE, ls="--")
 
     ax.set_xlim(*ha_limits_deg)
     ax.set_xlabel("Hour angle")
@@ -655,23 +692,31 @@ def plot_interval_baseline(
     interval_results: list[dict[str, float | int | None]],
 ) -> tuple[Figure, Axes]:
     fig, ax = _single_panel((TEXTWIDTH_IN, 3.5))
+    chip_colors = _chip_colors(len(ha_chips))
 
     for chip_idx, ha_deg in enumerate(ha_chips):
-        ax.axvspan(ha_deg.min(), ha_deg.max(), alpha=ALPHA_SPAN_LIGHT, color=CHIP_COLORS[chip_idx])
+        color = chip_colors[chip_idx]
+        ax.axvspan(ha_deg.min(), ha_deg.max(), alpha=ALPHA_SPAN_LIGHT, color=color)
         ax.axhline(
             baseline_lag_chips[chip_idx],
-            color=CHIP_COLORS[chip_idx],
+            color=color,
             lw=LW_GUIDE,
             ls="--",
             label=rf"chip {chip_idx}  $B_{{EW}}={baseline_lag_chips[chip_idx]:.3f}$ m",
         )
 
-    offset_deg = 0.4
     for entry in interval_results:
         chip_idx = entry["chip"]
-        color = CHIP_COLORS[chip_idx] if chip_idx is not None else NEUTRAL_COLOR
-        peers = [peer for peer in interval_results if peer["lo"] == entry["lo"] and peer is not entry]
-        x_coord = entry["ha_ctr"] + (offset_deg if peers and chip_idx == 1 else -offset_deg if peers else 0)
+        color = chip_colors[chip_idx] if chip_idx is not None else NEUTRAL_COLOR
+        peers = sorted(
+            [peer for peer in interval_results if peer["lo"] == entry["lo"] and peer["hi"] == entry["hi"]],
+            key=lambda peer: (
+                peer["chip"] is None,
+                peer["chip"] if peer["chip"] is not None else float("inf"),
+            ),
+        )
+        peer_idx = peers.index(entry)
+        x_coord = entry["ha_ctr"] + _peer_x_offset(peer_idx, len(peers))
         ax.errorbar(
             x_coord,
             entry["B_EW"],
@@ -689,12 +734,12 @@ def plot_interval_baseline(
             [0],
             [0],
             marker="o",
-            color=CHIP_COLORS[chip_idx],
+            color=chip_colors[chip_idx],
             linestyle="none",
             markersize=MARKER_MS_SMALL,
             label=f"chip {chip_idx} interval",
         )
-        for chip_idx in range(2)
+        for chip_idx in range(len(ha_chips))
     ]
     ax.legend(handles=handles, fontsize=TICK_SIZE, loc="upper right")
     ax.set_xlabel("Hour angle (bin centre)")
@@ -714,19 +759,20 @@ def plot_drift_comparison(
     drift_results: list[dict[str, float | int | None] | None],
 ) -> tuple[Figure, np.ndarray]:
     fig, axes = _stacked_panels(2, (TEXTWIDTH_IN, 6), (1, 1), 0.0)
+    chip_colors = _chip_colors(len(ha_chips))
 
     panel_specs = [
         (axes[0], "No drift correction", uncorrected_results),
         (axes[1], "With drift correction", [entry for entry in drift_results if entry is not None]),
     ]
-    offset_deg = 0.4
 
     for ax, label, results in panel_specs:
         for chip_idx, ha_deg in enumerate(ha_chips):
-            ax.axvspan(ha_deg.min(), ha_deg.max(), alpha=ALPHA_SPAN_LIGHT, color=CHIP_COLORS[chip_idx])
+            color = chip_colors[chip_idx]
+            ax.axvspan(ha_deg.min(), ha_deg.max(), alpha=ALPHA_SPAN_LIGHT, color=color)
             ax.axhline(
                 baseline_lag_chips[chip_idx],
-                color=CHIP_COLORS[chip_idx],
+                color=color,
                 lw=LW_GUIDE,
                 ls="--",
                 label=rf"chip {chip_idx} $B_{{EW}}={baseline_lag_chips[chip_idx]:.3f}$ m",
@@ -734,9 +780,16 @@ def plot_drift_comparison(
 
         for entry in results:
             chip_idx = entry["chip"]
-            color = CHIP_COLORS[chip_idx] if chip_idx is not None else NEUTRAL_COLOR
-            peers = [peer for peer in results if peer["lo"] == entry["lo"] and peer is not entry]
-            x_coord = entry["ha_ctr"] + (offset_deg if peers and chip_idx == 1 else -offset_deg if peers else 0)
+            color = chip_colors[chip_idx] if chip_idx is not None else NEUTRAL_COLOR
+            peers = sorted(
+                [peer for peer in results if peer["lo"] == entry["lo"] and peer["hi"] == entry["hi"]],
+                key=lambda peer: (
+                    peer["chip"] is None,
+                    peer["chip"] if peer["chip"] is not None else float("inf"),
+                ),
+            )
+            peer_idx = peers.index(entry)
+            x_coord = entry["ha_ctr"] + _peer_x_offset(peer_idx, len(peers))
             ax.errorbar(
                 x_coord,
                 entry["B_EW"],

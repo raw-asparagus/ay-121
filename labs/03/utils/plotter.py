@@ -27,6 +27,7 @@ from .plotting import (
     SECONDARY_COLOR,
     TEXTWIDTH_IN,
     TICK_SIZE,
+    WATERFALL_GAP_FACTOR,
     WATERFALL_HA_MIN_PER_IN,
     WATERFALL_PANEL_HEIGHT_IN,
     _single_panel,
@@ -95,6 +96,52 @@ def _waterfall_row_span_deg() -> float:
     return TEXTWIDTH_IN * WATERFALL_HA_MIN_PER_IN / 4.0
 
 
+def _waterfall_gap_threshold_deg(ha_deg: np.ndarray) -> float:
+    ha_sorted = np.sort(np.asarray(ha_deg))
+    ha_step_deg = np.diff(ha_sorted)
+    positive_step_deg = ha_step_deg[np.isfinite(ha_step_deg) & (ha_step_deg > 0)]
+    if positive_step_deg.size == 0:
+        return np.inf
+    return WATERFALL_GAP_FACTOR * float(np.median(positive_step_deg))
+
+
+def _waterfall_segment_slices(ha_deg: np.ndarray, gap_threshold_deg: float) -> list[slice]:
+    if ha_deg.size == 0:
+        return []
+
+    if not np.isfinite(gap_threshold_deg):
+        return [slice(0, ha_deg.size)]
+
+    large_gap_idx = np.flatnonzero(np.diff(ha_deg) > gap_threshold_deg)
+    segment_start = np.concatenate(([0], large_gap_idx + 1))
+    segment_stop = np.concatenate((large_gap_idx + 1, [ha_deg.size]))
+    return [slice(int(start), int(stop)) for start, stop in zip(segment_start, segment_stop) if stop > start]
+
+
+def _plot_waterfall_row(
+    ax: Axes,
+    f_sky_ghz: np.ndarray,
+    ha_row_deg: np.ndarray,
+    quantity_row: np.ndarray,
+    cmap_name: str,
+    vmin: float | None,
+    vmax: float | None,
+    gap_threshold_deg: float,
+):
+    image = None
+    for segment in _waterfall_segment_slices(ha_row_deg, gap_threshold_deg):
+        image = ax.pcolormesh(
+            ha_row_deg[segment],
+            f_sky_ghz,
+            quantity_row[segment, :].T,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap_name,
+            shading="auto",
+        )
+    return image
+
+
 def _plot_waterfall_panels(
     f_sky_ghz: np.ndarray,
     ha_deg: np.ndarray,
@@ -111,6 +158,7 @@ def _plot_waterfall_panels(
     order = np.argsort(ha_deg)
     ha_sorted = np.asarray(ha_deg)[order]
     quantity_sorted = np.asarray(quantity_matrix)[order, :]
+    gap_threshold_deg = _waterfall_gap_threshold_deg(ha_sorted)
 
     row_span_deg = _waterfall_row_span_deg()
     total_span_deg = ha_sorted.max() - ha_sorted.min()
@@ -137,14 +185,15 @@ def _plot_waterfall_panels(
             mask = (ha_sorted >= row_min_deg) & (ha_sorted < row_max_deg)
 
         if np.any(mask):
-            image = ax.pcolormesh(
-                ha_sorted[mask],
-                f_sky_ghz,
-                quantity_sorted[mask, :].T,
+            image = _plot_waterfall_row(
+                ax=ax,
+                f_sky_ghz=f_sky_ghz,
+                ha_row_deg=ha_sorted[mask],
+                quantity_row=quantity_sorted[mask, :],
+                cmap_name=cmap_name,
                 vmin=vmin,
                 vmax=vmax,
-                cmap=cmap_name,
-                shading="auto",
+                gap_threshold_deg=gap_threshold_deg,
             )
 
         ax.set_xlim(row_min_deg, row_max_deg)
@@ -164,6 +213,101 @@ def _plot_waterfall_panels(
         raise ValueError("Waterfall input contains no finite rows to plot.")
 
     fig.colorbar(image, ax=axes.tolist(), label=cbar_label, location="bottom")
+    return fig, axes
+
+
+def plot_waterfall_suite(
+    f_sky_ghz: np.ndarray,
+    ha_deg: np.ndarray,
+    quantity_matrices: list[np.ndarray] | tuple[np.ndarray, ...],
+    quantity_titles: list[str] | tuple[str, ...],
+    cbar_labels: list[str] | tuple[str, ...],
+    cmap_names: list[str] | tuple[str, ...],
+    vmins: list[float | None] | tuple[float | None, ...],
+    vmaxs: list[float | None] | tuple[float | None, ...],
+    plot_band_ghz: tuple[float, float],
+    f_rf0_hz: float,
+    df_hz: float,
+    title: str,
+) -> tuple[Figure, np.ndarray]:
+    if not (
+        len(quantity_matrices)
+        == len(quantity_titles)
+        == len(cbar_labels)
+        == len(cmap_names)
+        == len(vmins)
+        == len(vmaxs)
+    ):
+        raise ValueError("Waterfall suite inputs must all have the same length.")
+
+    order = np.argsort(ha_deg)
+    ha_sorted = np.asarray(ha_deg)[order]
+    gap_threshold_deg = _waterfall_gap_threshold_deg(ha_sorted)
+    row_span_deg = _waterfall_row_span_deg()
+    total_span_deg = ha_sorted.max() - ha_sorted.min()
+    nrows_per_quantity = max(1, int(np.ceil(total_span_deg / row_span_deg)))
+    nquantities = len(quantity_matrices)
+
+    fig, axes = plt.subplots(
+        nrows_per_quantity * nquantities,
+        1,
+        figsize=(
+            TEXTWIDTH_IN,
+            nrows_per_quantity * nquantities * WATERFALL_PANEL_HEIGHT_IN + 0.7 * nquantities,
+        ),
+        sharey=True,
+        squeeze=False,
+        constrained_layout=True,
+    )
+    axes = axes.reshape(nquantities, nrows_per_quantity)
+
+    ha_start_deg = ha_sorted.min()
+    for quantity_idx, (quantity_matrix, quantity_title, cbar_label, cmap_name, vmin, vmax) in enumerate(
+        zip(quantity_matrices, quantity_titles, cbar_labels, cmap_names, vmins, vmaxs)
+    ):
+        quantity_sorted = np.asarray(quantity_matrix)[order, :]
+        group_axes = axes[quantity_idx]
+        image = None
+
+        for row_idx, ax in enumerate(group_axes):
+            row_min_deg = ha_start_deg + row_idx * row_span_deg
+            row_max_deg = row_min_deg + row_span_deg
+            if row_idx == nrows_per_quantity - 1:
+                mask = (ha_sorted >= row_min_deg) & (ha_sorted <= row_max_deg)
+            else:
+                mask = (ha_sorted >= row_min_deg) & (ha_sorted < row_max_deg)
+
+            if np.any(mask):
+                image = _plot_waterfall_row(
+                    ax=ax,
+                    f_sky_ghz=f_sky_ghz,
+                    ha_row_deg=ha_sorted[mask],
+                    quantity_row=quantity_sorted[mask, :],
+                    cmap_name=cmap_name,
+                    vmin=vmin,
+                    vmax=vmax,
+                    gap_threshold_deg=gap_threshold_deg,
+                )
+
+            ax.set_xlim(row_min_deg, row_max_deg)
+            ax.set_ylim(*plot_band_ghz)
+            ax.set_xlabel("Hour angle")
+            ax.set_ylabel(r"$f_{\rm sky}$ [GHz]")
+            ax.xaxis.set_major_formatter(_ha_formatter())
+
+            ax_top = _hour_angle_degree_secondary_xaxis(ax)
+            ax_top.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, pos: rf"${x:.1f}^\circ$"))
+            _channel_secondary_yaxis(ax, f_rf0_hz, df_hz)
+
+            if row_idx == 0:
+                ax.set_title(quantity_title, fontsize=TICK_SIZE)
+
+        if image is None:
+            raise ValueError("Waterfall suite input contains no finite rows to plot.")
+
+        fig.colorbar(image, ax=group_axes.tolist(), label=cbar_label, location="bottom")
+
+    fig.suptitle(title, fontsize=TICK_SIZE)
     return fig, axes
 
 

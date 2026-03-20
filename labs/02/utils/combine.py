@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ugradiolab import Record
+from ugradiolab.data import Record
 
 INDIR_DEFAULT = Path("data/lab02/standard")
 OUTDIR_DEFAULT = Path("data/lab02/standard_combined")

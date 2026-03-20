@@ -26,9 +26,8 @@ import time
 from ugradio.sdr import SDR
 import ugradio.timing as timing
 
-from ugradiolab.run import ObsExperiment
-from ugradiolab.run import QueueRunner
-from ugradiolab.utils import get_unix_time
+from ugradiolab.capture import ObsExperiment, SequentialRunner
+from ugradiolab.io import get_unix_time
 
 # ---------------------------------------------------------------------------
 OUTDIR = 'data/lab02/cold_ref'
@@ -98,7 +97,7 @@ def main():
     print()
 
     try:
-        runner = QueueRunner(experiments=experiments, confirm=False)
+        runner = SequentialRunner(experiments=experiments, confirm=False)
         t0 = time.time()
         paths = runner.run()
         elapsed = time.time() - t0

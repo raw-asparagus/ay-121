@@ -29,8 +29,8 @@ from pathlib import Path
 
 from ugradio.sdr import SDR
 
-from ugradiolab import SignalGenerator
-from ugradiolab.run import CalExperiment
+from ugradiolab.capture import CalExperiment
+from ugradiolab.drivers import SignalGenerator
 
 from utils.tools import (
     LO_FREQS_HZ,

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ugradiolab import Record, Spectrum
+from ugradiolab.data import Record, Spectrum
 
 
 def choose_zero_files(

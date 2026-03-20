@@ -30,7 +30,7 @@ from pathlib import Path
 
 from ugradio.sdr import SDR
 
-from ugradiolab.run import ObsExperiment
+from ugradiolab.capture import ObsExperiment
 
 from utils.tools import (
     LO_FREQS_HZ,

@@ -1,13 +1,31 @@
 from dataclasses import dataclass, field
 
-from ..models import Record
-from ..utils import make_path
-from .experiment import Experiment
+from ..data import Record
+from ..io.paths import make_path
+from .base import Experiment
 
 
 @dataclass
 class SDRExperiment(Experiment):
-    """Abstract SDR-based experiment. Adds SDR hardware fields and capture helpers."""
+    """Base class for SDR-backed captures.
+
+    Attributes
+    ----------
+    sdr : object
+        SDR device used to collect raw I/Q samples.
+    nsamples : int
+        Number of samples captured per block.
+    nblocks : int
+        Number of blocks retained for each saved capture.
+    sample_rate : float
+        SDR sample rate in Hz.
+    center_freq : float
+        SDR center frequency in Hz.
+    gain : float
+        SDR gain setting.
+    direct : bool
+        Whether direct sampling mode is enabled.
+    """
     sdr:         object = field(default=None, repr=False, compare=False)
     nsamples:    int    = 32768
     nblocks:     int    = 1
@@ -16,7 +34,22 @@ class SDRExperiment(Experiment):
     gain:        float  = 0.0
     direct:      bool   = False
 
+    def _run_summary(self) -> list[str]:
+        """Return status lines for interactive runner output."""
+        return [
+            f'  nsamples={self.nsamples}  nblocks={self.nblocks}'
+            f'  sample_rate={self.sample_rate / 1e6:.2f} MHz',
+            f'  siggen: {self.siggen_summary()}',
+        ]
+
     def _configure_sdr(self):
+        """Apply the configured tuning and gain settings to the SDR.
+
+        Notes
+        -----
+        This helper does not catch hardware-control exceptions. Any exception
+        raised by the SDR driver propagates to the caller unchanged.
+        """
         sdr = self.sdr
         sdr.direct = self.direct
         if self.direct:
@@ -29,6 +62,13 @@ class SDRExperiment(Experiment):
         sdr.set_sample_rate(self.sample_rate)
 
     def _capture(self, synth=None):
+        """Capture one record from the SDR and package it as a ``Record``.
+
+        Notes
+        -----
+        This helper performs no local exception handling. Exceptions from the
+        SDR driver and from ``Record.from_sdr`` propagate to the caller.
+        """
         sdr = self.sdr
         raw_data = sdr.capture_data(
             nsamples=self.nsamples,
@@ -46,14 +86,14 @@ class SDRExperiment(Experiment):
         )
 
     def siggen_summary(self) -> str:
-        return 'OFF'
+        """Return a short signal-generator status summary.
 
-    def _run_summary(self) -> list[str]:
-        return [
-            f'  nsamples={self.nsamples}  nblocks={self.nblocks}'
-            f'  sample_rate={self.sample_rate / 1e6:.2f} MHz',
-            f'  siggen: {self.siggen_summary()}',
-        ]
+        Returns
+        -------
+        summary : str
+            Human-readable summary text for runner output.
+        """
+        return 'OFF'
 
 
 @dataclass
@@ -72,15 +112,30 @@ class CalExperiment(SDRExperiment):
     siggen_amp_dbm:  float  = -80.0
 
     def siggen_summary(self) -> str:
-        return f'{self.siggen_freq_mhz} MHz, {self.siggen_amp_dbm} dBm'
-
-    def run(self) -> str:
-        """Executes the calibration experiment using self.sdr and self.synth.
+        """Return the configured signal-generator settings.
 
         Returns
         -------
-        str
-            Path to the saved .npz file.
+        summary : str
+            Frequency and amplitude summary for runner output.
+        """
+        return f'{self.siggen_freq_mhz} MHz, {self.siggen_amp_dbm} dBm'
+
+    def run(self) -> str:
+        """Execute the calibration capture and save the resulting record.
+
+        Returns
+        -------
+        path : str
+            Path to the saved ``.npz`` file.
+
+        Raises
+        ------
+        ValueError
+            If ``synth`` is not configured, or if the captured data cannot be
+            sanitized into a ``Record``.
+        OSError
+            If saving the record fails.
         """
         if self.synth is None:
             raise ValueError(
@@ -104,12 +159,19 @@ class ObsExperiment(SDRExperiment):
     """Sky observation experiment."""
 
     def run(self) -> str:
-        """Executes the sky observation experiment using self.sdr.
+        """Execute the sky observation and save the resulting record.
 
         Returns
         -------
-        str
-            Path to the saved .npz file.
+        path : str
+            Path to the saved ``.npz`` file.
+
+        Raises
+        ------
+        ValueError
+            If the captured data cannot be sanitized into a ``Record``.
+        OSError
+            If saving the record fails.
         """
         self._configure_sdr()
         path   = make_path(self.outdir, self.prefix, 'obs')

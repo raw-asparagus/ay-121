@@ -1,13 +1,13 @@
 # API: Utils
 
-Source: `ugradiolab/utils.py`
+Source: `ugradiolab/io/clock.py`
 
 ---
 
 ## `get_unix_time`
 
 ```python
-get_unix_time(timeout: float = 2.0) -> float
+get_unix_time(timeout: float = 2.0, local: bool = False) -> float
 ```
 
 Returns the current Unix time in seconds (float).
@@ -23,6 +23,7 @@ Returns the current Unix time in seconds (float).
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `timeout` | `float` | `2.0` | NTP request timeout in seconds |
+| `local` | `bool` | `False` | If `True`, bypass NTP and use the local system clock immediately |
 
 ### Why Accuracy Matters
 
@@ -35,4 +36,5 @@ from ugradiolab import get_unix_time
 
 t = get_unix_time()            # NTP first, system clock fallback
 t_fast = get_unix_time(0.5)    # 500 ms timeout
+t_local = get_unix_time(local=True)  # local system clock only
 ```

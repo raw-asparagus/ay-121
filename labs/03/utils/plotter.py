@@ -467,7 +467,7 @@ def plot_capture_timeline_and_gaps(
     ax.set_ylim(-0.5, capture_count - 0.5)
 
     ax = axes[1]
-    ax.hist(gap_s, bins=20, color=PRIMARY_COLOR, edgecolor="white", linewidth=LW_HAIRLINE)
+    ax.hist(gap_s, bins=100, color=PRIMARY_COLOR, edgecolor="white", linewidth=LW_HAIRLINE)
     ax.axvline(gap_s.mean(), color=NEUTRAL_COLOR, lw=LW_GUIDE, ls="--", label=rf"mean {gap_s.mean():.2f} s")
     ax.axvline(np.median(gap_s), color=NEUTRAL_COLOR, lw=LW_GUIDE, ls=":", label=rf"median {np.median(gap_s):.2f} s")
     ax.set_xlabel("Inter-capture gap [s]")

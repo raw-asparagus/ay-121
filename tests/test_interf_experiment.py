@@ -1,6 +1,6 @@
 import pytest
 
-from ugradiolab.run.interf_experiment import InterfExperiment
+from ugradiolab.capture.interferometer import InterfExperiment, PointingError
 
 
 class _FakeInterferometer:
@@ -30,5 +30,5 @@ def test_verify_on_target_still_rejects_large_wrapped_error():
         pointing_tol_deg=1.0,
     )
 
-    with pytest.raises(RuntimeError, match='off-target'):
+    with pytest.raises(PointingError, match='off-target'):
         exp._verify_on_target('wrap-test')

@@ -22,14 +22,16 @@ import time
 
 import numpy as np
 
-from ugradiolab import (
-    ContinuousCapture,
-    MoonExperiment,
-    RadecExperiment,
-    SunExperiment,
+from ugradiolab.astronomy import (
     compute_moon_pointing,
     compute_radec_pointing,
     compute_sun_pointing,
+)
+from ugradiolab.capture import (
+    MoonExperiment,
+    PipelinedCapture,
+    RadecExperiment,
+    SunExperiment,
 )
 
 from utils import lst_deg, optimal_duration, setup_hardware
@@ -197,7 +199,7 @@ def main():
                 f'  Alt={exp.alt_deg:.2f}°  Az={exp.az_deg:.2f}°  → {path}'
             )
 
-    pipeline = ContinuousCapture(interferometer, snap, verify_every_n=5)
+    pipeline = PipelinedCapture(interferometer, snap, verify_every_n=5)
     try:
         pipeline.run(make_fn, on_save=on_save)
     except KeyboardInterrupt:

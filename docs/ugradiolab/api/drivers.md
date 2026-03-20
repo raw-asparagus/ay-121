@@ -18,10 +18,10 @@ Direct USBTMC interface to an Agilent/Keysight N9310A signal generator.
 ### Constructor
 
 ```python
-SignalGenerator(device='/dev/usbtmc0')
+SignalGenerator()
 ```
 
-Opens the USBTMC device and verifies instrument identity. Raises `AssertionError` if the instrument is not an N9310A.
+Opens `/dev/usbtmc0` and verifies instrument identity. Raises `AssertionError` if the instrument is not an N9310A.
 
 ### Method Table
 

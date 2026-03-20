@@ -1,3 +1,13 @@
+from .constants import (
+    F_S_HZ,
+    N_FFT,
+    LO1_HZ,
+    LO2_HZ,
+    IF1_BPF_CENTER_HZ,
+    IF1_BPF_HALF_BW_HZ,
+    F_RF0_HZ,
+    PLOT_BAND_GHZ,
+)
 from .plotting import (
     TEXTWIDTH_IN, COLUMNWIDTH_IN,
     LABEL_SIZE, TICK_SIZE, LEGEND_SIZE, ANNOTATION_SIZE, EMPHASIS_SIZE,

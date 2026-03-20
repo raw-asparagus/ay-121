@@ -26,9 +26,8 @@ import time
 
 from ugradio.sdr import SDR
 
-from ugradiolab.run import ObsExperiment
-from ugradiolab.run import QueueRunner
-from ugradiolab.pointing import compute_pointing
+from ugradiolab.astronomy import compute_gal_pointing
+from ugradiolab.capture import ObsExperiment, SequentialRunner
 
 # ---------------------------------------------------------------------------
 OUTDIR = 'data/lab02/standard'
@@ -73,7 +72,7 @@ def main():
     print(f'Lab 2 galactic-plane observation — computing pointing for (l={GAL_L}°, b={GAL_B}°) ...')
     print()
 
-    alt, az, ra, dec, jd = compute_pointing(GAL_L, GAL_B)
+    alt, az, ra, dec, jd = compute_gal_pointing(GAL_L, GAL_B)
 
     print(f'  Galactic        :  l = {GAL_L:.1f}°,  b = {GAL_B:.1f}°')
     print(f'  Equatorial J2000:  RA = {ra:.4f}°,  Dec = {dec:.4f}°')
@@ -109,7 +108,7 @@ def main():
     print()
 
     try:
-        runner = QueueRunner(experiments=experiments, confirm=False)
+        runner = SequentialRunner(experiments=experiments, confirm=False)
         t0 = time.time()
         paths = runner.run()
         elapsed = time.time() - t0

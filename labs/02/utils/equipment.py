@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.optimize import minimize
 from scipy.signal import savgol_filter
 
-from ugradiolab import Spectrum
+from ugradiolab.data import Spectrum
 
 from .constants import (
     ATTENUATOR_SDR_DB,

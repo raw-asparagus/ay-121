@@ -26,9 +26,8 @@ import time
 
 from ugradio.sdr import SDR
 
-from ugradiolab.run import ObsExperiment
-from ugradiolab.run import QueueRunner
-from ugradiolab.pointing import compute_pointing
+from ugradiolab.astronomy import compute_gal_pointing
+from ugradiolab.capture import ObsExperiment, SequentialRunner
 
 # ---------------------------------------------------------------------------
 OUTDIR = 'data/lab02/cygnus-x'
@@ -79,7 +78,7 @@ def main():
     print('Lab 2 Cygnus X observation — computing pointing from SIMBAD-resolved target ...')
     print()
 
-    alt, az, ra, dec, jd = compute_pointing(TARGET_GAL_L_DEG, TARGET_GAL_B_DEG)
+    alt, az, ra, dec, jd = compute_gal_pointing(TARGET_GAL_L_DEG, TARGET_GAL_B_DEG)
 
     print(f'  Target          :  {TARGET_NAME} (SIMBAD query: {TARGET_SIMBAD_QUERY})')
     print(f'  Equatorial J2000:  RA = {TARGET_RA_DEG:.4f}°,  Dec = {TARGET_DEC_DEG:.4f}°')
@@ -116,7 +115,7 @@ def main():
     print()
 
     try:
-        runner = QueueRunner(experiments=experiments, confirm=False)
+        runner = SequentialRunner(experiments=experiments, confirm=False)
         t0 = time.time()
         paths = runner.run()
         elapsed = time.time() - t0

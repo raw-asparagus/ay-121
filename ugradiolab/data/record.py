@@ -5,80 +5,35 @@ import numpy as np
 import ugradio.nch as nch
 import ugradio.timing as timing
 
-from ..utils import get_unix_time
-
-_REQUIRED_KEYS = frozenset({
-    'data', 'sample_rate', 'center_freq', 'gain', 'direct',
-    'unix_time', 'jd', 'lst', 'alt', 'az',
-    'obs_lat', 'obs_lon', 'obs_alt',
-    'nblocks', 'nsamples',
-})
-
-_SCALAR_FLOAT_FIELDS = (
-    'sample_rate',
-    'center_freq',
-    'gain',
-    'unix_time',
-    'jd',
-    'lst',
-    'alt',
-    'az',
-    'obs_lat',
-    'obs_lon',
-    'obs_alt',
+from ..io.clock import get_unix_time
+from .schema import (
+    COMMON_REQUIRED_METADATA_KEYS,
+    as_scalar,
+    missing_required_keys,
+    optional_npz_value,
+    set_common_metadata_fields,
 )
-_POSITIVE_FLOAT_FIELDS = frozenset({'sample_rate'})
-_OPTIONAL_FLOAT_FIELDS = ('siggen_freq', 'siggen_amp')
-_OPTIONAL_BOOL_FIELDS = ('siggen_rf_on',)
+
+_REQUIRED_KEYS = frozenset({'data'}) | COMMON_REQUIRED_METADATA_KEYS
 _INT8_MIN = np.iinfo(np.int8).min
 _INT8_MAX = np.iinfo(np.int8).max
 
 
-def _as_scalar(name: str, value, *, kind: str) -> float | int | bool:
-    arr = np.asarray(value)
-    if arr.ndim != 0:
-        raise ValueError(f'{name} must be a scalar, got shape {arr.shape}')
-    item = arr.item()
-    if kind == 'float':
-        if isinstance(item, (bool, np.bool_)):
-            raise ValueError(f'{name} must be a real scalar, got boolean {item!r}')
-        try:
-            out = float(item)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f'{name} must be a real scalar, got {item!r}') from exc
-        if not np.isfinite(out):
-            raise ValueError(f'{name} must be finite, got {out!r}')
-        return out
-    if kind == 'int':
-        if isinstance(item, (bool, np.bool_)):
-            raise ValueError(f'{name} must be a positive integer, got boolean {item!r}')
-        if isinstance(item, (int, np.integer)):
-            out = int(item)
-        else:
-            try:
-                numeric = float(item)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f'{name} must be a positive integer, got {item!r}'
-                ) from exc
-            if not np.isfinite(numeric) or not numeric.is_integer():
-                raise ValueError(
-                    f'{name} must be a positive integer, got {item!r}'
-                )
-            out = int(numeric)
-        if out <= 0:
-            raise ValueError(f'{name} must be > 0, got {out!r}')
-        return out
-    if kind == 'bool':
-        if isinstance(item, (bool, np.bool_)):
-            return bool(item)
-        if isinstance(item, (int, np.integer)) and item in (0, 1):
-            return bool(item)
-        raise ValueError(f'{name} must be boolean, got {item!r}')
-    raise ValueError(f'Unknown scalar kind {kind!r}')
-
-
 def _validate_int8_capture(data: np.ndarray) -> None:
+    """Validate that a complex capture can round-trip through int8 storage.
+
+    Notes
+    -----
+    This helper does not modify ``data``. It raises ``ValueError`` if either
+    the real or imaginary component contains non-integer values or falls
+    outside the representable int8 range.
+
+    Raises
+    ------
+    ValueError
+        If either component of ``data`` is not integer-valued or exceeds the
+        int8 range.
+    """
     for label, values in (('real', data.real), ('imag', data.imag)):
         rounded = np.rint(values)
         if np.any(values != rounded):
@@ -92,7 +47,47 @@ def _validate_int8_capture(data: np.ndarray) -> None:
 
 @dataclass(frozen=True)
 class Record:
-    """Unified capture metadata record for both obs and cal files."""
+    """Unified capture metadata record for both observation and calibration files.
+
+    Attributes
+    ----------
+    data : np.ndarray
+        Complex I/Q samples with shape ``(nblocks, nsamples)``.
+    sample_rate : float
+        Sample rate in Hz.
+    center_freq : float
+        Center frequency in Hz.
+    gain : float
+        SDR gain setting.
+    direct : bool
+        Direct sampling mode flag.
+    unix_time : float
+        Unix timestamp of the capture.
+    jd : float
+        Julian Date at capture time.
+    lst : float
+        Local sidereal time at capture time.
+    alt : float
+        Telescope altitude in degrees.
+    az : float
+        Telescope azimuth in degrees.
+    obs_lat : float
+        Observer latitude in degrees.
+    obs_lon : float
+        Observer longitude in degrees.
+    obs_alt : float
+        Observer altitude in meters.
+    nblocks : int
+        Number of captured blocks.
+    nsamples : int
+        Number of samples per block.
+    siggen_freq : float or None
+        Signal-generator frequency in Hz, if present.
+    siggen_amp : float or None
+        Signal-generator amplitude in dBm, if present.
+    siggen_rf_on : bool or None
+        Signal-generator RF state, if present.
+    """
 
     data: np.ndarray
     sample_rate: float
@@ -114,6 +109,20 @@ class Record:
     siggen_rf_on: bool | None = None
 
     def __post_init__(self):
+        """Validate shapes, dtypes, and shared metadata after construction.
+
+        Notes
+        -----
+        Validation failures are not handled locally. All detected schema issues
+        are reported as ``ValueError``.
+
+        Raises
+        ------
+        ValueError
+            If ``data`` is not a finite numeric ``(nblocks, nsamples)`` array,
+            if it cannot be represented as int8-backed complex samples, or if
+            any shared metadata field fails scalar validation.
+        """
         data = np.asarray(self.data)
         if data.ndim != 2:
             raise ValueError(
@@ -132,8 +141,8 @@ class Record:
             raise ValueError('data must be finite.')
         _validate_int8_capture(data)
 
-        nblocks = _as_scalar('nblocks', self.nblocks, kind='int')
-        nsamples = _as_scalar('nsamples', self.nsamples, kind='int')
+        nblocks = as_scalar('nblocks', self.nblocks, kind='int')
+        nsamples = as_scalar('nsamples', self.nsamples, kind='int')
         if data.shape != (nblocks, nsamples):
             raise ValueError(
                 f'data shape {data.shape} inconsistent with '
@@ -143,33 +152,18 @@ class Record:
         object.__setattr__(self, 'data', data)
         object.__setattr__(self, 'nblocks', nblocks)
         object.__setattr__(self, 'nsamples', nsamples)
-        object.__setattr__(self, 'direct', _as_scalar('direct', self.direct, kind='bool'))
-
-        for name in _SCALAR_FLOAT_FIELDS:
-            value = _as_scalar(name, getattr(self, name), kind='float')
-            if name in _POSITIVE_FLOAT_FIELDS and value <= 0:
-                raise ValueError(f'{name} must be > 0, got {value!r}')
-            object.__setattr__(
-                self,
-                name,
-                value,
-            )
-
-        for name in _OPTIONAL_FLOAT_FIELDS:
-            value = getattr(self, name)
-            if value is None:
-                continue
-            object.__setattr__(self, name, _as_scalar(name, value, kind='float'))
-
-        for name in _OPTIONAL_BOOL_FIELDS:
-            value = getattr(self, name)
-            if value is None:
-                continue
-            object.__setattr__(self, name, _as_scalar(name, value, kind='bool'))
+        set_common_metadata_fields(self)
 
     @property
     def uses_synth(self) -> bool:
-        """True if all signal generator fields are populated."""
+        """Whether all signal-generator metadata fields are populated.
+
+        Returns
+        -------
+        uses_synth : bool
+            ``True`` when the frequency, amplitude, and RF-state fields are all
+            present.
+        """
         return (
             self.siggen_freq is not None
             and self.siggen_amp is not None
@@ -188,7 +182,7 @@ class Record:
         obs_alt = nch.alt,
         synth   = None,
     ):
-        """Builds a Record from hardware state and raw captured data.
+        """Build a ``Record`` from raw SDR output and current hardware state.
 
         Parameters
         ----------
@@ -212,7 +206,15 @@ class Record:
 
         Returns
         -------
-        Record
+        record : Record
+            Sanitized record containing the captured complex samples and
+            current hardware metadata.
+
+        Raises
+        ------
+        ValueError
+            If ``data`` does not have shape ``(nblocks, nsamples, 2)``, is not
+            ``int8``, or if the resulting record fails metadata validation.
         """
         raw = np.asarray(data)
         if raw.ndim != 3 or raw.shape[-1] != 2:
@@ -222,7 +224,7 @@ class Record:
         iq = (raw[..., 0].astype(np.float32)
               + 1j * raw[..., 1].astype(np.float32))
 
-        t   = get_unix_time(skip_net=True)
+        t   = get_unix_time(local=True)
         jd  = timing.julian_date(t)
 
         kwargs = dict(
@@ -251,18 +253,28 @@ class Record:
         return cls(**kwargs)
 
     def save(self, filepath):
-        """Saves this record to a .npz file.
+        """Save this record to a ``.npz`` file.
 
         Parameters
         ----------
         filepath : str or Path
             Destination path.
+
+        Returns
+        -------
+        None
+            The record is written to ``filepath``.
+
+        Raises
+        ------
+        OSError
+            If the destination cannot be opened or written.
         """
         np.savez(os.fspath(filepath), **self._to_npz_dict())
 
     @classmethod
     def load(cls, filepath):
-        """Loads a .npz file and return a Record.
+        """Load a ``Record`` from a ``.npz`` file.
 
         Parameters
         ----------
@@ -271,7 +283,8 @@ class Record:
 
         Returns
         -------
-        Record
+        record : Record
+            Reconstructed record instance.
 
         Raises
         ------
@@ -279,17 +292,19 @@ class Record:
             If required keys are missing, the data array has an unexpected
             shape or dtype, or stored nblocks/nsamples are inconsistent with
             the data array dimensions.
+        OSError
+            If ``filepath`` cannot be opened.
         """
         with np.load(os.fspath(filepath), allow_pickle=False) as f:
-            missing = _REQUIRED_KEYS - f.keys()
+            missing = missing_required_keys(f.keys(), _REQUIRED_KEYS)
             if missing:
                 raise ValueError(
                     f'{filepath}: missing required keys: {missing}'
                 )
 
             data = f['data']
-            nblocks = _as_scalar('nblocks', f['nblocks'], kind='int')
-            nsamples = _as_scalar('nsamples', f['nsamples'], kind='int')
+            nblocks = as_scalar('nblocks', f['nblocks'], kind='int')
+            nsamples = as_scalar('nsamples', f['nsamples'], kind='int')
 
             if data.ndim != 3 or data.shape[-1] != 2:
                 raise ValueError(
@@ -325,13 +340,20 @@ class Record:
                 obs_alt      = f['obs_alt'],
                 nblocks      = nblocks,
                 nsamples     = nsamples,
-                siggen_freq  = f['siggen_freq'] if 'siggen_freq' in f else None,
-                siggen_amp   = f['siggen_amp'] if 'siggen_amp' in f else None,
-                siggen_rf_on = f['siggen_rf_on'] if 'siggen_rf_on' in f else None,
+                siggen_freq  = optional_npz_value(f, 'siggen_freq'),
+                siggen_amp   = optional_npz_value(f, 'siggen_amp'),
+                siggen_rf_on = optional_npz_value(f, 'siggen_rf_on'),
             )
 
     def _to_npz_dict(self):
-        """Converts this record to dtype-stable kwargs for ``np.savez``."""
+        """Build dtype-stable keyword arguments for ``np.savez``.
+
+        Notes
+        -----
+        This helper relies on prior validation in ``__post_init__`` and does
+        not perform additional error handling. Any unexpected NumPy conversion
+        failure propagates to the caller.
+        """
         out = dict(
             data        = np.stack([
                 self.data.real.astype(np.int8),

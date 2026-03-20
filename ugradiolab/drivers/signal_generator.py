@@ -9,31 +9,59 @@ WAIT   = 0.25  # seconds between writes
 class SignalGenerator:
     """Direct USBTMC interface to an Agilent/Keysight N9310A signal generator.
 
-    Parameters
-    ----------
-    device : str
-        USB TMC device path. Default: '/dev/usbtmc0'.
+    Raises
+    ------
+    OSError
+        If the USBTMC device cannot be opened.
+    AssertionError
+        If the connected instrument does not identify as an N9310A.
     """
 
-    def __init__(self, device=DEVICE):
-        self._device = device
-        self._dev    = open(device, 'rb+')
+    def __init__(self):
+        self._dev = open(DEVICE, 'rb+')
         self._validate()
 
     def _validate(self):
-        """Verifies the connected instrument is an Agilent/Keysight N9310A."""
+        """Verify that the connected instrument is an N9310A.
+
+        Raises
+        ------
+        AssertionError
+            If the instrument identification string does not contain
+            ``'N9310A'``.
+        OSError
+            If the underlying query fails.
+        """
         resp = self._query('*IDN?')
         assert 'N9310A' in resp, f'Unexpected instrument: {resp}'
 
     def _write(self, cmd):
-        """Sends a SCPI command to the instrument."""
+        """Send a SCPI command to the instrument.
+
+        Raises
+        ------
+        OSError
+            If the device write or flush fails.
+        """
         cmd = cmd.encode()
         self._dev.write(cmd)
         self._dev.flush()
         time.sleep(WAIT)
 
     def _read(self):
-        """Reads a response from the instrument."""
+        """Read a SCPI response from the instrument.
+
+        Notes
+        -----
+        ``TimeoutError`` from the device read loop is handled internally and
+        treated as the end-of-response marker.
+
+        Raises
+        ------
+        OSError
+            If the device read fails for reasons other than the terminating
+            timeout.
+        """
         chunks = []
         while True:
             try:
@@ -43,29 +71,52 @@ class SignalGenerator:
         return b''.join(chunks).decode().strip()
 
     def _query(self, cmd):
-        """Sends a SCPI query and return the response string."""
+        """Send a SCPI query and return the response string.
+
+        Raises
+        ------
+        OSError
+            If the device write or read fails.
+        """
         self._write(cmd)
         return self._read()
 
     # ---- Frequency --------------------------------------------------------
 
     def set_freq_mhz(self, freq_mhz):
-        """Sets CW frequency in MHz.
+        """Set the CW frequency in MHz.
 
         Parameters
         ----------
         freq_mhz : float
             Frequency in MHz.
+
+        Returns
+        -------
+        None
+            The command is sent to the instrument.
+
+        Raises
+        ------
+        OSError
+            If the SCPI write fails.
         """
         self._write(f'FREQ:CW {freq_mhz} MHz')
 
     def get_freq(self):
-        """Queries the current CW frequency.
+        """Return the current CW frequency.
 
         Returns
         -------
-        float
+        freq_hz : float
             Frequency in Hz.
+
+        Raises
+        ------
+        ValueError
+            If the instrument response cannot be parsed as a frequency.
+        OSError
+            If the SCPI query fails.
         """
         resp  = self._query('FREQ:CW?')
         parts = resp.split()
@@ -78,22 +129,39 @@ class SignalGenerator:
     # ---- Amplitude --------------------------------------------------------
 
     def set_ampl_dbm(self, amp_dbm):
-        """Sets CW amplitude in dBm.
+        """Set the CW amplitude in dBm.
 
         Parameters
         ----------
         amp_dbm : float
             Amplitude in dBm.
+
+        Returns
+        -------
+        None
+            The command is sent to the instrument.
+
+        Raises
+        ------
+        OSError
+            If the SCPI write fails.
         """
         self._write(f'AMPL:CW {amp_dbm} dBm')
 
     def get_ampl(self):
-        """Queries the current CW amplitude.
+        """Return the current CW amplitude.
 
         Returns
         -------
-        float
+        amp_dbm : float
             Amplitude in dBm.
+
+        Raises
+        ------
+        ValueError
+            If the instrument response cannot be parsed as a float.
+        OSError
+            If the SCPI query fails.
         """
         resp  = self._query('AMPL:CW?')
         parts = resp.split()
@@ -102,20 +170,49 @@ class SignalGenerator:
     # ---- RF output --------------------------------------------------------
 
     def rf_on(self):
-        """Enables RF output."""
-        self._write('RFO:STAT ON')
-
-    def rf_off(self):
-        """Disables RF output."""
-        self._write('RFO:STAT OFF')
-
-    def rf_state(self):
-        """Queries RF output state.
+        """Enable RF output.
 
         Returns
         -------
-        bool
-            True if RF output is on.
+        None
+            The command is sent to the instrument.
+
+        Raises
+        ------
+        OSError
+            If the SCPI write fails.
+        """
+        self._write('RFO:STAT ON')
+
+    def rf_off(self):
+        """Disable RF output.
+
+        Returns
+        -------
+        None
+            The command is sent to the instrument.
+
+        Raises
+        ------
+        OSError
+            If the SCPI write fails.
+        """
+        self._write('RFO:STAT OFF')
+
+    def rf_state(self):
+        """Return the RF output state.
+
+        Returns
+        -------
+        rf_on : bool
+            ``True`` if RF output is on.
+
+        Raises
+        ------
+        ValueError
+            If the instrument response cannot be parsed as ``0`` or ``1``.
+        OSError
+            If the SCPI query fails.
         """
         resp = self._query('RFO:STAT?')
         return bool(int(resp.strip()[0]))
@@ -123,9 +220,17 @@ class SignalGenerator:
     # ---- Lifecycle --------------------------------------------------------
 
     def close(self):
-        """Best-effort shutdown: turn RF off and close the USBTMC handle.
+        """Perform a best-effort shutdown of the USBTMC session.
 
-        Safe to call multiple times.
+        Returns
+        -------
+        None
+            RF output is disabled if possible and the device handle is closed.
+
+        Notes
+        -----
+        Exceptions raised while turning RF off or closing the handle are caught
+        and suppressed so that shutdown remains idempotent and best effort.
         """
         dev = self._dev
         if dev is None:

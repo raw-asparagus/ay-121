@@ -4,7 +4,8 @@ import numpy as np
 import scipy.signal as sig
 import ugradio.doppler
 
-from ugradiolab import Spectrum, altaz_to_equatorial
+from ugradiolab.astronomy import altaz_to_equatorial
+from ugradiolab.data import Spectrum
 
 from .constants import HARDWARE_RESPONSE_MIN, RFI_SIGMA, ROLLING_WIDTH, SAVGOL
 

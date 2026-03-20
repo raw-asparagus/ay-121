@@ -5,22 +5,36 @@ from pathlib import Path
 
 import numpy as np
 
-from ..utils import make_path
+from ..io.paths import make_path
+from .interferometer import PointingError
 
 
-class ContinuousCapture:
-    """Pipelined capture loop: slew(N→N+1) and ephemeris(N+2) overlap with collect(N).
+class PipelinedCapture:
+    """Run a pipelined interferometer capture loop.
 
-    Three things run concurrently during each collection window:
+    Parameters
+    ----------
+    interferometer : object
+        Pointing controller used for slews and blocking waits.
+    snap : object
+        SNAP correlator interface attached to each generated experiment.
+    pool_workers : int, optional
+        Number of worker threads used for background slew, save, and callback
+        tasks.
+    verify_every_n : int, optional
+        Verify target lock every ``n`` cycles. A value of ``1`` verifies on
+        every cycle.
 
-    1. ``interferometer.point() + .wait()``  — fires and joins the in-progress slew
-    2. ``make_experiment_fn() + _prepare()`` — computes the N+2 experiment
-    3. ``np.savez()`` of capture N-1         — saves the previous datum
-
-    There is no separate post-slew verify.  Instead, the pre-collect verify at
-    the start of cycle N+1 doubles as the post-slew check for the N→N+1 slew.
-    On failure the previous capture is discarded and a blocking repoint is
-    attempted up to ``_MAX_REPOINTS`` times before the error is re-raised.
+    Attributes
+    ----------
+    _interf : object
+        Stored interferometer controller.
+    _snap : object
+        Stored SNAP correlator interface.
+    _verify_every_n : int
+        Verification cadence in capture cycles.
+    _cycle_count : int
+        Number of completed pipeline cycles since the last reset.
 
     Timeline::
 
@@ -32,7 +46,7 @@ class ContinuousCapture:
           [verify exp pre-collect]                   ← skipped when cycle % verify_every_n != 0
                                                        on failure: discard prev save,
                                                        repoint blocking, retry, reset cycle count
-          data = exp._read_data()                    ← collect N  (5–60 s)
+          data = exp._read_data()                    ← collect N  (1–60 s)
                                                        ↑ slew, ephemeris, prev save all finish here
           submit np.savez(exp)                       ← background
           on_save callback
@@ -41,22 +55,6 @@ class ContinuousCapture:
           exp = next_exp
           next_exp = prefetch_future.result()        ← instant
                                                        (skipped after repoint recovery)
-
-    Duty cycle:  ~98–99 %  with verify_every_n=5 on 3 s captures.
-
-    Parameters
-    ----------
-    interferometer : ugradio.interf.Interferometer
-        Connected interferometer controller.
-    snap : snap_spec.snap.UGRadioSnap
-        Initialised SNAP correlator.
-    pool_workers : int
-        Background thread count.  4 suffices: save + slew + prefetch + spare.
-    verify_every_n : int
-        Run ``_verify_on_target`` every N cycles (default 1 = every cycle).
-        Set to 5 for ~98 % duty cycle on 3 s captures when tracking slowly-moving
-        sources (Sun, M17).  Verify always runs on the first cycle and after any
-        repoint event.
     """
 
     def __init__(self, interferometer, snap, pool_workers: int = 4, verify_every_n: int = 1):
@@ -81,6 +79,21 @@ class ContinuousCapture:
             Submitted to the background pool immediately after save is submitted.
             It may run concurrently with later capture cycles; callback errors are
             surfaced by ``flush()``.
+
+        Returns
+        -------
+        None
+            This method is intended to run until interrupted or until an error
+            aborts the loop.
+
+        Raises
+        ------
+        PointingError
+            If the bootstrap verify fails or repoint recovery is exhausted
+            after repeated off-target checks.
+        RuntimeError
+            If initial pointing fails or ``interferometer.wait()`` fails after
+            a background slew.
         """
         # ── Bootstrap ─────────────────────────────────────────────────────
         exp = make_experiment_fn()
@@ -133,7 +146,7 @@ class ContinuousCapture:
                         _prev_save_path   = None   # previous capture confirmed good
                         _prev_save_future = None
                         break
-                    except RuntimeError as _exc:
+                    except PointingError as _exc:
                         # Discard previous capture — dishes may have been moving
                         if _prev_save_path is not None:
                             if _prev_save_future is not None:
@@ -212,7 +225,20 @@ class ContinuousCapture:
                 self._prefetch_future = None
 
     def flush(self) -> None:
-        """Block until all pending saves complete; surface any errors."""
+        """Wait for pending background work and surface deferred errors.
+
+        Returns
+        -------
+        None
+            Worker threads are shut down before the method returns.
+
+        Raises
+        ------
+        RuntimeError
+            If any background save or ``on_save`` callback failed. Exceptions
+            from outstanding slew and prefetch futures are intentionally
+            suppressed during the drain phase.
+        """
         for future in (self._wait_future, self._prefetch_future):
             if future is not None:
                 try:

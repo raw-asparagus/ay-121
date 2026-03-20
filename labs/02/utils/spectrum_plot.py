@@ -5,7 +5,7 @@ from typing import Callable, Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ugradiolab.models.spectrum import FrequencyAxis, PlotScale, Spectrum
+from ugradiolab.data import FrequencyAxis, PlotScale, Spectrum
 
 # Sentinel: ylabel was not explicitly set, derive from normalize_per_hz.
 _YLABEL_AUTO = object()

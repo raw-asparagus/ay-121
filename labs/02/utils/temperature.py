@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ugradiolab import Spectrum
+from ugradiolab.data import Spectrum
 
 from .common import (
     apply_hardware_response_correction,

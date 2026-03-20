@@ -7,79 +7,19 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 
 from .record import Record
+from .schema import (
+    COMMON_REQUIRED_METADATA_KEYS,
+    as_scalar,
+    missing_required_keys,
+    optional_npz_value,
+    set_common_metadata_fields,
+)
 
 SmoothMethod = Literal['gaussian', 'savgol', 'boxcar']
 FrequencyAxis = Literal['absolute', 'baseband']
 PlotScale = Literal['linear', 'log']
 
-_REQUIRED_KEYS = frozenset({
-    'psd', 'std', 'freqs',
-    'sample_rate', 'center_freq', 'gain', 'direct',
-    'unix_time', 'jd', 'lst', 'alt', 'az',
-    'obs_lat', 'obs_lon', 'obs_alt',
-    'nblocks', 'nsamples',
-})
-
-_SCALAR_FLOAT_FIELDS = (
-    'sample_rate',
-    'center_freq',
-    'gain',
-    'unix_time',
-    'jd',
-    'lst',
-    'alt',
-    'az',
-    'obs_lat',
-    'obs_lon',
-    'obs_alt',
-)
-_POSITIVE_FLOAT_FIELDS = frozenset({'sample_rate'})
-_OPTIONAL_FLOAT_FIELDS = ('siggen_freq', 'siggen_amp')
-_OPTIONAL_BOOL_FIELDS = ('siggen_rf_on',)
-
-
-def _as_scalar(name: str, value, *, kind: str) -> float | int | bool:
-    arr = np.asarray(value)
-    if arr.ndim != 0:
-        raise ValueError(f'{name} must be a scalar, got shape {arr.shape}')
-    item = arr.item()
-    if kind == 'float':
-        if isinstance(item, (bool, np.bool_)):
-            raise ValueError(f'{name} must be a real scalar, got boolean {item!r}')
-        try:
-            out = float(item)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f'{name} must be a real scalar, got {item!r}') from exc
-        if not np.isfinite(out):
-            raise ValueError(f'{name} must be finite, got {out!r}')
-        return out
-    if kind == 'int':
-        if isinstance(item, (bool, np.bool_)):
-            raise ValueError(f'{name} must be a positive integer, got boolean {item!r}')
-        if isinstance(item, (int, np.integer)):
-            out = int(item)
-        else:
-            try:
-                numeric = float(item)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f'{name} must be a positive integer, got {item!r}'
-                ) from exc
-            if not np.isfinite(numeric) or not numeric.is_integer():
-                raise ValueError(
-                    f'{name} must be a positive integer, got {item!r}'
-                )
-            out = int(numeric)
-        if out <= 0:
-            raise ValueError(f'{name} must be > 0, got {out!r}')
-        return out
-    if kind == 'bool':
-        if isinstance(item, (bool, np.bool_)):
-            return bool(item)
-        if isinstance(item, (int, np.integer)) and item in (0, 1):
-            return bool(item)
-        raise ValueError(f'{name} must be boolean, got {item!r}')
-    raise ValueError(f'Unknown scalar kind {kind!r}')
+_REQUIRED_KEYS = frozenset({'psd', 'std', 'freqs'}) | COMMON_REQUIRED_METADATA_KEYS
 
 
 @dataclass(frozen=True)
@@ -152,6 +92,21 @@ class Spectrum:
     siggen_rf_on: bool | None = None
 
     def __post_init__(self):
+        """Validate array shapes and normalize shared metadata after construction.
+
+        Notes
+        -----
+        Validation failures are not handled locally. All detected schema issues
+        are reported as ``ValueError``.
+
+        Raises
+        ------
+        ValueError
+            If the spectrum arrays are not finite one-dimensional arrays with
+            matching shapes, if ``std`` contains negative values, if ``psd``
+            length disagrees with ``nsamples``, or if shared metadata validation
+            fails.
+        """
         psd = np.asarray(self.psd, dtype=float)
         std = np.asarray(self.std, dtype=float)
         freqs = np.asarray(self.freqs, dtype=float)
@@ -178,8 +133,8 @@ class Spectrum:
         if np.any(std < 0):
             raise ValueError('std must be non-negative.')
 
-        nblocks = _as_scalar('nblocks', self.nblocks, kind='int')
-        nsamples = _as_scalar('nsamples', self.nsamples, kind='int')
+        nblocks = as_scalar('nblocks', self.nblocks, kind='int')
+        nsamples = as_scalar('nsamples', self.nsamples, kind='int')
         if psd.size != nsamples:
             raise ValueError(
                 f'psd length {psd.size} inconsistent with nsamples={nsamples}'
@@ -190,33 +145,18 @@ class Spectrum:
         object.__setattr__(self, 'freqs', np.asarray(freqs, dtype=np.float64))
         object.__setattr__(self, 'nblocks', nblocks)
         object.__setattr__(self, 'nsamples', nsamples)
-        object.__setattr__(self, 'direct', _as_scalar('direct', self.direct, kind='bool'))
-
-        for name in _SCALAR_FLOAT_FIELDS:
-            value = _as_scalar(name, getattr(self, name), kind='float')
-            if name in _POSITIVE_FLOAT_FIELDS and value <= 0:
-                raise ValueError(f'{name} must be > 0, got {value!r}')
-            object.__setattr__(
-                self,
-                name,
-                value,
-            )
-
-        for name in _OPTIONAL_FLOAT_FIELDS:
-            value = getattr(self, name)
-            if value is None:
-                continue
-            object.__setattr__(self, name, _as_scalar(name, value, kind='float'))
-
-        for name in _OPTIONAL_BOOL_FIELDS:
-            value = getattr(self, name)
-            if value is None:
-                continue
-            object.__setattr__(self, name, _as_scalar(name, value, kind='bool'))
+        set_common_metadata_fields(self)
 
     @property
     def uses_synth(self) -> bool:
-        """True if all signal generator fields are populated."""
+        """Whether all signal-generator metadata fields are populated.
+
+        Returns
+        -------
+        uses_synth : bool
+            ``True`` when the frequency, amplitude, and RF-state fields are all
+            present.
+        """
         return (
             self.siggen_freq is not None
             and self.siggen_amp is not None
@@ -225,27 +165,52 @@ class Spectrum:
 
     @property
     def freqs_mhz(self) -> np.ndarray:
-        """Frequency axis in MHz."""
+        """Return the absolute frequency axis in MHz.
+
+        Returns
+        -------
+        freqs_mhz : np.ndarray
+            Frequency axis converted from Hz to MHz.
+        """
         return self.freqs / 1e6
 
     @property
     def bin_width(self) -> float:
-        """Frequency resolution per bin in Hz (sample_rate / nsamples)."""
+        """Return the frequency spacing between adjacent bins.
+
+        Returns
+        -------
+        bin_width : float
+            Frequency resolution per bin in Hz.
+        """
         return self.sample_rate / self.nsamples
 
     @property
     def total_power(self) -> float:
-        """Total integrated power (mean square of time samples).
+        """Return the total integrated power.
 
-        Computed as ``sum(psd)`` where ``psd`` is per-bin (not per-Hz), so no
-        bin-width factor is needed.  By Parseval's theorem this equals
-        ``mean(|x[n]|²)`` and is independent of ``nsamples``.
+        Returns
+        -------
+        total_power : float
+            Sum of the per-bin PSD values. Because ``psd`` is stored per bin
+            rather than per Hz, no bin-width factor is required.
         """
         return float(np.sum(self.psd))
 
     @property
     def total_power_db(self) -> float:
-        """Total integrated power in dB."""
+        """Return the total integrated power in dB.
+
+        Returns
+        -------
+        total_power_db : float
+            ``10 * log10(total_power)``.
+
+        Raises
+        ------
+        ValueError
+            If ``total_power`` is not finite and strictly positive.
+        """
         power = self.total_power
         if not np.isfinite(power) or power <= 0:
             raise ValueError('total_power must be finite and > 0 for dB conversion.')
@@ -253,11 +218,28 @@ class Spectrum:
 
     @property
     def total_power_sigma(self) -> float:
-        """Uncertainty on the total integrated power."""
+        """Return the propagated uncertainty on the total power.
+
+        Returns
+        -------
+        total_power_sigma : float
+            Quadrature sum of the per-bin standard errors.
+        """
         return float(np.sqrt(np.sum(np.square(self.std))))
 
     def bin_at(self, freq_hz: float) -> int:
-        """Index of the frequency bin closest to freq_hz (in Hz)."""
+        """Return the index of the closest frequency bin.
+
+        Parameters
+        ----------
+        freq_hz : float
+            Target frequency in Hz.
+
+        Returns
+        -------
+        index : int
+            Index of the bin nearest to ``freq_hz``.
+        """
         return int(np.argmin(np.abs(self.freqs - freq_hz)))
 
     def frequency_axis_mhz(
@@ -271,6 +253,16 @@ class Spectrum:
         mode : {'absolute', 'baseband'}
             ``'absolute'`` returns the sky frequency axis. ``'baseband'``
             returns the offset from the local oscillator centre frequency.
+
+        Returns
+        -------
+        axis_mhz : np.ndarray
+            Frequency axis in MHz in the requested frame.
+
+        Raises
+        ------
+        ValueError
+            If ``mode`` is not one of ``'absolute'`` or ``'baseband'``.
         """
         if mode == 'absolute':
             return self.freqs_mhz
@@ -286,7 +278,20 @@ class Spectrum:
             rest_freq_hz: float,
             velocity_shift_kms: float = 0.0,
     ) -> np.ndarray:
-        """Radio-definition Doppler velocity axis in km/s."""
+        """Return the radio-definition Doppler velocity axis.
+
+        Parameters
+        ----------
+        rest_freq_hz : float
+            Rest frequency in Hz.
+        velocity_shift_kms : float, optional
+            Constant velocity offset to add to the axis, in km/s.
+
+        Returns
+        -------
+        velocity_kms : np.ndarray
+            Doppler velocity axis in km/s.
+        """
         c_light_kms = 2.99792458e5
         return (
             c_light_kms * (rest_freq_hz - self.freqs) / rest_freq_hz
@@ -297,7 +302,18 @@ class Spectrum:
             self,
             values: np.ndarray | None = None,
     ) -> np.ndarray:
-        """Return a copy with the DC-centre bin masked as ``NaN``."""
+        """Return an array with the DC bin masked as ``NaN``.
+
+        Parameters
+        ----------
+        values : np.ndarray or None, optional
+            Values to mask. If omitted, ``self.psd`` is copied and masked.
+
+        Returns
+        -------
+        masked : np.ndarray
+            Float array copy with the DC-centered bin replaced by ``NaN``.
+        """
         masked = np.array(
             self.psd if values is None else values,
             dtype=float,
@@ -313,7 +329,21 @@ class Spectrum:
             smooth_kwargs: dict | None = None,
             mask_dc: bool = False,
     ) -> np.ndarray:
-        """Return raw or smoothed PSD values as a float array copy."""
+        """Return raw or smoothed PSD values as a float array copy.
+
+        Parameters
+        ----------
+        smooth_kwargs : dict or None, optional
+            Keyword arguments forwarded to ``smooth``. If omitted, no smoothing
+            is applied.
+        mask_dc : bool, optional
+            If ``True``, replace the DC-centered bin with ``NaN``.
+
+        Returns
+        -------
+        values : np.ndarray
+            PSD values after optional smoothing and masking.
+        """
         if smooth_kwargs is None:
             values = np.array(self.psd, dtype=float, copy=True)
         else:
@@ -326,7 +356,23 @@ class Spectrum:
             *,
             floor: float | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Lower and upper one-sigma envelopes for ``values``."""
+        """Return lower and upper one-sigma envelopes.
+
+        Parameters
+        ----------
+        values : np.ndarray or None, optional
+            Central values for the interval. If omitted, raw PSD values are
+            used.
+        floor : float or None, optional
+            Minimum allowed value for both envelopes after propagation.
+
+        Returns
+        -------
+        lo : np.ndarray
+            Lower one-sigma envelope.
+        hi : np.ndarray
+            Upper one-sigma envelope.
+        """
         center = self.psd_values() if values is None else np.array(
             values,
             dtype=float,
@@ -344,11 +390,12 @@ class Spectrum:
             method: SmoothMethod = 'gaussian',
             **kwargs,
     ) -> np.ndarray:
-        """Returns a smoothed copy of psd. The original ``psd`` is unchanged.
+        """Return a smoothed copy of ``psd``.
 
         Parameters
         ----------
         method : {'gaussian', 'savgol', 'boxcar'}
+            Smoothing algorithm to apply.
         **kwargs
             gaussian : sigma (float, default 32) — kernel width in bins.
             savgol   : window_length (int, default 129),
@@ -357,7 +404,13 @@ class Spectrum:
 
         Returns
         -------
-        np.ndarray, shape (nfrequencies,)
+        smoothed : np.ndarray
+            Smoothed PSD values with the same shape as ``psd``.
+
+        Raises
+        ------
+        ValueError
+            If ``method`` is unknown.
         """
         if method == 'gaussian':
             return gaussian_filter1d(self.psd, sigma=kwargs.get('sigma', 32))
@@ -382,7 +435,26 @@ class Spectrum:
             *,
             smooth_kwargs: dict | None = None,
     ) -> np.ndarray:
-        """Return the channel-wise ratio ``self / other``."""
+        """Return the channel-wise PSD ratio ``self / other``.
+
+        Parameters
+        ----------
+        other : Spectrum
+            Denominator spectrum.
+        smooth_kwargs : dict or None, optional
+            Optional smoothing configuration applied to both spectra before the
+            ratio is formed.
+
+        Returns
+        -------
+        ratio : np.ndarray
+            Channel-wise ratio of the selected PSD values.
+
+        Raises
+        ------
+        ValueError
+            If the spectra do not have matching PSD shapes.
+        """
         if self.psd.shape != other.psd.shape:
             raise ValueError(
                 'Spectrum ratios require matching PSD shapes, got '
@@ -394,7 +466,23 @@ class Spectrum:
             return num / den
 
     def ratio_std_to(self, other: 'Spectrum') -> np.ndarray:
-        """Propagate raw-PSD SEM values into the ratio uncertainty."""
+        """Propagate PSD standard errors into the ratio uncertainty.
+
+        Parameters
+        ----------
+        other : Spectrum
+            Denominator spectrum.
+
+        Returns
+        -------
+        ratio_std : np.ndarray
+            Propagated one-sigma uncertainty on ``self.psd / other.psd``.
+
+        Raises
+        ------
+        ValueError
+            If the spectra do not have matching PSD shapes.
+        """
         if self.psd.shape != other.psd.shape:
             raise ValueError(
                 'Spectrum ratios require matching PSD shapes, got '
@@ -409,7 +497,25 @@ class Spectrum:
 
     @classmethod
     def from_record(cls, record: Record) -> 'Spectrum':
-        """Computes a Spectrum from a sanitized Record."""
+        """Compute a ``Spectrum`` from a sanitized ``Record``.
+
+        Parameters
+        ----------
+        record : Record
+            Input record containing time-domain samples and metadata.
+
+        Returns
+        -------
+        spectrum : Spectrum
+            Integrated power spectrum derived from ``record``.
+
+        Raises
+        ------
+        TypeError
+            If ``record`` is not a ``Record`` instance.
+        ValueError
+            If the derived arrays or metadata fail ``Spectrum`` validation.
+        """
         if not isinstance(record, Record):
             raise TypeError(f'record must be a Record, got {type(record)!r}')
         nblocks, nsamples = record.data.shape
@@ -445,7 +551,7 @@ class Spectrum:
 
     @classmethod
     def from_data(cls, filepath) -> 'Spectrum':
-        """Computes a Spectrum from a Record specified by filepath.
+        """Compute a ``Spectrum`` from a serialized ``Record`` file.
 
         Parameters
         ----------
@@ -454,23 +560,42 @@ class Spectrum:
 
         Returns
         -------
-        Spectrum
+        spectrum : Spectrum
+            Spectrum derived from the serialized record.
+
+        Raises
+        ------
+        ValueError
+            If the record file is malformed or the derived spectrum fails
+            validation.
+        OSError
+            If ``filepath`` cannot be opened.
         """
         return cls.from_record(Record.load(filepath))
 
     def save(self, filepath):
-        """Saves this Spectrum to a .npz file.
+        """Save this spectrum to a ``.npz`` file.
 
         Parameters
         ----------
         filepath : str or Path
             Destination path.
+
+        Returns
+        -------
+        None
+            The spectrum is written to ``filepath``.
+
+        Raises
+        ------
+        OSError
+            If the destination cannot be opened or written.
         """
         np.savez(os.fspath(filepath), **self._to_npz_dict())
 
     @classmethod
     def load(cls, filepath) -> 'Spectrum':
-        """Loads a .npz file written by ``save`` and return a Spectrum.
+        """Load a ``Spectrum`` from a ``.npz`` file.
 
         Parameters
         ----------
@@ -479,15 +604,18 @@ class Spectrum:
 
         Returns
         -------
-        Spectrum
+        spectrum : Spectrum
+            Reconstructed spectrum instance.
 
         Raises
         ------
         ValueError
             If required keys are missing or arrays have unexpected shapes.
+        OSError
+            If ``filepath`` cannot be opened.
         """
         with np.load(os.fspath(filepath), allow_pickle=False) as f:
-            missing = _REQUIRED_KEYS - f.keys()
+            missing = missing_required_keys(f.keys(), _REQUIRED_KEYS)
             if missing:
                 raise ValueError(
                     f'{filepath}: missing required keys: {missing}'
@@ -538,13 +666,20 @@ class Spectrum:
                 obs_alt      = f['obs_alt'],
                 nblocks      = f['nblocks'],
                 nsamples     = f['nsamples'],
-                siggen_freq  = f['siggen_freq'] if 'siggen_freq' in f else None,
-                siggen_amp   = f['siggen_amp'] if 'siggen_amp' in f else None,
-                siggen_rf_on = f['siggen_rf_on'] if 'siggen_rf_on' in f else None,
+                siggen_freq  = optional_npz_value(f, 'siggen_freq'),
+                siggen_amp   = optional_npz_value(f, 'siggen_amp'),
+                siggen_rf_on = optional_npz_value(f, 'siggen_rf_on'),
             )
 
     def _to_npz_dict(self):
-        """Converts to dtype-stable kwargs for ``np.savez``."""
+        """Build dtype-stable keyword arguments for ``np.savez``.
+
+        Notes
+        -----
+        This helper relies on prior validation in ``__post_init__`` and does
+        not perform additional error handling. Any unexpected NumPy conversion
+        failure propagates to the caller.
+        """
         out = dict(
             psd         = self.psd,
             std         = self.std,

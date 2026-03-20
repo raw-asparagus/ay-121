@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 
-from ugradiolab import Spectrum
+from ugradiolab.data import Spectrum
 
 from .plotting import TEXTWIDTH_IN
 from .spectrum_plot import plot_spectrum_compare, plot_spectrum_ratio

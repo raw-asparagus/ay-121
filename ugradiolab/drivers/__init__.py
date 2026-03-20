@@ -1,2 +1,5 @@
 from .signal_generator import SignalGenerator
-from .interferometer import compute_sun_pointing, compute_moon_pointing, compute_radec_pointing
+
+__all__ = [
+    "SignalGenerator",
+]

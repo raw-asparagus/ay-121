@@ -8,7 +8,8 @@ import pandas as pd
 import scipy.optimize as opt
 import scipy.signal as sig
 
-from ugradiolab import Record, equatorial_to_altaz, galactic_to_equatorial
+from ugradiolab.astronomy import equatorial_to_altaz, galactic_to_equatorial
+from ugradiolab.data import Record
 
 from .common import (
     combine_spectrum_mask,

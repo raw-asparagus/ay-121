@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 
@@ -49,7 +48,7 @@ def _centered_rolling_nanmedian(real_mat: np.ndarray, window_caps: int) -> np.nd
 
 def local_real_dc_correction(
     *,
-    files_chips: list[list[Any]],
+    corr_chips: list[np.ndarray],
     unix_chips: list[np.ndarray],
     bad_channels: list[int] | tuple[int, ...],
     nominal_fringe_period_sec: float = 40.0,
@@ -57,8 +56,10 @@ def local_real_dc_correction(
     min_window_caps: int = 5,
 ) -> LocalDCResult:
     """Subtract a chip-local rolling real pedestal from each channel."""
-    if len(files_chips) != len(unix_chips):
-        raise ValueError("files_chips and unix_chips must have the same length.")
+    if len(corr_chips) != len(unix_chips):
+        raise ValueError("corr_chips and unix_chips must have the same length.")
+
+    corr_source = [np.asarray(cchip, dtype=complex).copy() for cchip in corr_chips]
 
     bad_channels_arr = np.asarray(bad_channels, dtype=int)
     window_sec = float(nominal_fringe_period_sec * window_periods)
@@ -67,9 +68,7 @@ def local_real_dc_correction(
     median_cadence_sec_chips: list[float] = []
     window_caps_chips: list[int] = []
 
-    for fchip, unix_chip in zip(files_chips, unix_chips):
-        mat = np.array([np.asarray(f["corr"], dtype=complex) for f in fchip], dtype=complex)
-
+    for mat, unix_chip in zip(corr_source, unix_chips):
         n_cap = mat.shape[0]
         if n_cap == 0:
             raise ValueError("Encountered an empty chip while computing local DC correction.")

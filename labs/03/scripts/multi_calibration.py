@@ -22,6 +22,7 @@ import time
 
 import numpy as np
 
+from ugradiolab import NCH_LON_DEG
 from ugradiolab.astronomy import (
     compute_moon_pointing,
     compute_radec_pointing,
@@ -45,8 +46,6 @@ M17_DEC_DEG = -16.1767   # -16° 10' 36"
 
 M1_RA_DEG   =  83.6331   # 05h 34m 31.9s  (Crab Nebula)
 M1_DEC_DEG  = +22.0145   # +22° 00' 52"
-
-NCH_LON_DEG = -122.2573  # NCH site longitude (degrees east)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -98,23 +97,23 @@ def select_target():
         ha = _wrap_signed_deg(lst_deg(jd) - sun_ra)
         return 'sun', sun_alt, sun_az, optimal_duration(ha, sun_dec, BASELINE_EST_M, TARGET_PHASE_DEG)
 
-    moon_alt, moon_az, *_ = compute_moon_pointing()
-    if moon_alt >= MOON_MIN_ALT_DEG:
-        return 'moon', moon_alt, moon_az, 10.0
-
-    m17_alt, m17_az, m17_jd = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
-    if m17_alt >= M17_MIN_ALT_DEG:
-        ha = _wrap_signed_deg(lst_deg(m17_jd) - M17_RA_DEG)
-        return 'm17', m17_alt, m17_az, optimal_duration(
-            ha, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG,
-        )
-
-    m1_alt, m1_az, m1_jd = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
-    if m1_alt >= M1_MIN_ALT_DEG:
-        ha = _wrap_signed_deg(lst_deg(m1_jd) - M1_RA_DEG)
-        return 'm1', m1_alt, m1_az, optimal_duration(
-            ha, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG,
-        )
+    # moon_alt, moon_az, *_ = compute_moon_pointing()
+    # if moon_alt >= MOON_MIN_ALT_DEG:
+    #     return 'moon', moon_alt, moon_az, 10.0
+    #
+    # m17_alt, m17_az, m17_jd = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
+    # if m17_alt >= M17_MIN_ALT_DEG:
+    #     ha = _wrap_signed_deg(lst_deg(m17_jd) - M17_RA_DEG)
+    #     return 'm17', m17_alt, m17_az, optimal_duration(
+    #         ha, M17_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG,
+    #     )
+    #
+    # m1_alt, m1_az, m1_jd = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
+    # if m1_alt >= M1_MIN_ALT_DEG:
+    #     ha = _wrap_signed_deg(lst_deg(m1_jd) - M1_RA_DEG)
+    #     return 'm1', m1_alt, m1_az, optimal_duration(
+    #         ha, M1_DEC_DEG, BASELINE_EST_M, TARGET_PHASE_DEG,
+    #     )
 
     return None
 

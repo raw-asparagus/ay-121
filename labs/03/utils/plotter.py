@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
+from zoneinfo import ZoneInfo
 
 from .plotting import (
     ALPHA_BAR,
@@ -53,6 +56,9 @@ CHIP_COLORS = (
     NONARY_COLOR,
 )
 
+PLOT_TIMEZONE = ZoneInfo("America/Los_Angeles")
+PLOT_TIME_LABEL = "Local time [PT]"
+
 
 def _chip_colors(n_chips: int) -> list[str]:
     if n_chips <= len(CHIP_COLORS):
@@ -82,6 +88,10 @@ def _ha_formatter() -> mticker.FuncFormatter:
     return mticker.FuncFormatter(_ha_fmt)
 
 
+def _concat_chip_series(chips: list[np.ndarray]) -> np.ndarray:
+    return np.concatenate([np.asarray(chip, dtype=float) for chip in chips])
+
+
 def _channel_secondary_xaxis(ax: Axes, f_rf0_hz: float, df_hz: float):
     ax_top = ax.secondary_xaxis(
         "top",
@@ -92,19 +102,6 @@ def _channel_secondary_xaxis(ax: Axes, f_rf0_hz: float, df_hz: float):
     )
     ax_top.set_xlabel("Channel")
     return ax_top
-
-
-def _hour_angle_degree_secondary_xaxis(ax: Axes):
-    ax_top = ax.secondary_xaxis("top", functions=(lambda x: x, lambda x: x))
-    ax_top.set_xlabel("Hour angle [deg]")
-    return ax_top
-
-
-def _hour_angle_degree_secondary_yaxis(ax: Axes):
-    ax_right = ax.secondary_yaxis("right", functions=(lambda y: y, lambda y: y))
-    ax_right.set_ylabel("Hour angle [deg]")
-    ax_right.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, pos: rf"${y:.1f}^\circ$"))
-    return ax_right
 
 
 def _channel_secondary_yaxis(ax: Axes, f_rf0_hz: float, df_hz: float):
@@ -119,6 +116,78 @@ def _channel_secondary_yaxis(ax: Axes, f_rf0_hz: float, df_hz: float):
     return ax_right
 
 
+def _time_fmt(unix_s: float, pos: float | None) -> str:
+    del pos
+    if not np.isfinite(unix_s):
+        return ""
+    dt_local = datetime.fromtimestamp(float(unix_s), tz=timezone.utc).astimezone(PLOT_TIMEZONE)
+    return dt_local.strftime("%H:%M")
+
+
+def _time_secondary_xaxis(
+    ax: Axes,
+    coord: np.ndarray,
+    unix_s: np.ndarray,
+    *,
+    label: str = PLOT_TIME_LABEL,
+) -> Axes | None:
+    coord_arr = np.asarray(coord, dtype=float)
+    unix_arr = np.asarray(unix_s, dtype=float)
+    valid = np.isfinite(coord_arr) & np.isfinite(unix_arr)
+    if valid.sum() < 2:
+        return None
+
+    order = np.argsort(coord_arr[valid])
+    coord_sorted = coord_arr[valid][order]
+    unix_sorted = unix_arr[valid][order]
+
+    coord_unique, coord_idx = np.unique(coord_sorted, return_index=True)
+    unix_unique = unix_sorted[coord_idx]
+    if coord_unique.size < 2:
+        return None
+
+    strictly_increasing = np.concatenate(([True], np.diff(unix_unique) > 0))
+    coord_unique = coord_unique[strictly_increasing]
+    unix_unique = unix_unique[strictly_increasing]
+    if coord_unique.size < 2:
+        return None
+
+    ax_top = ax.secondary_xaxis(
+        "top",
+        functions=(
+            lambda x: np.interp(np.asarray(x, dtype=float), coord_unique, unix_unique),
+            lambda t: np.interp(np.asarray(t, dtype=float), unix_unique, coord_unique),
+        ),
+    )
+    ax_top.set_xlabel(label)
+    ax_top.xaxis.set_major_locator(mticker.MaxNLocator(nbins=6, prune="both"))
+    ax_top.xaxis.set_major_formatter(mticker.FuncFormatter(_time_fmt))
+    return ax_top
+
+
+def _require_time_secondary_xaxis(ax: Axes, coord: np.ndarray, unix_s: np.ndarray) -> Axes:
+    ax_top = _time_secondary_xaxis(ax, coord, unix_s)
+    if ax_top is None:
+        raise ValueError("Need at least two finite coordinate/time samples to build the top time axis.")
+    return ax_top
+
+
+def _apply_ha_time_axes(ax: Axes, ha_deg: np.ndarray, unix_s: np.ndarray, *, xlabel: str = "Hour angle") -> Axes:
+    ax.set_xlabel(xlabel)
+    ax.xaxis.set_major_formatter(_ha_formatter())
+    return _require_time_secondary_xaxis(ax, np.asarray(ha_deg, dtype=float), np.asarray(unix_s, dtype=float))
+
+
+def _apply_ha_time_axes_from_chips(
+    ax: Axes,
+    ha_chips: list[np.ndarray],
+    unix_chips: list[np.ndarray],
+    *,
+    xlabel: str = "Hour angle",
+) -> Axes:
+    return _apply_ha_time_axes(ax, _concat_chip_series(ha_chips), _concat_chip_series(unix_chips), xlabel=xlabel)
+
+
 def _waterfall_row_span_deg() -> float:
     return TEXTWIDTH_IN * WATERFALL_HA_MIN_PER_IN / 4.0
 
@@ -129,7 +198,25 @@ def _waterfall_gap_threshold_deg(ha_deg: np.ndarray) -> float:
     positive_step_deg = ha_step_deg[np.isfinite(ha_step_deg) & (ha_step_deg > 0)]
     if positive_step_deg.size == 0:
         return np.inf
-    return WATERFALL_GAP_FACTOR * float(np.median(positive_step_deg))
+
+    positive_step_sorted = np.sort(positive_step_deg)
+    if positive_step_sorted.size >= 2:
+        step_ratio = positive_step_sorted[1:] / positive_step_sorted[:-1]
+        split_idx = int(np.argmax(step_ratio))
+
+        # Prefer a true outlier split between ordinary cadence steps and a
+        # chip-scale observing gap. This avoids treating slower-cadence regions
+        # as gaps when the scan cadence changes across the track.
+        if np.isfinite(step_ratio[split_idx]) and step_ratio[split_idx] >= WATERFALL_GAP_FACTOR:
+            lower_step = positive_step_sorted[split_idx]
+            upper_step = positive_step_sorted[split_idx + 1]
+            return float(np.sqrt(lower_step * upper_step))
+
+    upper_tail_step = float(np.percentile(positive_step_sorted, 95))
+    return max(
+        WATERFALL_GAP_FACTOR * float(np.median(positive_step_sorted)),
+        2.0 * upper_tail_step,
+    )
 
 
 def _waterfall_segment_slices(ha_deg: np.ndarray, gap_threshold_deg: float) -> list[slice]:
@@ -169,78 +256,58 @@ def _plot_waterfall_row(
     return image
 
 
-def _plot_waterfall_panels(
-    f_sky_ghz: np.ndarray,
-    ha_deg: np.ndarray,
-    quantity_matrix: np.ndarray,
-    plot_band_ghz: tuple[float, float],
-    f_rf0_hz: float,
-    df_hz: float,
-    title: str,
-    cbar_label: str,
-    cmap_name: str,
-    vmin: float | None,
-    vmax: float | None,
-) -> tuple[Figure, np.ndarray]:
-    order = np.argsort(ha_deg)
-    ha_sorted = np.asarray(ha_deg)[order]
-    quantity_sorted = np.asarray(quantity_matrix)[order, :]
-    gap_threshold_deg = _waterfall_gap_threshold_deg(ha_sorted)
+def _gap_histogram_zero_runs(gap_s: np.ndarray, bins: int) -> tuple[np.ndarray, np.ndarray, list[tuple[float, float]]]:
+    counts, edges = np.histogram(gap_s, bins=bins)
+    nonzero_idx = np.flatnonzero(counts > 0)
+    if nonzero_idx.size < 2:
+        return counts, edges, []
 
-    row_span_deg = _waterfall_row_span_deg()
-    total_span_deg = ha_sorted.max() - ha_sorted.min()
-    nrows = max(1, int(np.ceil(total_span_deg / row_span_deg)))
+    gap_runs: list[tuple[float, float]] = []
+    for left_idx, right_idx in zip(nonzero_idx[:-1], nonzero_idx[1:]):
+        if right_idx - left_idx <= 1:
+            continue
+        gap_lo = float(edges[left_idx + 1])
+        gap_hi = float(edges[right_idx])
+        if gap_hi > gap_lo:
+            gap_runs.append((gap_lo, gap_hi))
 
-    fig, axes = plt.subplots(
-        nrows,
-        1,
-        figsize=(TEXTWIDTH_IN, nrows * WATERFALL_PANEL_HEIGHT_IN + 0.6),
-        sharey=True,
-        squeeze=False,
-        constrained_layout=True,
-    )
-    axes = axes.ravel()
+    return counts, edges, gap_runs
 
-    image = None
-    ha_start_deg = ha_sorted.min()
-    for row_idx, ax in enumerate(axes):
-        row_min_deg = ha_start_deg + row_idx * row_span_deg
-        row_max_deg = row_min_deg + row_span_deg
-        if row_idx == nrows - 1:
-            mask = (ha_sorted >= row_min_deg) & (ha_sorted <= row_max_deg)
-        else:
-            mask = (ha_sorted >= row_min_deg) & (ha_sorted < row_max_deg)
 
-        if np.any(mask):
-            image = _plot_waterfall_row(
-                ax=ax,
-                f_sky_ghz=f_sky_ghz,
-                ha_row_deg=ha_sorted[mask],
-                quantity_row=quantity_sorted[mask, :],
-                cmap_name=cmap_name,
-                vmin=vmin,
-                vmax=vmax,
-                gap_threshold_deg=gap_threshold_deg,
-            )
+def _compress_axis_values(x: np.ndarray | float, skipped_ranges: list[tuple[float, float]]) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    compressed = x_arr.copy()
+    for gap_lo, gap_hi in skipped_ranges:
+        compressed -= np.clip(x_arr, gap_lo, gap_hi) - gap_lo
+    return compressed
 
-        ax.set_xlim(row_min_deg, row_max_deg)
-        ax.set_ylim(*plot_band_ghz)
-        ax.set_xlabel("Hour angle")
-        ax.set_ylabel(r"$f_{\rm sky}$ [GHz]")
-        ax.xaxis.set_major_formatter(_ha_formatter())
 
-        ax_top = _hour_angle_degree_secondary_xaxis(ax)
-        ax_top.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, pos: rf"${x:.1f}^\circ$"))
-        _channel_secondary_yaxis(ax, f_rf0_hz, df_hz)
+def _expand_axis_values(x: np.ndarray | float, skipped_ranges: list[tuple[float, float]]) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    expanded = x_arr.copy()
+    total_skip = 0.0
+    for gap_lo, gap_hi in skipped_ranges:
+        gap_width = gap_hi - gap_lo
+        compressed_gap_start = gap_lo - total_skip
+        expanded = expanded + gap_width * (x_arr >= compressed_gap_start)
+        total_skip += gap_width
+    return expanded
 
-        if row_idx == 0:
-            ax.set_title(title, fontsize=TICK_SIZE)
 
-    if image is None:
-        raise ValueError("Waterfall input contains no finite rows to plot.")
+def _gap_axis_formatter(skipped_ranges: list[tuple[float, float]]) -> mticker.FuncFormatter:
+    def _fmt(x: float, pos: float | None) -> str:
+        del pos
+        value = float(_expand_axis_values(x, skipped_ranges))
+        return f"{value:.1f}"
 
-    fig.colorbar(image, ax=axes.tolist(), label=cbar_label, location="bottom")
-    return fig, axes
+    return mticker.FuncFormatter(_fmt)
+
+
+def _draw_gap_break_marks(ax: Axes, break_x: float) -> None:
+    dx = 0.015
+    kwargs = dict(transform=ax.get_xaxis_transform(), color=NEUTRAL_COLOR, clip_on=False, lw=LW_GUIDE)
+    ax.plot([break_x - dx, break_x + dx], [-0.03, 0.03], **kwargs)
+    ax.plot([break_x - dx, break_x + dx], [0.03, 0.09], **kwargs)
 
 
 def plot_waterfall_suite(
@@ -256,6 +323,7 @@ def plot_waterfall_suite(
     f_rf0_hz: float,
     df_hz: float,
     title: str,
+    unix_s: np.ndarray,
 ) -> tuple[Figure, np.ndarray]:
     if not (
         len(quantity_matrices)
@@ -269,6 +337,7 @@ def plot_waterfall_suite(
 
     order = np.argsort(ha_deg)
     ha_sorted = np.asarray(ha_deg)[order]
+    unix_sorted = np.asarray(unix_s, dtype=float)[order]
     gap_threshold_deg = _waterfall_gap_threshold_deg(ha_sorted)
     row_span_deg = _waterfall_row_span_deg()
     total_span_deg = ha_sorted.max() - ha_sorted.min()
@@ -318,12 +387,10 @@ def plot_waterfall_suite(
 
             ax.set_xlim(row_min_deg, row_max_deg)
             ax.set_ylim(*plot_band_ghz)
-            ax.set_xlabel("Hour angle")
             ax.set_ylabel(r"$f_{\rm sky}$ [GHz]")
-            ax.xaxis.set_major_formatter(_ha_formatter())
-
-            ax_top = _hour_angle_degree_secondary_xaxis(ax)
-            ax_top.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, pos: rf"${x:.1f}^\circ$"))
+            row_ha = ha_sorted[mask] if np.any(mask) else ha_sorted
+            row_unix = unix_sorted[mask] if np.any(mask) else unix_sorted
+            _apply_ha_time_axes(ax, row_ha, row_unix)
             _channel_secondary_yaxis(ax, f_rf0_hz, df_hz)
 
             if row_idx == 0:
@@ -379,59 +446,6 @@ def plot_example_spectrum(
     return fig, ax
 
 
-def plot_waterfall_amplitude(
-    f_sky_ghz: np.ndarray,
-    ha_deg: np.ndarray,
-    amp_matrix: np.ndarray,
-    plot_band_ghz: tuple[float, float],
-    f_rf0_hz: float,
-    df_hz: float,
-    title: str,
-    cbar_label: str,
-) -> tuple[Figure, np.ndarray]:
-    return _plot_waterfall_panels(
-        f_sky_ghz=f_sky_ghz,
-        ha_deg=ha_deg,
-        quantity_matrix=amp_matrix,
-        plot_band_ghz=plot_band_ghz,
-        f_rf0_hz=f_rf0_hz,
-        df_hz=df_hz,
-        title=title,
-        cbar_label=cbar_label,
-        cmap_name="viridis",
-        vmin=0,
-        vmax=1,
-    )
-
-
-def plot_visibility_waterfall(
-    f_sky_ghz: np.ndarray,
-    ha_deg: np.ndarray,
-    quantity_matrix: np.ndarray,
-    plot_band_ghz: tuple[float, float],
-    f_rf0_hz: float,
-    df_hz: float,
-    title: str,
-    cbar_label: str,
-    cmap_name: str,
-    vmin: float | None,
-    vmax: float | None,
-) -> tuple[Figure, np.ndarray]:
-    return _plot_waterfall_panels(
-        f_sky_ghz=f_sky_ghz,
-        ha_deg=ha_deg,
-        quantity_matrix=quantity_matrix,
-        plot_band_ghz=plot_band_ghz,
-        f_rf0_hz=f_rf0_hz,
-        df_hz=df_hz,
-        title=title,
-        cbar_label=cbar_label,
-        cmap_name=cmap_name,
-        vmin=vmin,
-        vmax=vmax,
-    )
-
-
 def plot_capture_timeline_and_gaps(
     capture_start_s: np.ndarray,
     capture_end_s: np.ndarray,
@@ -462,17 +476,62 @@ def plot_capture_timeline_and_gaps(
             zorder=0,
         )
     ax.set_xlabel("Time since first capture [s]")
-    ax.set_ylabel("Capture index")
     ax.set_title(rf"Capture timeline -- {capture_count} captures, duty cycle {duty_cycle_pct:.1f}\%")
     ax.set_ylim(-0.5, capture_count - 0.5)
+    ax.set_yticks([])
+    ax.tick_params(axis="y", left=False, labelleft=False)
 
     ax = axes[1]
-    ax.hist(gap_s, bins=100, color=PRIMARY_COLOR, edgecolor="white", linewidth=LW_HAIRLINE)
-    ax.axvline(gap_s.mean(), color=NEUTRAL_COLOR, lw=LW_GUIDE, ls="--", label=rf"mean {gap_s.mean():.2f} s")
-    ax.axvline(np.median(gap_s), color=NEUTRAL_COLOR, lw=LW_GUIDE, ls=":", label=rf"median {np.median(gap_s):.2f} s")
+    hist_bins = 100
+    counts_raw, _edges_raw, skipped_ranges = _gap_histogram_zero_runs(gap_s, bins=hist_bins)
+    if skipped_ranges:
+        gap_plot_s = _compress_axis_values(gap_s, skipped_ranges)
+        counts, edge_plot = np.histogram(gap_plot_s, bins=hist_bins)
+    else:
+        counts = counts_raw
+        edge_plot = np.histogram_bin_edges(gap_s, bins=hist_bins)
+    width_plot = np.diff(edge_plot)
+    nonzero = counts > 0
+    ax.bar(
+        edge_plot[:-1][nonzero],
+        counts[nonzero],
+        width=width_plot[nonzero],
+        align="edge",
+        color=PRIMARY_COLOR,
+        edgecolor="white",
+        linewidth=LW_HAIRLINE,
+    )
+    gap_mean = float(np.mean(gap_s))
+    gap_median = float(np.median(gap_s))
+    ax.axvline(
+        float(_compress_axis_values(gap_mean, skipped_ranges)),
+        color=NEUTRAL_COLOR,
+        lw=LW_GUIDE,
+        ls="--",
+        label=rf"mean {gap_mean:.2f} s",
+    )
+    ax.axvline(
+        float(_compress_axis_values(gap_median, skipped_ranges)),
+        color=NEUTRAL_COLOR,
+        lw=LW_GUIDE,
+        ls=":",
+        label=rf"median {gap_median:.2f} s",
+    )
+    if np.any(nonzero):
+        first_nonzero = int(np.flatnonzero(nonzero)[0])
+        last_nonzero = int(np.flatnonzero(nonzero)[-1])
+        ax.set_xlim(edge_plot[first_nonzero], edge_plot[last_nonzero + 1])
+    if skipped_ranges:
+        ax.xaxis.set_major_formatter(_gap_axis_formatter(skipped_ranges))
+        ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=7))
+        for gap_lo, _gap_hi in skipped_ranges:
+            _draw_gap_break_marks(ax, float(_compress_axis_values(gap_lo, skipped_ranges)))
     ax.set_xlabel("Inter-capture gap [s]")
     ax.set_ylabel("Count")
-    ax.set_title("Gap distribution (slew + overhead)")
+    if skipped_ranges:
+        ax.set_title("Gap distribution (slew + overhead, zero-count ranges skipped)")
+    else:
+        ax.set_title("Gap distribution (slew + overhead)")
     ax.legend(fontsize=TICK_SIZE)
 
     _tight_layout(fig)
@@ -488,8 +547,9 @@ def plot_channel_time_series(
     channel_index: int,
     channel_freq_ghz: float,
     ha_limits_deg: tuple[float, float],
+    unix_chips: list[np.ndarray],
 ) -> tuple[Figure, np.ndarray]:
-    fig, axes = _stacked_panels(4, (TEXTWIDTH_IN, 8), (1, 1, 1, 1), 0.0)
+    fig, axes = _stacked_panels(4, (TEXTWIDTH_IN, 8), (2, 1, 2, 2), 0.0)
     chip_colors = _chip_colors(len(ha_chips))
 
     for chip_idx, ha_deg in enumerate(ha_chips):
@@ -517,6 +577,8 @@ def plot_channel_time_series(
     for ax in axes:
         ax.set_xlim(*ha_limits_deg)
 
+    _apply_ha_time_axes_from_chips(axes[0], ha_chips, unix_chips)
+
     fig.suptitle(
         rf"Sun --- channel $k={channel_index}$,  $f_{{\rm sky}}={channel_freq_ghz:.4f}$ GHz",
         fontsize=TICK_SIZE,
@@ -532,6 +594,7 @@ def plot_unwrapped_phase_vs_ha_time(
     channel_index: int,
     channel_freq_ghz: float,
     ha_time_limits_s: tuple[float, float],
+    unix_chips: list[np.ndarray],
 ) -> tuple[Figure, Axes]:
     fig, ax = _single_panel((TEXTWIDTH_IN, 3))
     chip_colors = _chip_colors(len(ha_time_s_chips))
@@ -543,18 +606,15 @@ def plot_unwrapped_phase_vs_ha_time(
             color=chip_colors[chip_idx],
             label=f"chip {chip_idx}",
         )
-    ax.set_xlabel("Hour angle [s]")
+    ax.set_xlabel("Hour angle")
+    ax.xaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda seconds, pos: _ha_fmt(seconds * sidereal_rate_deg_s, pos))
+    )
     ax.set_ylabel(r"$\arg(V_{12,\rm dc})$ [deg, unwrapped]")
     ax.set_xlim(*ha_time_limits_s)
+    ax.set_yticks([])
     ax.legend(fontsize=TICK_SIZE)
-    ax_top = ax.secondary_xaxis(
-        "top",
-        functions=(
-            lambda seconds: seconds * sidereal_rate_deg_s,
-            lambda degrees: degrees / sidereal_rate_deg_s,
-        ),
-    )
-    ax_top.set_xlabel("Hour angle [deg]")
+    _require_time_secondary_xaxis(ax, _concat_chip_series(ha_time_s_chips), _concat_chip_series(unix_chips))
     ax.set_title(
         rf"Sun --- unwrapped phase per chip, $k={channel_index}$  ($f_{{\rm sky}}={channel_freq_ghz:.4f}$ GHz)",
         fontsize=TICK_SIZE,
@@ -625,6 +685,60 @@ def plot_baseline_vs_frequency(
     return fig, ax
 
 
+def plot_fft_peak_diagnostic(
+    fx_axis: np.ndarray,
+    fft_amp: np.ndarray,
+    fx_peak: float,
+    baseline_m: float,
+    baseline_err_m: float,
+    chip_idx: int,
+    channel_index: int,
+    channel_freq_ghz: float,
+    secondary_fx_peak: float = np.nan,
+    secondary_baseline_m: float = np.nan,
+    secondary_amp: float = np.nan,
+    primary_amp: float = np.nan,
+    x_window_half_width: float = 180.0,
+) -> tuple[Figure, Axes]:
+    fig, ax = _single_panel((TEXTWIDTH_IN, 3.4))
+    ax.plot(fx_axis, fft_amp, lw=LW_FINE, color=PRIMARY_COLOR)
+    ax.axvline(
+        fx_peak,
+        color=NEUTRAL_COLOR,
+        lw=LW_GUIDE,
+        ls="--",
+        label=(
+            rf"primary: $f_x={fx_peak:.2f}$,  "
+            rf"$B_{{\rm EW}}={baseline_m:.3f} \pm {baseline_err_m:.3f}$ m"
+        ),
+    )
+    if np.isfinite(secondary_fx_peak):
+        secondary_label = (
+            rf"secondary: $f_x={secondary_fx_peak:.2f}$,  "
+            rf"$B_{{\rm EW}}={secondary_baseline_m:.3f}$ m"
+        )
+        if np.isfinite(secondary_amp) and np.isfinite(primary_amp) and primary_amp > 0:
+            secondary_label += rf",  amp ratio$={secondary_amp / primary_amp:.3f}$"
+        ax.axvline(
+            secondary_fx_peak,
+            color=SECONDARY_COLOR,
+            lw=LW_GUIDE,
+            ls=":",
+            label=secondary_label,
+        )
+    ax.set_xlim(fx_peak - x_window_half_width, fx_peak + x_window_half_width)
+    ax.set_xlabel(r"$f_x$ [cycles per unit $x=\cos\delta\,\sin h$]")
+    ax.set_ylabel(r"$|\mathrm{FFT}(V_{12,\rm dc})|$")
+    ax.set_title(
+        rf"Sun --- FFT peaks for chip {chip_idx},  $k={channel_index}$  "
+        rf"($f_{{\rm sky}}={channel_freq_ghz:.4f}$ GHz)",
+        fontsize=TICK_SIZE,
+    )
+    ax.legend(fontsize=TICK_SIZE)
+    _tight_layout(fig)
+    return fig, ax
+
+
 def plot_lag_delay_summary(
     tau_axis_ns: np.ndarray,
     lag_amp: np.ndarray,
@@ -638,6 +752,7 @@ def plot_lag_delay_summary(
     sin_h_lag_chips: list[np.ndarray],
     coeffs_lag_chips: list[np.ndarray],
     ha_limits_deg: tuple[float, float],
+    unix_chips: list[np.ndarray],
 ) -> tuple[Figure, np.ndarray]:
     fig, axes = plt.subplots(2, 1, figsize=(TEXTWIDTH_IN, 6))
     chip_colors = _chip_colors(len(ha_chips))
@@ -674,12 +789,9 @@ def plot_lag_delay_summary(
         ax.plot(ha_fine, tau_fit, color=color, lw=LW_GUIDE, ls="--")
 
     ax.set_xlim(*ha_limits_deg)
-    ax.set_xlabel("Hour angle")
     ax.set_ylabel(r"$\tau$ [ns]")
-    ax.xaxis.set_major_formatter(_ha_formatter())
+    _apply_ha_time_axes_from_chips(ax, ha_chips, unix_chips)
     ax.legend(fontsize=TICK_SIZE)
-    ax_top = _hour_angle_degree_secondary_xaxis(ax)
-    ax_top.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, pos: rf"${x:.1f}^\circ$"))
     ax.set_title(r"Lag delay sin-$h$ fit per chip", fontsize=TICK_SIZE)
 
     _tight_layout(fig)
@@ -690,6 +802,7 @@ def plot_interval_baseline(
     ha_chips: list[np.ndarray],
     baseline_lag_chips: list[float],
     interval_results: list[dict[str, float | int | None]],
+    unix_chips: list[np.ndarray],
 ) -> tuple[Figure, Axes]:
     fig, ax = _single_panel((TEXTWIDTH_IN, 3.5))
     chip_colors = _chip_colors(len(ha_chips))
@@ -742,76 +855,8 @@ def plot_interval_baseline(
         for chip_idx in range(len(ha_chips))
     ]
     ax.legend(handles=handles, fontsize=TICK_SIZE, loc="upper right")
-    ax.set_xlabel("Hour angle (bin centre)")
     ax.set_ylabel(r"$B_{\rm EW}$ [m]")
-    ax.xaxis.set_major_formatter(_ha_formatter())
-    ax_top = _hour_angle_degree_secondary_xaxis(ax)
-    ax_top.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, pos: rf"${x:.0f}^\circ$"))
+    _apply_ha_time_axes_from_chips(ax, ha_chips, unix_chips, xlabel="Hour angle (bin centre)")
     ax.set_title(r"$B_{\rm EW}$ (lag delay) --- 20-min sub-intervals", fontsize=TICK_SIZE)
     _tight_layout(fig)
     return fig, ax
-
-
-def plot_drift_comparison(
-    ha_chips: list[np.ndarray],
-    baseline_lag_chips: list[float],
-    uncorrected_results: list[dict[str, float | int | None]],
-    drift_results: list[dict[str, float | int | None] | None],
-) -> tuple[Figure, np.ndarray]:
-    fig, axes = _stacked_panels(2, (TEXTWIDTH_IN, 6), (1, 1), 0.0)
-    chip_colors = _chip_colors(len(ha_chips))
-
-    panel_specs = [
-        (axes[0], "No drift correction", uncorrected_results),
-        (axes[1], "With drift correction", [entry for entry in drift_results if entry is not None]),
-    ]
-
-    for ax, label, results in panel_specs:
-        for chip_idx, ha_deg in enumerate(ha_chips):
-            color = chip_colors[chip_idx]
-            ax.axvspan(ha_deg.min(), ha_deg.max(), alpha=ALPHA_SPAN_LIGHT, color=color)
-            ax.axhline(
-                baseline_lag_chips[chip_idx],
-                color=color,
-                lw=LW_GUIDE,
-                ls="--",
-                label=rf"chip {chip_idx} $B_{{EW}}={baseline_lag_chips[chip_idx]:.3f}$ m",
-            )
-
-        for entry in results:
-            chip_idx = entry["chip"]
-            color = chip_colors[chip_idx] if chip_idx is not None else NEUTRAL_COLOR
-            peers = sorted(
-                [peer for peer in results if peer["lo"] == entry["lo"] and peer["hi"] == entry["hi"]],
-                key=lambda peer: (
-                    peer["chip"] is None,
-                    peer["chip"] if peer["chip"] is not None else float("inf"),
-                ),
-            )
-            peer_idx = peers.index(entry)
-            x_coord = entry["ha_ctr"] + _peer_x_offset(peer_idx, len(peers))
-            ax.errorbar(
-                x_coord,
-                entry["B_EW"],
-                yerr=entry["B_EW_err"],
-                fmt="o",
-                color=color,
-                capsize=ERRORBAR_CAPSIZE_SMALL,
-                markersize=MARKER_MS_SMALL,
-                zorder=4,
-            )
-
-        ax.set_ylabel(r"$B_{\rm EW}$ [m]")
-        ax.set_title(label, fontsize=TICK_SIZE)
-        ax.legend(fontsize=TICK_SIZE, loc="upper left")
-
-    axes[1].set_xlabel("Hour angle (bin centre)")
-    axes[1].xaxis.set_major_formatter(_ha_formatter())
-    ax_top = _hour_angle_degree_secondary_xaxis(axes[1])
-    ax_top.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, pos: rf"${x:.0f}^\circ$"))
-    fig.suptitle(
-        r"Atmospheric drift correction: $\tau = A\sin h + B\,\Delta t + \tau_{\rm inst}$",
-        fontsize=TICK_SIZE,
-    )
-    _tight_layout(fig)
-    return fig, axes

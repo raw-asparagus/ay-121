@@ -25,10 +25,11 @@ from .plotting import (
 )
 from .chips import (
     ChipSegmentation,
-    SortedCaptures,
-    mid_unix,
-    segment_captures_by_gap,
-    sort_captures_by_mid_unix,
+    segment_capture_times_by_gap,
+)
+from .captures import (
+    CaptureSeries,
+    load_capture_series,
 )
 from .dc import (
     LocalDCResult,

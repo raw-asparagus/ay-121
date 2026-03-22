@@ -95,18 +95,26 @@ class PipelinedCapture:
             a background slew.
         """
         # ── Bootstrap ─────────────────────────────────────────────────────
+        _MAX_REPOINTS     = 10
         exp = make_experiment_fn()
         exp._prepare()
-        try:
-            self._interf.point(exp.alt_deg, exp.az_deg, wait=True)
-        except (AssertionError, TimeoutError, OSError) as exc:
-            raise RuntimeError(f'initial pointing failed: {exc}') from exc
-        exp._verify_on_target('bootstrap')
+        for _attempt in range(1, _MAX_REPOINTS + 1):
+            try:
+                self._interf.point(exp.alt_deg, exp.az_deg, wait=True)
+            except (AssertionError, TimeoutError, OSError) as exc:
+                raise RuntimeError(f'initial pointing failed: {exc}') from exc
+            try:
+                exp._verify_on_target('bootstrap')
+                break
+            except PointingError as _exc:
+                if _attempt == _MAX_REPOINTS:
+                    raise
+                print(f'  [bootstrap repoint {_attempt}/{_MAX_REPOINTS - 1}] {_exc}')
+                exp._prepare()
 
         next_exp = make_experiment_fn()
         next_exp._prepare()
 
-        _MAX_REPOINTS     = 3
         _prev_save_path:   str | None    = None
         _prev_save_future: Future | None = None
 

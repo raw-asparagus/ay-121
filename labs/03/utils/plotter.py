@@ -124,6 +124,38 @@ def _time_fmt(unix_s: float, pos: float | None) -> str:
     return dt_local.strftime("%H:%M")
 
 
+def _time_tick_step_sec(span_sec: float) -> int:
+    candidates = np.array([300, 600, 900, 1800, 3600, 7200, 10800, 21600], dtype=float)
+    target_tick_count = 5.0
+    tick_counts = span_sec / candidates
+    valid = (tick_counts >= 3.0) & (tick_counts <= 7.0)
+    if np.any(valid):
+        best_idx = int(np.argmin(np.abs(tick_counts[valid] - target_tick_count)))
+        return int(candidates[valid][best_idx])
+
+    if span_sec / candidates[0] < 3.0:
+        return int(candidates[0])
+
+    return int(candidates[-1])
+
+
+def _time_tick_values(unix_min: float, unix_max: float) -> np.ndarray:
+    span_sec = float(unix_max - unix_min)
+    if not np.isfinite(span_sec) or span_sec <= 0:
+        return np.array([], dtype=float)
+
+    step_sec = _time_tick_step_sec(span_sec)
+    first_tick = np.ceil(unix_min / step_sec) * step_sec
+    last_tick = np.floor(unix_max / step_sec) * step_sec
+    ticks = np.arange(first_tick, last_tick + 0.5 * step_sec, step_sec, dtype=float)
+    ticks = ticks[(ticks > unix_min) & (ticks < unix_max)]
+    if ticks.size >= 2:
+        return ticks
+
+    fallback = np.linspace(unix_min, unix_max, 4, dtype=float)[1:-1]
+    return fallback[np.isfinite(fallback)]
+
+
 def _time_secondary_xaxis(
     ax: Axes,
     coord: np.ndarray,
@@ -160,7 +192,11 @@ def _time_secondary_xaxis(
         ),
     )
     ax_top.set_xlabel(label)
-    ax_top.xaxis.set_major_locator(mticker.MaxNLocator(nbins=6, prune="both"))
+    ticks = _time_tick_values(float(unix_unique.min()), float(unix_unique.max()))
+    if ticks.size:
+        ax_top.xaxis.set_major_locator(mticker.FixedLocator(ticks))
+    else:
+        ax_top.xaxis.set_major_locator(mticker.NullLocator())
     ax_top.xaxis.set_major_formatter(mticker.FuncFormatter(_time_fmt))
     return ax_top
 
@@ -232,6 +268,17 @@ def _waterfall_segment_slices(ha_deg: np.ndarray, gap_threshold_deg: float) -> l
     return [slice(int(start), int(stop)) for start, stop in zip(segment_start, segment_stop) if stop > start]
 
 
+def _waterfall_chip_segment_slices(chip_id: np.ndarray) -> list[slice]:
+    chip_arr = np.asarray(chip_id)
+    if chip_arr.size == 0:
+        return []
+
+    change_idx = np.flatnonzero(np.diff(chip_arr) != 0)
+    segment_start = np.concatenate(([0], change_idx + 1))
+    segment_stop = np.concatenate((change_idx + 1, [chip_arr.size]))
+    return [slice(int(start), int(stop)) for start, stop in zip(segment_start, segment_stop) if stop > start]
+
+
 def _plot_waterfall_row(
     ax: Axes,
     f_sky_ghz: np.ndarray,
@@ -241,9 +288,15 @@ def _plot_waterfall_row(
     vmin: float | None,
     vmax: float | None,
     gap_threshold_deg: float,
+    chip_row: np.ndarray | None = None,
 ):
     image = None
-    for segment in _waterfall_segment_slices(ha_row_deg, gap_threshold_deg):
+    if chip_row is None:
+        segment_slices = _waterfall_segment_slices(ha_row_deg, gap_threshold_deg)
+    else:
+        segment_slices = _waterfall_chip_segment_slices(chip_row)
+
+    for segment in segment_slices:
         image = ax.pcolormesh(
             ha_row_deg[segment],
             f_sky_ghz,
@@ -324,6 +377,7 @@ def plot_waterfall_suite(
     df_hz: float,
     title: str,
     unix_s: np.ndarray,
+    cap_chip: np.ndarray | None = None,
 ) -> tuple[Figure, np.ndarray]:
     if not (
         len(quantity_matrices)
@@ -338,6 +392,7 @@ def plot_waterfall_suite(
     order = np.argsort(ha_deg)
     ha_sorted = np.asarray(ha_deg)[order]
     unix_sorted = np.asarray(unix_s, dtype=float)[order]
+    cap_chip_sorted = None if cap_chip is None else np.asarray(cap_chip)[order]
     gap_threshold_deg = _waterfall_gap_threshold_deg(ha_sorted)
     row_span_deg = _waterfall_row_span_deg()
     total_span_deg = ha_sorted.max() - ha_sorted.min()
@@ -374,6 +429,7 @@ def plot_waterfall_suite(
                 mask = (ha_sorted >= row_min_deg) & (ha_sorted < row_max_deg)
 
             if np.any(mask):
+                row_chip = cap_chip_sorted[mask] if cap_chip_sorted is not None else None
                 image = _plot_waterfall_row(
                     ax=ax,
                     f_sky_ghz=f_sky_ghz,
@@ -383,14 +439,16 @@ def plot_waterfall_suite(
                     vmin=vmin,
                     vmax=vmax,
                     gap_threshold_deg=gap_threshold_deg,
+                    chip_row=row_chip,
                 )
 
             ax.set_xlim(row_min_deg, row_max_deg)
             ax.set_ylim(*plot_band_ghz)
             ax.set_ylabel(r"$f_{\rm sky}$ [GHz]")
-            row_ha = ha_sorted[mask] if np.any(mask) else ha_sorted
-            row_unix = unix_sorted[mask] if np.any(mask) else unix_sorted
-            _apply_ha_time_axes(ax, row_ha, row_unix)
+            # Use the full monotonic HA/time mapping for the secondary axis so
+            # row limits that include blank chip gaps still transform to the
+            # correct local times instead of clamping to the row-local data.
+            _apply_ha_time_axes(ax, ha_sorted, unix_sorted)
             _channel_secondary_yaxis(ax, f_rf0_hz, df_hz)
 
             if row_idx == 0:
@@ -418,6 +476,7 @@ def plot_example_spectrum(
     n_acc: int,
     ha_deg: float,
     alt_deg: float,
+    amplitude_label: str = r"$|V| / |V|_{\rm peak}$",
 ) -> tuple[Figure, Axes]:
     fig, ax = _single_panel((TEXTWIDTH_IN, 3))
     ax.plot(f_sky_ghz, amp_norm, lw=LW_FINE, color=PRIMARY_COLOR)
@@ -430,7 +489,7 @@ def plot_example_spectrum(
         label=rf"peak  $f={peak_freq_ghz:.4f}$ GHz",
     )
     ax.set_xlabel(r"$f_{\rm sky}$ [GHz]")
-    ax.set_ylabel(r"$|V_{12}| / |V_{12}|_{\rm peak}$")
+    ax.set_ylabel(amplitude_label)
     ax.set_title(
         rf"Sun --- example spectrum (capture {capture_index}/{capture_count - 1})"
         "\n"

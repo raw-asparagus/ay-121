@@ -3,6 +3,8 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/casperfpga" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/hera_corr_f" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/librtlsdr" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/pyrtlsdr" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/snap_spec" vcs="Git" />

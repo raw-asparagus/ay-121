@@ -95,7 +95,7 @@ class PipelinedCapture:
             a background slew.
         """
         # ── Bootstrap ─────────────────────────────────────────────────────
-        _MAX_REPOINTS     = 10
+        _MAX_REPOINTS     = 25
         exp = make_experiment_fn()
         exp._prepare()
         for _attempt in range(1, _MAX_REPOINTS + 1):

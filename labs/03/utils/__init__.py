@@ -31,6 +31,10 @@ from .captures import (
     CaptureSeries,
     load_capture_series,
 )
+from .chip_exports import (
+    ProcessedSunChipSeries,
+    load_processed_sun_chip_series,
+)
 from .dc import (
     LocalDCResult,
     local_real_dc_correction,

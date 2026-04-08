@@ -919,3 +919,242 @@ def plot_interval_baseline(
     ax.set_title(r"$B_{\rm EW}$ (lag delay) --- 20-min sub-intervals", fontsize=TICK_SIZE)
     _tight_layout(fig)
     return fig, ax
+
+
+# ===================================================================
+# New analysis plots: fringe model, Bessel envelope, solar diameter,
+# sunspot residuals
+# ===================================================================
+
+
+def plot_fringe_model_comparison(
+    ha_deg: np.ndarray,
+    observed: np.ndarray,
+    model: np.ndarray,
+    residual: np.ndarray | None = None,
+    *,
+    title: str = "Fringe model comparison",
+    figsize: tuple[float, float] | None = None,
+) -> tuple[Figure, np.ndarray]:
+    """Three-panel plot: observed fringes, model, and residuals vs hour angle.
+
+    Parameters
+    ----------
+    ha_deg : (N,) array
+        Hour angle in degrees.
+    observed, model : (N,) arrays
+        Real-valued observed and modelled fringes.
+    residual : (N,) array, optional
+        If *None*, computed as ``observed - model``.
+    """
+    if residual is None:
+        residual = np.asarray(observed) - np.asarray(model)
+    if figsize is None:
+        figsize = (TEXTWIDTH_IN, TEXTWIDTH_IN * 0.55)
+
+    fig, axes = _stacked_panels(3, figsize, height_ratios=(3, 3, 2), hspace=0.0)
+
+    axes[0].plot(ha_deg, observed, lw=LW_FINE, color=PRIMARY_COLOR, label="observed")
+    axes[0].set_ylabel("Observed")
+    axes[0].legend(fontsize=TICK_SIZE, loc="upper right")
+    axes[0].set_title(title, fontsize=TICK_SIZE)
+
+    axes[1].plot(ha_deg, model, lw=LW_FINE, color=TERTIARY_COLOR, label="model")
+    axes[1].set_ylabel("Model")
+    axes[1].legend(fontsize=TICK_SIZE, loc="upper right")
+
+    axes[2].plot(ha_deg, residual, lw=LW_FINE, color=SECONDARY_COLOR, label="residual")
+    _zero_line(axes[2])
+    axes[2].set_ylabel("Residual")
+    axes[2].set_xlabel("Hour angle [deg]")
+    axes[2].legend(fontsize=TICK_SIZE, loc="upper right")
+
+    _tight_layout(fig)
+    return fig, axes
+
+
+def plot_bessel_envelope_fit(
+    u_lambda: np.ndarray,
+    observed_envelope: np.ndarray,
+    fitted_envelope: np.ndarray | None = None,
+    zero_crossings_u: np.ndarray | None = None,
+    fitted_diameter_arcmin: float | None = None,
+    *,
+    figsize: tuple[float, float] | None = None,
+) -> tuple[Figure, Axes]:
+    """Observed amplitude envelope with Bessel-function fit overlay.
+
+    Parameters
+    ----------
+    u_lambda : (N,) array
+        Projected baseline in wavelengths.
+    observed_envelope : (N,) array
+        Measured fringe amplitude envelope.
+    fitted_envelope : (N,) array, optional
+        Model Bessel envelope (same shape).
+    zero_crossings_u : array, optional
+        Projected baselines at Bessel zeros (vertical markers).
+    fitted_diameter_arcmin : float, optional
+        If given, annotated on the plot.
+    """
+    if figsize is None:
+        figsize = (TEXTWIDTH_IN, TEXTWIDTH_IN * 0.35)
+    fig, ax = _single_panel(figsize)
+
+    ax.scatter(
+        u_lambda,
+        observed_envelope,
+        s=SCATTER_S_FINE,
+        color=PRIMARY_COLOR,
+        alpha=0.5,
+        label="observed",
+        zorder=2,
+    )
+
+    if fitted_envelope is not None:
+        order = np.argsort(u_lambda)
+        ax.plot(
+            u_lambda[order],
+            fitted_envelope[order],
+            lw=LW_FINE,
+            color=TERTIARY_COLOR,
+            label="Bessel fit",
+            zorder=3,
+        )
+
+    if zero_crossings_u is not None:
+        for k, u_z in enumerate(zero_crossings_u):
+            ax.axvline(
+                u_z,
+                color=SECONDARY_COLOR,
+                lw=LW_GUIDE,
+                ls="--",
+                alpha=0.6,
+                label="null" if k == 0 else None,
+            )
+
+    if fitted_diameter_arcmin is not None:
+        ax.annotate(
+            rf"$\varnothing = {fitted_diameter_arcmin:.2f}$ arcmin",
+            xy=(0.98, 0.92),
+            xycoords="axes fraction",
+            ha="right",
+            fontsize=TICK_SIZE,
+            color=TERTIARY_COLOR,
+        )
+
+    ax.set_xlabel(r"Projected baseline [$\lambda$]")
+    ax.set_ylabel("Amplitude envelope")
+    ax.legend(fontsize=TICK_SIZE, loc="upper left")
+    _tight_layout(fig)
+    return fig, ax
+
+
+def plot_solar_diameter_summary(
+    diameters_arcmin: np.ndarray,
+    errors_arcmin: np.ndarray,
+    labels: list[str] | None = None,
+    *,
+    nominal_arcmin: float = 31.6,
+    figsize: tuple[float, float] | None = None,
+) -> tuple[Figure, Axes]:
+    """Compare diameter estimates from different methods or chips.
+
+    Parameters
+    ----------
+    diameters_arcmin, errors_arcmin : (N,) arrays
+        Central values and uncertainties.
+    labels : list of str, optional
+        Labels for each estimate.
+    """
+    if figsize is None:
+        figsize = (TEXTWIDTH_IN, TEXTWIDTH_IN * 0.3)
+    fig, ax = _single_panel(figsize)
+
+    n = len(diameters_arcmin)
+    y_pos = np.arange(n)
+    if labels is None:
+        labels = [f"#{i}" for i in range(n)]
+
+    ax.errorbar(
+        diameters_arcmin,
+        y_pos,
+        xerr=errors_arcmin,
+        fmt="o",
+        color=PRIMARY_COLOR,
+        markersize=MARKER_MS_SMALL,
+        capsize=ERRORBAR_CAPSIZE_SMALL,
+        zorder=3,
+    )
+    ax.axvline(
+        nominal_arcmin,
+        color=NEUTRAL_COLOR,
+        lw=LW_GUIDE,
+        ls="--",
+        label=f"nominal ({nominal_arcmin:.1f}')",
+    )
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=TICK_SIZE)
+    ax.set_xlabel("Solar diameter [arcmin]")
+    ax.legend(fontsize=TICK_SIZE)
+    _tight_layout(fig)
+    return fig, ax
+
+
+def plot_sunspot_residuals(
+    u_lambda: np.ndarray,
+    residuals: np.ndarray,
+    noise_std: np.ndarray | float | None = None,
+    detections_u: np.ndarray | None = None,
+    *,
+    figsize: tuple[float, float] | None = None,
+) -> tuple[Figure, Axes]:
+    """Residuals from the uniform-disk model with sunspot detections marked.
+
+    Parameters
+    ----------
+    residuals : (N,) array
+        Observed envelope minus disk model.
+    noise_std : float or (N,) array, optional
+        If given, plotted as shaded band.
+    detections_u : array, optional
+        Projected baselines of detected sunspot anomalies (vertical markers).
+    """
+    if figsize is None:
+        figsize = (TEXTWIDTH_IN, TEXTWIDTH_IN * 0.3)
+    fig, ax = _single_panel(figsize)
+
+    ax.scatter(
+        u_lambda, residuals, s=SCATTER_S_FINE, color=PRIMARY_COLOR, alpha=0.5, zorder=2
+    )
+    _zero_line(ax)
+
+    if noise_std is not None:
+        noise = np.broadcast_to(np.asarray(noise_std), residuals.shape)
+        order = np.argsort(u_lambda)
+        ax.fill_between(
+            u_lambda[order],
+            -noise[order],
+            noise[order],
+            alpha=ALPHA_SHADE_LIGHT,
+            color=NEUTRAL_COLOR,
+            label=r"$\pm 1\sigma$ noise",
+            zorder=1,
+        )
+
+    if detections_u is not None:
+        for k, u_d in enumerate(detections_u):
+            ax.axvline(
+                u_d,
+                color=SECONDARY_COLOR,
+                lw=LW_GUIDE,
+                ls=":",
+                alpha=0.7,
+                label="detection" if k == 0 else None,
+            )
+
+    ax.set_xlabel(r"Projected baseline [$\lambda$]")
+    ax.set_ylabel("Residual amplitude")
+    ax.legend(fontsize=TICK_SIZE)
+    _tight_layout(fig)
+    return fig, ax

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -15,6 +15,17 @@ class LocalDCResult:
     window_sec: float
     median_cadence_sec_chips: list[float]
     window_caps_chips: list[int]
+
+
+@dataclass(frozen=True)
+class AdaptiveDCResult:
+    """Result of adaptive rolling-median DC correction."""
+
+    corr_dc_chips: list[np.ndarray]
+    corr_dc: np.ndarray
+    real_offset_chips: list[np.ndarray]
+    window_caps_chips: list[np.ndarray]  # per-capture window sizes per chip
+    window_caps: np.ndarray  # concatenated per-capture window sizes
 
 
 def _odd_window_caps(target_window_caps: int, min_window_caps: int) -> int:
@@ -115,4 +126,126 @@ def local_real_dc_correction(
         window_sec=window_sec,
         median_cadence_sec_chips=median_cadence_sec_chips,
         window_caps_chips=window_caps_chips,
+    )
+
+
+# ===================================================================
+# Adaptive rolling-median DC correction
+# ===================================================================
+
+
+def _adaptive_rolling_median(
+    real_mat: np.ndarray,
+    window_caps: np.ndarray,
+) -> np.ndarray:
+    """Per-capture adaptive rolling nanmedian (variable window width)."""
+    n_cap, _ = real_mat.shape
+    real_offset = np.empty_like(real_mat, dtype=float)
+    for i in range(n_cap):
+        half = int(window_caps[i]) // 2
+        lo = max(0, i - half)
+        hi = min(n_cap, i + half + 1)
+        real_offset[i] = np.nanmedian(real_mat[lo:hi], axis=0)
+    return real_offset
+
+
+def adaptive_real_dc_correction(
+    *,
+    corr_chips: list[np.ndarray],
+    unix_chips: list[np.ndarray],
+    ha_rad_chips: list[np.ndarray],
+    bad_channels: list[int] | tuple[int, ...],
+    b_ew: float = 20.0,
+    freq_hz: float = 10.45e9,
+    dec_rad: float = 0.0,
+    lat_rad: float | None = None,
+    n_periods: float = 3.0,
+    min_window_caps: int = 7,
+    max_window_caps: int = 201,
+) -> AdaptiveDCResult:
+    r"""Adaptive rolling-median DC correction on the real part.
+
+    The window width at each capture scales with the local fringe period
+    :math:`P_f(h) \propto 1/|\cos h|`, keeping a constant number of fringe
+    cycles inside the window regardless of hour angle.
+
+    Parameters
+    ----------
+    corr_chips : list of (N_i, N_CH) complex arrays
+        Raw visibility per chip.
+    unix_chips : list of (N_i,) float arrays
+        Midpoint timestamps per chip.
+    ha_rad_chips : list of (N_i,) float arrays
+        Hour angle in radians per chip.
+    bad_channels : sequence of int
+        Channel indices to mask (set to NaN).
+    b_ew : float
+        East-west baseline in metres (for fringe period calculation).
+    freq_hz : float
+        Observing frequency in Hz.
+    dec_rad : float
+        Source declination in radians.
+    n_periods : float
+        Number of fringe periods per window.
+    min_window_caps, max_window_caps : int
+        Clamp range for the window size in captures.
+    """
+    from .geometry import fringe_period_s
+
+    if len(corr_chips) != len(unix_chips) or len(corr_chips) != len(ha_rad_chips):
+        raise ValueError("corr_chips, unix_chips, and ha_rad_chips must have the same length.")
+
+    bad_ch = np.asarray(bad_channels, dtype=int)
+    dc_chips: list[np.ndarray] = []
+    offset_chips: list[np.ndarray] = []
+    wcaps_chips: list[np.ndarray] = []
+
+    for corr, unix, ha_rad in zip(corr_chips, unix_chips, ha_rad_chips):
+        corr = np.asarray(corr, dtype=complex).copy()
+        unix = np.asarray(unix, dtype=float)
+        ha_rad = np.asarray(ha_rad, dtype=float)
+        n_cap = corr.shape[0]
+
+        # Local fringe period at each capture
+        local_period = fringe_period_s(ha_rad, dec_rad, b_ew, 0.0, freq_hz)
+
+        # Desired window in seconds, then convert to captures
+        window_sec = n_periods * local_period
+        dt = np.diff(unix)
+        cadence = np.empty(n_cap)
+        cadence[0] = dt[0] if len(dt) > 0 else 1.0
+        cadence[-1] = dt[-1] if len(dt) > 0 else 1.0
+        if n_cap > 2:
+            cadence[1:-1] = 0.5 * (dt[:-1] + dt[1:])
+        cadence = np.clip(cadence, 0.5, None)
+
+        win_caps = np.round(window_sec / cadence).astype(int)
+        win_caps = np.clip(win_caps, min_window_caps, max_window_caps)
+        win_caps = win_caps | 1  # ensure odd
+
+        # Prepare real matrix with bad channels zeroed
+        real_mat = corr.real.astype(float).copy()
+        if bad_ch.size:
+            real_mat[:, bad_ch] = 0.0
+
+        real_offset = _adaptive_rolling_median(real_mat, win_caps)
+
+        if bad_ch.size:
+            corr[:, bad_ch] = np.nan
+            real_offset[:, bad_ch] = np.nan
+
+        corr_dc = corr - real_offset
+        if bad_ch.size:
+            corr_dc[:, bad_ch] = np.nan
+
+        dc_chips.append(corr_dc)
+        offset_chips.append(real_offset)
+        wcaps_chips.append(win_caps)
+
+    return AdaptiveDCResult(
+        corr_dc_chips=dc_chips,
+        corr_dc=np.vstack(dc_chips),
+        real_offset_chips=offset_chips,
+        window_caps_chips=wcaps_chips,
+        window_caps=np.concatenate(wcaps_chips),
     )

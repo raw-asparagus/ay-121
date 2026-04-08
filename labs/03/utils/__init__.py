@@ -38,6 +38,8 @@ from .chip_exports import (
 from .dc import (
     LocalDCResult,
     local_real_dc_correction,
+    AdaptiveDCResult,
+    adaptive_real_dc_correction,
 )
 from .constants import (
     C_LIGHT_MS,

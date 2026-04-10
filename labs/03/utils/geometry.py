@@ -21,7 +21,8 @@ __all__ = [
     "hour_angle_rad",
     "geometric_delay_s",
     "effective_geometric_delay_s",
-    "projected_baseline_lambda",
+    "delay_baseline_lambda",
+    "sky_baseline_lambda",
     "fringe_frequency_hz",
     "fringe_period_s",
     "x_coordinate",
@@ -157,7 +158,7 @@ def effective_geometric_delay_s(
 # ---------------------------------------------------------------------------
 
 
-def projected_baseline_lambda(
+def delay_baseline_lambda(
     ha_rad: np.ndarray | float,
     dec_rad: float,
     b_ew: float,
@@ -165,19 +166,65 @@ def projected_baseline_lambda(
     freq_hz: float | np.ndarray,
     lat_rad: float = np.deg2rad(NCH_LAT_DEG),
 ) -> np.ndarray | float:
-    r"""Projected baseline in units of wavelength (spatial frequency *u*).
+    r"""Delay in units of wavelength (the *w*-component).
 
     .. math::
 
-        u = \nu\,\tau_g(h)
+        w = \nu\,\tau_g(h)
 
-    Parameters
-    ----------
-    freq_hz : float or array_like
-        Observing frequency in Hz.
+    This is the component of the baseline **along** the line of sight.
+    It is zero at transit (for a pure EW baseline) and maximum at the horizon.
+
+    .. note::
+
+        For the Bessel-function visibility of an extended source, use
+        :func:`sky_baseline_lambda` instead — that gives the sky-plane
+        component perpendicular to the line of sight.
     """
     tau = geometric_delay_s(ha_rad, dec_rad, b_ew, b_ns, lat_rad)
     return np.asarray(freq_hz) * tau
+
+
+def sky_baseline_lambda(
+    ha_rad: np.ndarray | float,
+    dec_rad: float,
+    b_ew: float,
+    b_ns: float = 0.0,
+    freq_hz: float = 10.5e9,
+    lat_rad: float = np.deg2rad(NCH_LAT_DEG),
+) -> np.ndarray | float:
+    r"""Full 2-D projected baseline on the sky plane, in wavelengths.
+
+    The sky-plane spatial frequency relevant to the Bessel-function
+    modulation of an extended source has **two** components:
+
+    .. math::
+
+        u(h) = \frac{|f_f|}{\omega_\oplus}
+             = \left|\frac{b_{\rm ew}}{\lambda}\cos\delta\,\cos h
+               - \frac{b_{\rm ns}}{\lambda}\sin L\,\cos\delta\,\sin h\right|
+
+    (the time-varying component that produces fringes), and
+
+    .. math::
+
+        v_0 = \frac{b_{\rm ns}\cos L}{\lambda}
+
+    (a constant component from the NS baseline projected perpendicular to
+    the Earth's rotation axis).  The total sky-plane spatial frequency is
+
+    .. math::
+
+        q(h) = \sqrt{u(h)^2 + v_0^2}
+
+    For a purely EW baseline (:math:`b_{\rm ns} = 0`), :math:`v_0 = 0` and
+    :math:`q = |u|` — the 1-D approximation used in many textbooks.
+    """
+    ff = fringe_frequency_hz(ha_rad, dec_rad, b_ew, b_ns, freq_hz, lat_rad)
+    u = np.abs(ff) / OMEGA_EARTH_RAD_S
+    lam = C_LIGHT_MS / freq_hz
+    v0 = b_ns * np.cos(lat_rad) / lam
+    return np.sqrt(u**2 + v0**2)
 
 
 # ---------------------------------------------------------------------------

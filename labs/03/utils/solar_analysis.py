@@ -18,7 +18,7 @@ from .fringe_model import (
     uniform_disk_visibility_amplitude,
     uniform_disk_visibility_signed,
 )
-from .geometry import projected_baseline_lambda
+from .geometry import sky_baseline_lambda
 
 __all__ = [
     "SolarDiameterResult",
@@ -112,7 +112,7 @@ def extract_fringe_envelope(
 
     # Projected baseline at band-centre frequency
     freq_center = np.mean(freq_hz)
-    u_lambda = projected_baseline_lambda(
+    u_lambda = sky_baseline_lambda(
         ha_rad, dec_rad, b_ew, b_ns, freq_center, lat_rad
     )
 
@@ -135,6 +135,8 @@ def find_bessel_zeros_in_envelope(
     envelope: np.ndarray,
     *,
     smooth_window: int = 5,
+    min_u_lambda: float | None = None,
+    expected_diameter_arcmin: float = 32.0,
 ) -> np.ndarray:
     """Locate projected-baseline values where the fringe envelope crosses zero.
 
@@ -142,14 +144,34 @@ def find_bessel_zeros_in_envelope(
     envelope is first smoothed to suppress noise, then local minima below a
     threshold are identified as approximate null locations.
 
+    Parameters
+    ----------
+    min_u_lambda : float, optional
+        Minimum |u| to consider.  Detections below this are discarded
+        (they are usually noise near the horizon where |u| is small).
+        If *None*, a guard is computed automatically as half the expected
+        first-null baseline for a disk of *expected_diameter_arcmin*.
+    expected_diameter_arcmin : float
+        Approximate solar diameter used to set the automatic minimum-|u|
+        guard.  Only used when *min_u_lambda* is None.
+
     Returns
     -------
     u_at_zeros : array
         Projected baseline values at each detected zero crossing.
     """
+    # Automatic minimum-|u| guard: half the expected first-null baseline
+    if min_u_lambda is None:
+        R_approx = np.deg2rad(expected_diameter_arcmin / 2.0 / 60.0)
+        j1_1 = jn_zeros(1, 1)[0]  # ≈ 3.8317
+        u_first_null = j1_1 / (2.0 * np.pi * R_approx)
+        min_u_lambda = 0.5 * u_first_null
+
     # Sort by |u|
-    order = np.argsort(np.abs(u_lambda))
+    u_abs = np.abs(u_lambda)
+    order = np.argsort(u_abs)
     u_sorted = u_lambda[order]
+    u_abs_sorted = u_abs[order]
     env_sorted = envelope[order]
 
     # Smooth
@@ -165,12 +187,13 @@ def find_bessel_zeros_in_envelope(
         return np.array([])
     env_norm = env_smooth / peak
 
-    # Find local minima below threshold (candidate nulls)
+    # Find local minima below threshold (candidate nulls), respecting |u| guard
     threshold = 0.15
     zeros = []
     for i in range(1, len(env_norm) - 1):
         if (
-            env_norm[i] < env_norm[i - 1]
+            u_abs_sorted[i] >= min_u_lambda
+            and env_norm[i] < env_norm[i - 1]
             and env_norm[i] < env_norm[i + 1]
             and env_norm[i] < threshold
         ):
@@ -187,6 +210,9 @@ def find_bessel_zeros_in_envelope(
 def solar_diameter_from_zeros(
     zero_u_lambda: np.ndarray,
     n_zeros_to_use: int | None = None,
+    *,
+    expected_diameter_arcmin: float = 32.0,
+    n_candidate_nulls: int = 10,
 ) -> SolarDiameterResult:
     r"""Angular diameter from Bessel-function zero crossings.
 
@@ -198,12 +224,23 @@ def solar_diameter_from_zeros(
 
     so :math:`R = j_{1,k} / (2\pi\,|u_k|)`.
 
+    Each detected null is matched to the nearest *theoretical* null
+    (computed from the expected diameter) rather than blindly assigning
+    :math:`j_{1,1}` to the first detection.  This prevents incorrect
+    indexing when the first Bessel null falls outside the observed
+    baseline range.
+
     Parameters
     ----------
     zero_u_lambda : array_like
         Projected baselines at observed nulls (in wavelengths).
     n_zeros_to_use : int, optional
         How many zeros to use (default: all).
+    expected_diameter_arcmin : float
+        Approximate solar diameter for matching detected nulls to
+        theoretical null orders.
+    n_candidate_nulls : int
+        Number of theoretical Bessel nulls to consider when matching.
     """
     zeros = np.abs(np.asarray(zero_u_lambda))
     if len(zeros) == 0:
@@ -216,11 +253,39 @@ def solar_diameter_from_zeros(
     if n_zeros_to_use is not None:
         zeros = zeros[: n_zeros_to_use]
 
-    j1_zeros = jn_zeros(1, len(zeros))
-    u_R_theory = j1_zeros / (2.0 * np.pi)  # theoretical u*R at each null
+    # Theoretical null baselines for the expected diameter
+    R_expected = np.deg2rad(expected_diameter_arcmin / 2.0 / 60.0)
+    j1_all = jn_zeros(1, n_candidate_nulls)
+    u_null_theory = j1_all / (2.0 * np.pi * R_expected)  # |u| at each null
+
+    # Match each detected null to the nearest theoretical null
+    matched_j1 = []
+    matched_u = []
+    used_theory = set()
+    for u_det in np.sort(zeros):
+        dists = np.abs(u_null_theory - u_det)
+        best = np.argmin(dists)
+        # Only accept if within 40% of the null spacing to avoid mis-assignment
+        spacing = u_null_theory[1] - u_null_theory[0] if len(u_null_theory) > 1 else u_null_theory[0]
+        if dists[best] < 0.4 * spacing and best not in used_theory:
+            matched_j1.append(j1_all[best])
+            matched_u.append(u_det)
+            used_theory.add(best)
+
+    matched_j1 = np.array(matched_j1)
+    matched_u = np.array(matched_u)
+
+    if len(matched_u) == 0:
+        return SolarDiameterResult(
+            diameter_arcmin=np.nan,
+            diameter_err_arcmin=np.inf,
+            method="bessel_zeros",
+        )
+
+    u_R_theory = matched_j1 / (2.0 * np.pi)
 
     # Each null gives an estimate of R
-    R_estimates = u_R_theory / zeros  # angular radius in radians
+    R_estimates = u_R_theory / matched_u  # angular radius in radians
 
     R_mean = np.mean(R_estimates)
     R_err = np.std(R_estimates) / np.sqrt(len(R_estimates)) if len(R_estimates) > 1 else np.inf
@@ -235,8 +300,8 @@ def solar_diameter_from_zeros(
         zero_crossings_u_R=u_R_theory,
         fitted_params={
             "R_rad_per_null": R_estimates,
-            "u_observed": zeros,
-            "j1_zeros_used": j1_zeros,
+            "u_observed": matched_u,
+            "j1_zeros_used": matched_j1,
         },
     )
 
@@ -320,7 +385,7 @@ def fit_solar_diameter_bessel(
     if sigma is not None:
         chi2 = np.sum((resid / sigma) ** 2)
     else:
-        chi2 = np.sum(resid**2) / (np.var(resid) if np.var(resid) > 0 else 1.0)
+        chi2 = np.sum(resid**2)
     dof = max(1, len(u_fit) - 2)
     chi2_red = chi2 / dof
 
@@ -415,7 +480,7 @@ def detect_sunspot_anomalies(
             global_indices = np.where(mask)[0]
             gi = global_indices[peak_in_region]
 
-            flux_frac = peak_env / v0 if v0 > 0 else np.nan
+            flux_frac = np.abs(peak_resid) / v0 if v0 > 0 else np.nan
 
             detections.append(
                 SunspotDetection(

@@ -1,16 +1,19 @@
 """Baseline determination from interferometric fringe observations.
 
-Three independent methods are provided, each returning a standardised
+Four independent methods are provided, each returning a standardised
 :class:`BaselineResult`.  A combined inverse-variance estimator is also
 available.
 
 Methods
 -------
-1. **FFT in x-coordinate** — remap visibility to the linearised coordinate
-   ``x = cos(dec) sin(h)`` and FFT to find the fringe spatial frequency.
-2. **Phase slope** — fit unwrapped phase against ``sin(h)`` per channel.
-3. **Lag-spectrum delay** — IFFT the cross-spectrum to obtain geometric delay,
-   then fit ``tau(sin h)`` across captures.
+1. **FFT in x-coordinate** — remap visibility to ``x = cos(dec) sin(h)``
+   and FFT to find the fringe spatial frequency (B_EW only).
+2. **Phase slope** — fit unwrapped phase against ``[sin(h), cos(h)]``
+   per channel (B_EW and B_NS).
+3. **Lag-spectrum delay** — IFFT the cross-spectrum to obtain geometric
+   delay, then fit ``tau = A sin(h) + B cos(h) + tau_inst`` (B_EW and B_NS).
+4. **NLS fringe fit** — nonlinear least-squares fit of the full fringe
+   equation with separable linear/nonlinear parameters (B_EW and B_NS).
 """
 
 from __future__ import annotations
@@ -22,8 +25,17 @@ import numpy as np
 from .constants import C_LIGHT_MS, NCH_LAT_DEG
 from .geometry import geometric_delay_s, x_coordinate
 
+
+def _as_dec_array(dec_rad: float | np.ndarray, n: int) -> np.ndarray:
+    """Broadcast scalar or array declination to shape (n,)."""
+    d = np.asarray(dec_rad, dtype=float)
+    if d.ndim == 0:
+        return np.broadcast_to(d, n).copy()
+    return d
+
 __all__ = [
     "BaselineResult",
+    "GridSearchResult",
     "fft_baseline_single_channel",
     "fft_baseline_broadband",
     "phase_slope_baseline_single_channel",
@@ -32,6 +44,7 @@ __all__ = [
     "lag_delay_baseline_series",
     "nls_baseline_single_channel",
     "nls_baseline_broadband",
+    "grid_search_baseline",
     "combined_baseline",
 ]
 
@@ -100,7 +113,7 @@ def _fft_sorted_local_peaks(
 def fft_baseline_single_channel(
     ha_rad: np.ndarray,
     visibility_dc: np.ndarray,
-    dec_rad: float,
+    dec_rad: float | np.ndarray,
     freq_hz: float,
     *,
     pad_factor: int = _FFT_PAD_FACTOR,
@@ -282,26 +295,35 @@ def fft_baseline_broadband(
 def phase_slope_baseline_single_channel(
     ha_rad: np.ndarray,
     visibility_dc: np.ndarray,
-    dec_rad: float,
+    dec_rad: float | np.ndarray,
     freq_hz: float,
     *,
     lat_rad: float = np.deg2rad(NCH_LAT_DEG),
     min_samples: int = 4,
 ) -> BaselineResult | None:
-    r"""Baseline from unwrapped-phase slope against ``sin(h)`` and ``cos(h)``.
+    r"""Baseline from unwrapped-phase slope.
 
-    Fits:
-
-    .. math::
-
-        \phi(h) = A\,\sin h + B\,\cos h + \phi_0
-
-    then converts:
+    Fits the per-capture phase using the physical regressors:
 
     .. math::
 
-        b_{\rm ew} = \frac{-A\,c}{2\pi\,\nu\,\cos\delta}, \quad
-        b_{\rm ns} = \frac{-B\,c}{2\pi\,\nu\,\sin L\,\cos\delta}.
+        \phi_i = \frac{2\pi\nu}{c}\bigl[
+            b_{\rm ew}\cos\delta_i\,\sin h_i
+          + b_{\rm ns}\sin L\,\cos\delta_i\,\cos h_i
+        \bigr] + \phi_c
+
+    The design matrix is :math:`[\cos\delta_i\sin h_i,\;\sin L\cos\delta_i
+    \cos h_i,\;1]`, so the fit coefficients directly give:
+
+    .. math::
+
+        b_{\rm ew} = \frac{A\,c}{2\pi\nu}, \quad
+        b_{\rm ns} = \frac{B\,c}{2\pi\nu}.
+
+    Parameters
+    ----------
+    dec_rad : float or (N,) array
+        Source declination in radians (scalar or per-capture).
 
     Returns ``None`` if fewer than *min_samples* valid points.
     """
@@ -309,27 +331,27 @@ def phase_slope_baseline_single_channel(
     vis = np.asarray(visibility_dc, dtype=complex)
 
     valid = np.isfinite(vis)
-    if valid.sum() < min_samples:
+    n = int(valid.sum())
+    if n < min_samples:
         return None
 
+    dec = _as_dec_array(dec_rad, len(ha))
     phase = np.unwrap(np.angle(vis[valid]))
-    sin_h = np.sin(ha[valid])
-    cos_h = np.cos(ha[valid])
+    cos_dec = np.cos(dec[valid])
+    sin_lat = np.sin(lat_rad)
 
-    # Design matrix: [sin(h), cos(h), 1]
-    n = int(valid.sum())
-    X = np.column_stack([sin_h, cos_h, np.ones(n)])
-    # Least-squares solve
+    # Physical regressors: cos(δ)sin(h) and sin(L)cos(δ)cos(h)
+    r_ew = cos_dec * np.sin(ha[valid])
+    r_ns = sin_lat * cos_dec * np.cos(ha[valid])
+
+    X = np.column_stack([r_ew, r_ns, np.ones(n)])
     result = np.linalg.lstsq(X, phase, rcond=None)
     coeffs = result[0]  # [A, B, phi_0]
     A, B, phi_0 = coeffs
 
-    cos_dec = np.cos(dec_rad)
-    sin_lat = np.sin(lat_rad)
     scale = C_LIGHT_MS / (2.0 * np.pi * freq_hz)
-
-    b_ew = -A * scale / cos_dec
-    b_ns = -B * scale / (sin_lat * cos_dec) if abs(sin_lat * cos_dec) > 1e-15 else np.nan
+    b_ew = A * scale
+    b_ns = B * scale
 
     # Uncertainty from residual covariance
     resid = phase - X @ coeffs
@@ -341,12 +363,8 @@ def phase_slope_baseline_single_channel(
 
     A_err = np.sqrt(max(0, cov[0, 0]))
     B_err = np.sqrt(max(0, cov[1, 1]))
-    b_ew_err = np.abs(A_err * scale / cos_dec)
-    b_ns_err = (
-        np.abs(B_err * scale / (sin_lat * cos_dec))
-        if abs(sin_lat * cos_dec) > 1e-15
-        else np.inf
-    )
+    b_ew_err = np.abs(A_err * scale)
+    b_ns_err = np.abs(B_err * scale)
 
     chi2 = resid_var  # already divided by dof
 
@@ -370,7 +388,7 @@ def phase_slope_baseline_single_channel(
 def phase_slope_baseline_broadband(
     ha_rad: np.ndarray,
     corr_dc: np.ndarray,
-    dec_rad: float,
+    dec_rad: float | np.ndarray,
     f_sky_hz: np.ndarray,
     *,
     bad_channels: np.ndarray | tuple | None = None,
@@ -391,7 +409,10 @@ def phase_slope_baseline_broadband(
         good &= (f_sky_hz >= band_hz[0]) & (f_sky_hz <= band_hz[1])
 
     per_ch = np.full(
-        n_ch, np.nan, dtype=[("b_ew_m", float), ("b_ew_err_m", float)]
+        n_ch,
+        np.nan,
+        dtype=[("b_ew_m", float), ("b_ew_err_m", float),
+               ("b_ns_m", float), ("b_ns_err_m", float)],
     )
 
     for k in np.where(good)[0]:
@@ -401,18 +422,31 @@ def phase_slope_baseline_broadband(
         if res is not None:
             per_ch[k]["b_ew_m"] = res.b_ew_m
             per_ch[k]["b_ew_err_m"] = res.b_ew_err_m
+            per_ch[k]["b_ns_m"] = res.b_ns_m
+            per_ch[k]["b_ns_err_m"] = res.b_ns_err_m
 
     valid = np.isfinite(per_ch["b_ew_m"])
     if not valid.any():
         return None, per_ch
 
-    b_vals = per_ch["b_ew_m"][valid]
-    mean_b = np.mean(b_vals)
-    std_b = np.std(b_vals) / np.sqrt(len(b_vals)) if len(b_vals) > 1 else np.inf
+    b_ew_vals = per_ch["b_ew_m"][valid]
+    mean_ew = np.mean(b_ew_vals)
+    std_ew = np.std(b_ew_vals) / np.sqrt(len(b_ew_vals)) if len(b_ew_vals) > 1 else np.inf
+
+    b_ns_vals = per_ch["b_ns_m"][valid]
+    finite_ns = np.isfinite(b_ns_vals)
+    if finite_ns.sum() > 1:
+        mean_ns = np.nanmean(b_ns_vals[finite_ns])
+        std_ns = np.nanstd(b_ns_vals[finite_ns]) / np.sqrt(finite_ns.sum())
+    else:
+        mean_ns = np.nanmean(b_ns_vals) if finite_ns.any() else np.nan
+        std_ns = np.inf
 
     result = BaselineResult(
-        b_ew_m=mean_b,
-        b_ew_err_m=std_b,
+        b_ew_m=mean_ew,
+        b_ew_err_m=std_ew,
+        b_ns_m=mean_ns,
+        b_ns_err_m=std_ns,
         method="phase_slope_broadband",
         n_points=int(valid.sum()),
     )
@@ -488,7 +522,7 @@ def lag_delay_single_capture(
 def lag_delay_baseline_series(
     ha_rad: np.ndarray,
     corr_dc: np.ndarray,
-    dec_rad: float,
+    dec_rad: float | np.ndarray,
     df_hz: float,
     *,
     lat_rad: float = np.deg2rad(NCH_LAT_DEG),
@@ -498,25 +532,19 @@ def lag_delay_baseline_series(
 ) -> BaselineResult | None:
     r"""Baseline from lag-spectrum delays fitted across captures.
 
-    For each capture, computes the IFFT delay, then fits:
+    For each capture, computes the IFFT delay, then fits using the
+    physical regressors (with per-capture declination):
 
     .. math::
 
-        \tau(h) = A\,\sin h + B\,\cos h + \tau_{\rm inst}
-
-    where :math:`A = (b_{\rm ew}/c)\cos\delta` and
-    :math:`B = (b_{\rm ns}/c)\sin L\,\cos\delta`.
+        \tau_i = b_{\rm ew}\,\frac{\cos\delta_i\,\sin h_i}{c}
+               + b_{\rm ns}\,\frac{\sin L\,\cos\delta_i\,\cos h_i}{c}
+               + \tau_{\rm inst}
 
     Parameters
     ----------
-    corr_dc : (N_cap, N_CH) complex array
-        DC-corrected visibility per capture.
-    dec_rad : float
-        Source declination.
-    df_hz : float
-        Channel spacing in Hz.
-    lat_rad : float
-        Observatory latitude in radians.
+    dec_rad : float or (N_cap,) array
+        Source declination in radians (scalar or per-capture).
 
     Returns ``None`` if fewer than 4 valid captures.
     """
@@ -539,27 +567,23 @@ def lag_delay_baseline_series(
     if n < 4:
         return None
 
-    sin_h = np.sin(ha_rad[valid])
-    cos_h = np.cos(ha_rad[valid])
+    dec = _as_dec_array(dec_rad, n_cap)
+    cos_dec = np.cos(dec[valid])
+    sin_lat = np.sin(lat_rad)
     tau_valid = tau_ns[valid]
 
-    # Design matrix: [sin(h), cos(h), 1]
-    X = np.column_stack([sin_h, cos_h, np.ones(n)])
+    # Physical regressors (delay in ns = b/c * geometry * 1e9)
+    r_ew = cos_dec * np.sin(ha_rad[valid])  # (b_ew/c) * r_ew gives delay
+    r_ns = sin_lat * cos_dec * np.cos(ha_rad[valid])
+
+    X = np.column_stack([r_ew, r_ns, np.ones(n)])
     result = np.linalg.lstsq(X, tau_valid, rcond=None)
     coeffs = result[0]  # [A_ns, B_ns, tau_inst_ns]
     A_ns, B_ns, tau_inst_ns = coeffs
 
-    cos_dec = np.cos(dec_rad)
-    sin_lat = np.sin(lat_rad)
-
-    # A_ns = (b_ew / c) * cos_dec  [in ns, so multiply by 1e-9]
-    b_ew = A_ns * 1e-9 * C_LIGHT_MS / cos_dec
-    # B_ns = (b_ns / c) * sin_lat * cos_dec  [in ns]
-    b_ns = (
-        B_ns * 1e-9 * C_LIGHT_MS / (sin_lat * cos_dec)
-        if abs(sin_lat * cos_dec) > 1e-15
-        else np.nan
-    )
+    # A_ns = b_ew / c * 1e9,  B_ns = b_ns / c * 1e9
+    b_ew = A_ns * 1e-9 * C_LIGHT_MS
+    b_ns = B_ns * 1e-9 * C_LIGHT_MS
 
     # Uncertainty from residual covariance
     resid = tau_valid - X @ coeffs
@@ -571,12 +595,8 @@ def lag_delay_baseline_series(
 
     A_err = np.sqrt(max(0, cov[0, 0]))
     B_err = np.sqrt(max(0, cov[1, 1]))
-    b_ew_err = np.abs(A_err * 1e-9 * C_LIGHT_MS / cos_dec)
-    b_ns_err = (
-        np.abs(B_err * 1e-9 * C_LIGHT_MS / (sin_lat * cos_dec))
-        if abs(sin_lat * cos_dec) > 1e-15
-        else np.inf
-    )
+    b_ew_err = np.abs(A_err * 1e-9 * C_LIGHT_MS)
+    b_ns_err = np.abs(B_err * 1e-9 * C_LIGHT_MS)
 
     chi2 = resid_var
 
@@ -605,76 +625,81 @@ def lag_delay_baseline_series(
 # ===================================================================
 
 
-def _nls_residual(
-    q_vec: np.ndarray,
+def _nls_residual_complex(
+    b_vec: np.ndarray,
     ha_rad: np.ndarray,
-    vis_real: np.ndarray,
+    cos_dec: np.ndarray,
+    sin_lat: float,
+    freq_hz: float,
+    vis_re: np.ndarray,
+    vis_im: np.ndarray,
 ) -> np.ndarray:
-    r"""Residual function for the NLS fringe fit.
+    r"""Residual function for the complex NLS fringe fit.
 
-    The model is :math:`F(h) = A\cos\psi + B\sin\psi` where
-    :math:`\psi = 2\pi(Q_{\rm ew}\sin h + Q_{\rm ns}\cos h)`.
-
-    For fixed :math:`(Q_{\rm ew}, Q_{\rm ns})`, the model is **linear** in
-    :math:`(A, B)`, so we solve for them analytically and return the residual.
+    Parameters *b_vec* = ``[b_ew, b_ns]`` in metres.  The phase argument
+    uses per-capture declination via *cos_dec*.
     """
-    Q_ew, Q_ns = q_vec
-    psi = 2.0 * np.pi * (Q_ew * np.sin(ha_rad) + Q_ns * np.cos(ha_rad))
+    b_ew, b_ns = b_vec
+    lam = C_LIGHT_MS / freq_hz
+    psi = 2.0 * np.pi * (
+        (b_ew / lam) * cos_dec * np.sin(ha_rad)
+        + (b_ns / lam) * sin_lat * cos_dec * np.cos(ha_rad)
+    )
     cos_psi = np.cos(psi)
     sin_psi = np.sin(psi)
 
-    # Solve the 2x2 linear system for A, B
-    # [sum(cos^2)  sum(cos*sin)] [A]   [sum(y*cos)]
-    # [sum(cos*sin) sum(sin^2) ] [B] = [sum(y*sin)]
-    cc = np.sum(cos_psi * cos_psi)
-    ss = np.sum(sin_psi * sin_psi)
-    cs = np.sum(cos_psi * sin_psi)
-    yc = np.sum(vis_real * cos_psi)
-    ys = np.sum(vis_real * sin_psi)
-
+    # Normal equations: X = [cos_psi, sin_psi], solve X a = y for real and imag
+    cc = np.dot(cos_psi, cos_psi)
+    ss = np.dot(sin_psi, sin_psi)
+    cs = np.dot(cos_psi, sin_psi)
     det = cc * ss - cs * cs
     if abs(det) < 1e-30:
-        return vis_real  # degenerate — return raw data as residual
-    A = (ss * yc - cs * ys) / det
-    B = (cc * ys - cs * yc) / det
+        return np.concatenate([vis_re, vis_im])
 
-    return vis_real - (A * cos_psi + B * sin_psi)
+    # Real part: Re(V) = A cos_psi + B sin_psi
+    yc_r = np.dot(vis_re, cos_psi)
+    ys_r = np.dot(vis_re, sin_psi)
+    A = (ss * yc_r - cs * ys_r) / det
+    B = (cc * ys_r - cs * yc_r) / det
+
+    # Imaginary part: Im(V) = C cos_psi + D sin_psi
+    yc_i = np.dot(vis_im, cos_psi)
+    ys_i = np.dot(vis_im, sin_psi)
+    C = (ss * yc_i - cs * ys_i) / det
+    D = (cc * ys_i - cs * yc_i) / det
+
+    resid_re = vis_re - (A * cos_psi + B * sin_psi)
+    resid_im = vis_im - (C * cos_psi + D * sin_psi)
+    return np.concatenate([resid_re, resid_im])
 
 
 def nls_baseline_single_channel(
     ha_rad: np.ndarray,
     visibility_dc: np.ndarray,
-    dec_rad: float,
+    dec_rad: float | np.ndarray,
     freq_hz: float,
     *,
     lat_rad: float = np.deg2rad(NCH_LAT_DEG),
     min_samples: int = 16,
-    q_ew_init: float | None = None,
-    q_ns_init: float = 0.0,
+    b_ew_init: float | None = None,
+    b_ns_init: float = 0.0,
 ) -> BaselineResult | None:
-    r"""Baseline from nonlinear least-squares fit of the full fringe equation.
+    r"""Baseline from nonlinear least-squares fit of the full complex visibility.
 
-    Fits the model:
-
-    .. math::
-
-        F(h) = A\cos(2\pi\psi) + B\sin(2\pi\psi), \quad
-        \psi = Q_{\rm ew}\sin h + Q_{\rm ns}\cos h
-
-    where :math:`Q_{\rm ew} = (b_{\rm ew}/\lambda)\cos\delta` and
-    :math:`Q_{\rm ns} = (b_{\rm ns}/\lambda)\sin L\,\cos\delta`.
-
-    The parameters :math:`(A, B)` are solved analytically at each iteration
-    (they are linear), while :math:`(Q_{\rm ew}, Q_{\rm ns})` are optimised
-    via ``scipy.optimize.least_squares``.
+    Fits both real and imaginary parts simultaneously.  The nonlinear
+    parameters are :math:`(b_{\rm ew}, b_{\rm ns})` in metres; the linear
+    parameters :math:`(A, B, C, D)` are solved analytically at each step.
+    Per-capture declination is supported.
 
     Parameters
     ----------
-    q_ew_init : float, optional
-        Initial guess for :math:`Q_{\rm ew}` (default: estimated from the
-        nominal 20 m baseline).
-    q_ns_init : float
-        Initial guess for :math:`Q_{\rm ns}` (default: 0).
+    dec_rad : float or (N,) array
+        Source declination in radians (scalar or per-capture).
+    b_ew_init : float, optional
+        Initial guess for :math:`b_{\rm ew}` in metres (default: seeded
+        from the phase-slope result).
+    b_ns_init : float
+        Initial guess for :math:`b_{\rm ns}` in metres (default: 0).
 
     Returns ``None`` if fewer than *min_samples* valid points.
     """
@@ -688,60 +713,70 @@ def nls_baseline_single_channel(
     if n < min_samples:
         return None
 
-    vis_real = vis[valid].real
+    dec = _as_dec_array(dec_rad, len(ha))
+    vis_re = vis[valid].real
+    vis_im = vis[valid].imag
     ha_valid = ha[valid]
-
-    lam = C_LIGHT_MS / freq_hz
-    cos_dec = np.cos(dec_rad)
+    cos_dec_valid = np.cos(dec[valid])
     sin_lat = np.sin(lat_rad)
 
-    if q_ew_init is None:
-        q_ew_init = 20.0 / lam * cos_dec  # nominal 20 m baseline
+    if b_ew_init is None:
+        ps_res = phase_slope_baseline_single_channel(
+            ha_rad, visibility_dc, dec_rad, freq_hz,
+            lat_rad=lat_rad, min_samples=min_samples,
+        )
+        if ps_res is not None:
+            b_ew_init = ps_res.b_ew_m
+            if np.isfinite(ps_res.b_ns_m):
+                b_ns_init = ps_res.b_ns_m
+        else:
+            fft_res = fft_baseline_single_channel(
+                ha_rad, visibility_dc, dec_rad, freq_hz, min_samples=min_samples,
+            )
+            b_ew_init = fft_res.b_ew_m if fft_res is not None else 20.0
 
     sol = least_squares(
-        _nls_residual,
-        x0=[q_ew_init, q_ns_init],
-        args=(ha_valid, vis_real),
+        _nls_residual_complex,
+        x0=[b_ew_init, b_ns_init],
+        args=(ha_valid, cos_dec_valid, sin_lat, freq_hz, vis_re, vis_im),
         method="lm",
     )
 
-    Q_ew, Q_ns = sol.x
-    b_ew = Q_ew * lam / cos_dec
-    b_ns = Q_ns * lam / (sin_lat * cos_dec) if abs(sin_lat * cos_dec) > 1e-15 else np.nan
+    b_ew, b_ns = sol.x
 
-    # Uncertainty from Jacobian
-    # J = d(residual)/d(Q_ew, Q_ns) at solution
-    # cov ≈ (J^T J)^{-1} * s^2 where s^2 = sum(resid^2) / (n - 4)
+    # Uncertainty: residual has 2n points, 6 effective params
     resid = sol.fun
-    dof = max(1, n - 4)  # 4 params: Q_ew, Q_ns, A, B
+    dof = max(1, 2 * n - 6)
     s2 = np.sum(resid**2) / dof
     try:
         JtJ = sol.jac.T @ sol.jac
-        cov_Q = s2 * np.linalg.inv(JtJ)
-        Q_ew_err = np.sqrt(max(0, cov_Q[0, 0]))
-        Q_ns_err = np.sqrt(max(0, cov_Q[1, 1]))
+        cov_b = s2 * np.linalg.inv(JtJ)
+        b_ew_err = np.sqrt(max(0, cov_b[0, 0]))
+        b_ns_err = np.sqrt(max(0, cov_b[1, 1]))
     except np.linalg.LinAlgError:
-        Q_ew_err = np.inf
-        Q_ns_err = np.inf
+        b_ew_err = np.inf
+        b_ns_err = np.inf
 
-    b_ew_err = np.abs(Q_ew_err * lam / cos_dec)
-    b_ns_err = (
-        np.abs(Q_ns_err * lam / (sin_lat * cos_dec))
-        if abs(sin_lat * cos_dec) > 1e-15
-        else np.inf
+    # Recover linear params at solution
+    lam = C_LIGHT_MS / freq_hz
+    psi = 2.0 * np.pi * (
+        (b_ew / lam) * cos_dec_valid * np.sin(ha_valid)
+        + (b_ns / lam) * sin_lat * cos_dec_valid * np.cos(ha_valid)
     )
-
-    # Recover A, B at the solution
-    psi = 2.0 * np.pi * (Q_ew * np.sin(ha_valid) + Q_ns * np.cos(ha_valid))
     cos_psi, sin_psi = np.cos(psi), np.sin(psi)
-    cc = np.sum(cos_psi**2)
-    ss = np.sum(sin_psi**2)
-    cs = np.sum(cos_psi * sin_psi)
+    cc = np.dot(cos_psi, cos_psi)
+    ss = np.dot(sin_psi, sin_psi)
+    cs = np.dot(cos_psi, sin_psi)
     det = cc * ss - cs * cs
-    yc = np.sum(vis_real * cos_psi)
-    ys = np.sum(vis_real * sin_psi)
-    A_fit = (ss * yc - cs * ys) / det if abs(det) > 1e-30 else np.nan
-    B_fit = (cc * ys - cs * yc) / det if abs(det) > 1e-30 else np.nan
+    if abs(det) > 1e-30:
+        A = (ss * np.dot(vis_re, cos_psi) - cs * np.dot(vis_re, sin_psi)) / det
+        B = (cc * np.dot(vis_re, sin_psi) - cs * np.dot(vis_re, cos_psi)) / det
+        C = (ss * np.dot(vis_im, cos_psi) - cs * np.dot(vis_im, sin_psi)) / det
+        D = (cc * np.dot(vis_im, sin_psi) - cs * np.dot(vis_im, cos_psi)) / det
+    else:
+        A = B = C = D = np.nan
+
+    amplitude = np.sqrt(A**2 + B**2 + C**2 + D**2) / np.sqrt(2) if np.isfinite(A) else np.nan
 
     return BaselineResult(
         b_ew_m=np.abs(b_ew),
@@ -752,12 +787,8 @@ def nls_baseline_single_channel(
         chi2_reduced=s2,
         n_points=n,
         metadata={
-            "Q_ew": Q_ew,
-            "Q_ns": Q_ns,
-            "A": A_fit,
-            "B": B_fit,
-            "amplitude": np.sqrt(A_fit**2 + B_fit**2) if np.isfinite(A_fit) else np.nan,
-            "phase_offset_rad": np.arctan2(-B_fit, A_fit) if np.isfinite(A_fit) else np.nan,
+            "A_re": A, "B_re": B, "C_im": C, "D_im": D,
+            "amplitude": amplitude,
             "nfev": sol.nfev,
             "cost": sol.cost,
         },
@@ -767,7 +798,7 @@ def nls_baseline_single_channel(
 def nls_baseline_broadband(
     ha_rad: np.ndarray,
     corr_dc: np.ndarray,
-    dec_rad: float,
+    dec_rad: float | np.ndarray,
     f_sky_hz: np.ndarray,
     *,
     lat_rad: float = np.deg2rad(NCH_LAT_DEG),
@@ -834,6 +865,306 @@ def nls_baseline_broadband(
         n_points=int(valid.sum()),
     )
     return result, per_ch
+
+
+# ===================================================================
+# Method 5 — Brute-force grid search
+# ===================================================================
+
+
+@dataclass(frozen=True)
+class GridSearchResult:
+    """Result of a brute-force grid search over (Q_ew, Q_ns).
+
+    Attributes
+    ----------
+    b_ew_m, b_ew_err_m : float
+        Best-fit east-west baseline and uncertainty.
+    b_ns_m, b_ns_err_m : float
+        Best-fit north-south baseline and uncertainty.
+    Q_ew_grid : (M,) array
+        Grid values of Q_ew.
+    Q_ns_grid : (K,) array
+        Grid values of Q_ns.
+    S2_map : (K, M) array
+        Sum-of-squared residuals at each grid point (rows = Q_ns, cols = Q_ew).
+    Q_ew_best, Q_ns_best : float
+        Grid point with minimum S^2.
+    S2_min : float
+        Minimum sum-of-squared residuals.
+    alpha_matrix : (2, 2) array
+        Curvature matrix (numerical second derivatives of S^2 at the minimum).
+    covariance_matrix : (2, 2) array
+        Covariance matrix = inverse of the curvature matrix.
+    n_points : int
+        Number of data points used.
+    """
+
+    b_ew_m: float
+    b_ew_err_m: float
+    b_ns_m: float
+    b_ns_err_m: float
+    # Coarse grid
+    Q_ew_coarse: np.ndarray
+    Q_ns_coarse: np.ndarray
+    S2_coarse: np.ndarray
+    # Fine grid
+    Q_ew_grid: np.ndarray
+    Q_ns_grid: np.ndarray
+    S2_map: np.ndarray
+    # Best fit
+    Q_ew_best: float
+    Q_ns_best: float
+    S2_min: float
+    alpha_matrix: np.ndarray
+    covariance_matrix: np.ndarray
+    n_points: int
+
+
+def _evaluate_S2_grid(
+    Q_ew_grid: np.ndarray,
+    Q_ns_grid: np.ndarray,
+    sin_h: np.ndarray,
+    cos_h: np.ndarray,
+    cos_dec: np.ndarray,
+    sin_lat: float,
+    vis_re: np.ndarray,
+    vis_im: np.ndarray,
+) -> np.ndarray:
+    """Evaluate S² on a 2-D grid over (Q_ew, Q_ns), with per-capture cos(δ).
+
+    The phase argument at each grid point is:
+    ψ_i = 2π (Q_ew cos δ_i sin h_i + Q_ns sin L cos δ_i cos h_i)
+    where Q_ew = b_ew/λ and Q_ns = b_ns/λ.
+    """
+    n_ns = len(Q_ns_grid)
+    n_ew = len(Q_ew_grid)
+    S2 = np.empty((n_ns, n_ew), dtype=float)
+
+    # Pre-compute per-capture geometry
+    cd_sin_h = cos_dec * sin_h        # cos(δ_i) sin(h_i)
+    cd_cos_h = sin_lat * cos_dec * cos_h  # sin(L) cos(δ_i) cos(h_i)
+
+    for j, Q_ns in enumerate(Q_ns_grid):
+        for i, Q_ew in enumerate(Q_ew_grid):
+            psi = 2.0 * np.pi * (Q_ew * cd_sin_h + Q_ns * cd_cos_h)
+            cp = np.cos(psi)
+            sp = np.sin(psi)
+
+            cc = np.dot(cp, cp)
+            ss = np.dot(sp, sp)
+            cs = np.dot(cp, sp)
+            det = cc * ss - cs * cs
+
+            if abs(det) < 1e-30:
+                S2[j, i] = np.inf
+                continue
+
+            yc_r = np.dot(vis_re, cp)
+            ys_r = np.dot(vis_re, sp)
+            A = (ss * yc_r - cs * ys_r) / det
+            B = (cc * ys_r - cs * yc_r) / det
+
+            yc_i = np.dot(vis_im, cp)
+            ys_i = np.dot(vis_im, sp)
+            C = (ss * yc_i - cs * ys_i) / det
+            D = (cc * ys_i - cs * yc_i) / det
+
+            resid_re = vis_re - (A * cp + B * sp)
+            resid_im = vis_im - (C * cp + D * sp)
+            S2[j, i] = np.dot(resid_re, resid_re) + np.dot(resid_im, resid_im)
+
+    return S2
+
+
+def _curvature_and_covariance(
+    S2_map: np.ndarray,
+    Q_ew_grid: np.ndarray,
+    Q_ns_grid: np.ndarray,
+    i_best: int,
+    j_best: int,
+    S2_min: float,
+    dof: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Compute curvature matrix [α] and covariance at the minimum.
+
+    The curvature matrix [α] is built from the second derivatives of S²
+    (eqn 4 in the fitting notes).  Since S² is *not* normalised by
+    the data variance, the covariance is **not** simply [α]⁻¹.  We
+    estimate σ² = S²_min / dof and return:
+
+        cov = σ² · [α]⁻¹ = (S²_min / dof) · [α]⁻¹
+    """
+    n_ew = len(Q_ew_grid)
+    n_ns = len(Q_ns_grid)
+    dQ_ew = Q_ew_grid[1] - Q_ew_grid[0] if n_ew > 1 else 1.0
+    dQ_ns = Q_ns_grid[1] - Q_ns_grid[0] if n_ns > 1 else 1.0
+
+    if 0 < i_best < n_ew - 1:
+        d2_ew = (S2_map[j_best, i_best + 1] - 2 * S2_min + S2_map[j_best, i_best - 1]) / dQ_ew**2
+    else:
+        d2_ew = np.inf
+
+    if 0 < j_best < n_ns - 1:
+        d2_ns = (S2_map[j_best + 1, i_best] - 2 * S2_min + S2_map[j_best - 1, i_best]) / dQ_ns**2
+    else:
+        d2_ns = np.inf
+
+    if 0 < i_best < n_ew - 1 and 0 < j_best < n_ns - 1:
+        d2_cross = (
+            S2_map[j_best + 1, i_best + 1]
+            - S2_map[j_best + 1, i_best - 1]
+            - S2_map[j_best - 1, i_best + 1]
+            + S2_map[j_best - 1, i_best - 1]
+        ) / (4.0 * dQ_ew * dQ_ns)
+    else:
+        d2_cross = 0.0
+
+    alpha = np.array([[0.5 * d2_ew, d2_cross], [d2_cross, 0.5 * d2_ns]])
+
+    # Scale by estimated variance: σ² = S²_min / dof
+    sigma2 = S2_min / max(1, dof)
+
+    try:
+        cov = sigma2 * np.linalg.inv(alpha)
+    except np.linalg.LinAlgError:
+        cov = np.full((2, 2), np.inf)
+
+    return alpha, cov
+
+
+def grid_search_baseline(
+    ha_rad: np.ndarray,
+    visibility_dc: np.ndarray,
+    dec_rad: float | np.ndarray,
+    freq_hz: float,
+    *,
+    lat_rad: float = np.deg2rad(NCH_LAT_DEG),
+    q_ew_range: tuple[float, float] | None = None,
+    q_ns_range: tuple[float, float] | None = None,
+    n_coarse: int = 200,
+    n_fine: int = 300,
+    fine_halfwidth_ew: float = 1.0,
+    fine_halfwidth_ns: float = 10.0,
+    min_samples: int = 16,
+) -> GridSearchResult | None:
+    r"""Two-pass brute-force grid search over :math:`(Q_{\rm ew}, Q_{\rm ns})`.
+
+    The grid is over :math:`Q_{\rm ew} = b_{\rm ew}/\lambda` and
+    :math:`Q_{\rm ns} = b_{\rm ns}/\lambda`.  Per-capture declination is
+    folded into the phase computation at each grid point.
+
+    **Pass 1 (coarse):** wide grid to locate the global minimum.
+    **Pass 2 (fine):** narrow grid centred on the coarse minimum.
+
+    Parameters
+    ----------
+    dec_rad : float or (N,) array
+        Source declination (scalar or per-capture).
+    q_ew_range, q_ns_range : (lo, hi), optional
+        Coarse search range in Q-units (= b/λ).
+    """
+    ha = np.asarray(ha_rad)
+    vis = np.asarray(visibility_dc, dtype=complex)
+
+    valid = np.isfinite(vis)
+    n = int(valid.sum())
+    if n < min_samples:
+        return None
+
+    dec = _as_dec_array(dec_rad, len(ha))
+    vis_re = vis[valid].real
+    vis_im = vis[valid].imag
+    ha_valid = ha[valid]
+    sin_h = np.sin(ha_valid)
+    cos_h = np.cos(ha_valid)
+    cos_dec_valid = np.cos(dec[valid])
+
+    lam = C_LIGHT_MS / freq_hz
+    cos_dec_mean = np.mean(cos_dec_valid)
+    sin_lat = np.sin(lat_rad)
+
+    # --- Default coarse search range from phase-slope estimate ---
+    if q_ew_range is None or q_ns_range is None:
+        ps_res = phase_slope_baseline_single_channel(
+            ha_rad, visibility_dc, dec_rad, freq_hz,
+            lat_rad=lat_rad, min_samples=min_samples,
+        )
+        if ps_res is not None:
+            q_ew_center = ps_res.b_ew_m / lam
+            q_ns_center = ps_res.b_ns_m / lam if np.isfinite(ps_res.b_ns_m) else 0.0
+        else:
+            q_ew_center = 20.0 / lam
+            q_ns_center = 0.0
+        if q_ew_range is None:
+            q_ew_range = (q_ew_center - 50.0, q_ew_center + 50.0)
+        if q_ns_range is None:
+            q_ns_range = (q_ns_center - 100.0, q_ns_center + 100.0)
+
+    # --- Pass 1: coarse grid ---
+    Q_ew_coarse = np.linspace(q_ew_range[0], q_ew_range[1], n_coarse)
+    Q_ns_coarse = np.linspace(q_ns_range[0], q_ns_range[1], n_coarse)
+    S2_coarse = _evaluate_S2_grid(Q_ew_coarse, Q_ns_coarse, sin_h, cos_h, cos_dec_valid, sin_lat, vis_re, vis_im)
+
+    idx_flat = np.argmin(S2_coarse)
+    j_c, i_c = np.unravel_index(idx_flat, S2_coarse.shape)
+    Q_ew_coarse_best = Q_ew_coarse[i_c]
+    Q_ns_coarse_best = Q_ns_coarse[j_c]
+
+    # --- Pass 2: fine grid centred on coarse minimum ---
+    Q_ew_fine = np.linspace(
+        Q_ew_coarse_best - fine_halfwidth_ew,
+        Q_ew_coarse_best + fine_halfwidth_ew,
+        n_fine,
+    )
+    Q_ns_fine = np.linspace(
+        Q_ns_coarse_best - fine_halfwidth_ns,
+        Q_ns_coarse_best + fine_halfwidth_ns,
+        n_fine,
+    )
+    S2_fine = _evaluate_S2_grid(Q_ew_fine, Q_ns_fine, sin_h, cos_h, cos_dec_valid, sin_lat, vis_re, vis_im)
+
+    idx_flat = np.argmin(S2_fine)
+    j_best, i_best = np.unravel_index(idx_flat, S2_fine.shape)
+    Q_ew_best = Q_ew_fine[i_best]
+    Q_ns_best = Q_ns_fine[j_best]
+    S2_min = S2_fine[j_best, i_best]
+
+    # Q = b/λ, so b = Q * λ
+    b_ew = Q_ew_best * lam
+    b_ns = Q_ns_best * lam
+
+    # --- Step 3: curvature matrix from the fine grid ---
+    # dof = 2N (real + imag data points) - 6 (A, B, C, D, Q_ew, Q_ns)
+    dof = max(1, 2 * n - 6)
+    alpha, cov = _curvature_and_covariance(
+        S2_fine, Q_ew_fine, Q_ns_fine, i_best, j_best, S2_min, dof,
+    )
+
+    Q_ew_err = np.sqrt(max(0, cov[0, 0]))
+    Q_ns_err = np.sqrt(max(0, cov[1, 1]))
+
+    b_ew_err = np.abs(Q_ew_err * lam)
+    b_ns_err = np.abs(Q_ns_err * lam)
+
+    return GridSearchResult(
+        b_ew_m=np.abs(b_ew),
+        b_ew_err_m=b_ew_err,
+        b_ns_m=b_ns,
+        b_ns_err_m=b_ns_err,
+        Q_ew_coarse=Q_ew_coarse,
+        Q_ns_coarse=Q_ns_coarse,
+        S2_coarse=S2_coarse,
+        Q_ew_grid=Q_ew_fine,
+        Q_ns_grid=Q_ns_fine,
+        S2_map=S2_fine,
+        Q_ew_best=Q_ew_best,
+        Q_ns_best=Q_ns_best,
+        S2_min=S2_min,
+        alpha_matrix=alpha,
+        covariance_matrix=cov,
+        n_points=n,
+    )
 
 
 # ===================================================================

@@ -59,7 +59,8 @@ from .geometry import (
     hour_angle_rad,
     geometric_delay_s,
     effective_geometric_delay_s,
-    projected_baseline_lambda,
+    delay_baseline_lambda,
+    sky_baseline_lambda,
     fringe_frequency_hz,
     fringe_period_s,
     x_coordinate,
@@ -78,6 +79,7 @@ from .fringe_model import (
 )
 from .baseline_fitting import (
     BaselineResult,
+    GridSearchResult,
     fft_baseline_single_channel,
     fft_baseline_broadband,
     phase_slope_baseline_single_channel,
@@ -86,6 +88,7 @@ from .baseline_fitting import (
     lag_delay_baseline_series,
     nls_baseline_single_channel,
     nls_baseline_broadband,
+    grid_search_baseline,
     combined_baseline,
 )
 from .solar_analysis import (

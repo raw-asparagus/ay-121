@@ -14,7 +14,7 @@ import numpy as np
 from scipy.special import j1, jn_zeros
 
 from .constants import C_LIGHT_MS, NCH_LAT_DEG
-from .geometry import geometric_delay_s, projected_baseline_lambda
+from .geometry import geometric_delay_s, sky_baseline_lambda
 
 __all__ = [
     "FringeModelParams",
@@ -208,7 +208,7 @@ def solar_visibility(
     proportional to its angular offset projected onto the baseline.
     """
     # Disk component
-    u = projected_baseline_lambda(
+    u = sky_baseline_lambda(
         ha_rad,
         fringe_params.dec_rad,
         fringe_params.b_ew,
@@ -251,7 +251,7 @@ def fringe_envelope(
 
     where :math:`x = 2\pi\,|u(h)|\,R`.
     """
-    u = projected_baseline_lambda(
+    u = sky_baseline_lambda(
         ha_rad,
         fringe_params.dec_rad,
         fringe_params.b_ew,

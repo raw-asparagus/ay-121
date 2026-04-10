@@ -10,26 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, least_squares
+from scipy.signal import find_peaks
 from scipy.special import jn_zeros
 
-from .constants import C_LIGHT_MS, NCH_LAT_DEG
-from .fringe_model import (
-    uniform_disk_visibility_amplitude,
-    uniform_disk_visibility_signed,
-)
+from .fringe_model import uniform_disk_visibility_amplitude, uniform_disk_visibility_signed
 from .geometry import sky_baseline_lambda
 
-__all__ = [
-    "SolarDiameterResult",
-    "SunspotDetection",
-    "extract_fringe_envelope",
-    "find_bessel_zeros_in_envelope",
-    "solar_diameter_from_zeros",
-    "fit_solar_diameter_bessel",
-    "detect_sunspot_anomalies",
-    "characterize_sunspot_flux",
-]
 
 # ---------------------------------------------------------------------------
 # Result containers
@@ -38,8 +25,6 @@ __all__ = [
 
 @dataclass(frozen=True)
 class SolarDiameterResult:
-    """Result of a solar angular diameter measurement."""
-
     diameter_arcmin: float
     diameter_err_arcmin: float
     method: str  # "bessel_zeros" or "bessel_fit"
@@ -49,14 +34,34 @@ class SolarDiameterResult:
 
 @dataclass(frozen=True)
 class SunspotDetection:
-    """A sunspot signature detected as a residual at a Bessel null."""
+    null_index: int
+    u_lambda_at_null: float
+    ha_rad_at_null: float
+    residual_amplitude: float
+    significance_sigma: float
+    estimated_flux_fraction: float
 
-    null_index: int  # which Bessel null (1st, 2nd, ...)
-    u_lambda_at_null: float  # projected baseline at the null
-    ha_rad_at_null: float  # hour angle at the null
-    residual_amplitude: float  # amplitude where it should be zero
-    significance_sigma: float  # detection significance
-    estimated_flux_fraction: float  # f_spot ~ |V_null| / |V(0)|
+
+@dataclass(frozen=True)
+class SunspotLocalization:
+    """Result of fitting a single offset point source on top of a uniform disk.
+
+    The model fitted is, for an EW baseline projected onto the sky,
+
+        V(u) = (1 - f) * V_disk(u; R) + f * exp(-2 pi i * u * delta_alpha_rad)
+
+    where ``delta_alpha_rad`` is the angular offset along the EW direction
+    from the disk centre. The NS offset is unconstrained for a single
+    EW baseline (it would require an NS baseline component or a different
+    parallactic angle), so we report only the EW offset.
+    """
+    flux_fraction: float
+    flux_fraction_err: float
+    delta_alpha_arcmin: float
+    delta_alpha_err_arcmin: float
+    chi2_reduced: float
+    n_points: int
+    null_index: int
 
 
 # ---------------------------------------------------------------------------
@@ -69,58 +74,41 @@ def extract_fringe_envelope(
     corr_dc: np.ndarray,
     dec_rad: float,
     b_ew: float,
-    freq_hz: float | np.ndarray,
-    *,
-    b_ns: float = 0.0,
-    lat_rad: float = np.deg2rad(NCH_LAT_DEG),
-    band_mask: np.ndarray | None = None,
-    smooth_window: int = 1,
+    f_sky_hz: np.ndarray,
+    b_ns: float,
+    band_mask: np.ndarray,
+    smooth_window: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    r"""Extract the fringe amplitude envelope from DC-corrected visibilities.
+    """Band-averaged amplitude envelope vs projected baseline.
 
-    Parameters
-    ----------
-    corr_dc : (N_cap, N_CH) or (N_cap,) complex array
-        DC-corrected visibility.
-    freq_hz : float or (N_CH,) array
-        Observing frequency (or per-channel frequencies).
-    band_mask : (N_CH,) bool array, optional
-        Channels to include in band averaging (True = include).
-    smooth_window : int
-        Running-mean smoothing kernel width (1 = no smoothing).
+    Returns ``(u_lambda, envelope, envelope_std)``, where ``envelope`` is the
+    band-averaged ``|V|`` per capture and ``u_lambda`` is the projected
+    baseline at the band-centre frequency.
 
-    Returns
-    -------
-    u_lambda : (N_cap,) array
-        Projected baseline in wavelengths at each capture.
-    envelope : (N_cap,) array
-        Amplitude envelope (band-averaged |V|).
-    envelope_std : (N_cap,) array
-        Standard error of the band average at each capture.
+    The per-capture uncertainty is estimated from the across-channel scatter
+    of |V| inside the analysis band, divided by ``sqrt(N_eff)``. Smoothing
+    correlates samples; the returned ``envelope_std`` is rescaled by
+    ``sqrt(smooth_window)`` to approximately compensate, so that downstream
+    least-squares fits do not under-estimate the per-point uncertainty.
     """
-    corr_dc = np.atleast_2d(corr_dc)
-    freq_hz = np.atleast_1d(freq_hz)
+    band_corr = corr_dc[:, band_mask]
+    band_freq = f_sky_hz[band_mask]
 
-    if band_mask is not None:
-        corr_dc = corr_dc[:, band_mask]
-        freq_hz = freq_hz[band_mask]
-
-    # Band-averaged amplitude per capture
-    amp = np.abs(corr_dc)  # (N_cap, N_ch)
+    amp = np.abs(band_corr)
     envelope = np.nanmean(amp, axis=1)
-    envelope_std = np.nanstd(amp, axis=1) / np.sqrt(np.sum(np.isfinite(amp), axis=1))
+    n_good = np.sum(np.isfinite(amp), axis=1).astype(float)
+    n_good[n_good == 0] = np.nan
+    envelope_std = np.nanstd(amp, axis=1) / np.sqrt(n_good)
 
-    # Projected baseline at band-centre frequency
-    freq_center = np.mean(freq_hz)
-    u_lambda = sky_baseline_lambda(
-        ha_rad, dec_rad, b_ew, b_ns, freq_center, lat_rad
-    )
+    u_lambda = sky_baseline_lambda(ha_rad, dec_rad, b_ew, b_ns, float(np.mean(band_freq)))
 
-    # Optional smoothing
     if smooth_window > 1:
         kernel = np.ones(smooth_window) / smooth_window
         envelope = np.convolve(envelope, kernel, mode="same")
-        envelope_std = np.convolve(envelope_std, kernel, mode="same")
+        # Smoothing correlates neighbouring points; inflate sigma so that the
+        # *effective* number of independent samples in any subsequent
+        # least-squares fit is roughly N_caps / smooth_window rather than N_caps.
+        envelope_std = np.convolve(envelope_std, kernel, mode="same") * np.sqrt(smooth_window)
 
     return u_lambda, envelope, envelope_std
 
@@ -133,73 +121,88 @@ def extract_fringe_envelope(
 def find_bessel_zeros_in_envelope(
     u_lambda: np.ndarray,
     envelope: np.ndarray,
-    *,
-    smooth_window: int = 5,
-    min_u_lambda: float | None = None,
-    expected_diameter_arcmin: float = 32.0,
+    smooth_window: int,
+    expected_diameter_arcmin: float,
+    threshold: float = 0.15,
+    prominence_frac: float = 0.05,
+    n_max: int = 8,
 ) -> np.ndarray:
-    """Locate projected-baseline values where the fringe envelope crosses zero.
+    """Locate projected-baseline values where the fringe envelope nulls.
 
-    Uses sign changes in the smoothed, Hilbert-demodulated envelope. The
-    envelope is first smoothed to suppress noise, then local minima below a
-    threshold are identified as approximate null locations.
+    Sorts the envelope by ``|u|``, smooths it, and uses
+    ``scipy.signal.find_peaks`` on the *negated* normalised envelope with
+    a minimum-distance constraint set from the expected Bessel-null spacing
+    (``Δu ≈ π / R``) and a minimum prominence of ``prominence_frac`` of the
+    peak. This eliminates the noise-dominated point-wise local minima the
+    naive 3-point test would otherwise return.
 
     Parameters
     ----------
-    min_u_lambda : float, optional
-        Minimum |u| to consider.  Detections below this are discarded
-        (they are usually noise near the horizon where |u| is small).
-        If *None*, a guard is computed automatically as half the expected
-        first-null baseline for a disk of *expected_diameter_arcmin*.
-    expected_diameter_arcmin : float
-        Approximate solar diameter used to set the automatic minimum-|u|
-        guard.  Only used when *min_u_lambda* is None.
-
-    Returns
-    -------
-    u_at_zeros : array
-        Projected baseline values at each detected zero crossing.
+    threshold : maximum normalised envelope value at an accepted null.
+    prominence_frac : minimum prominence (fraction of peak envelope).
+    n_max : at most this many strongest nulls are returned.
     """
-    # Automatic minimum-|u| guard: half the expected first-null baseline
-    if min_u_lambda is None:
-        R_approx = np.deg2rad(expected_diameter_arcmin / 2.0 / 60.0)
-        j1_1 = jn_zeros(1, 1)[0]  # ≈ 3.8317
-        u_first_null = j1_1 / (2.0 * np.pi * R_approx)
-        min_u_lambda = 0.5 * u_first_null
+    R_approx = np.deg2rad(expected_diameter_arcmin / 2.0 / 60.0)
+    j1 = jn_zeros(1, 4)
+    min_u_lambda = 0.5 * j1[0] / (2.0 * np.pi * R_approx)
+    # Spacing between successive Bessel-J1 zeros: ~π in argument 2π R u,
+    # so in u-space the spacing is ~1/(2 R).
+    expected_null_spacing = 0.5 / R_approx  # in wavelengths
 
-    # Sort by |u|
     u_abs = np.abs(u_lambda)
-    order = np.argsort(u_abs)
-    u_sorted = u_lambda[order]
-    u_abs_sorted = u_abs[order]
-    env_sorted = envelope[order]
+    finite = np.isfinite(u_abs) & np.isfinite(envelope)
+    if not np.any(finite):
+        return np.array([])
 
-    # Smooth
+    order = np.argsort(u_abs[finite])
+    u_sorted     = u_lambda[finite][order]
+    u_abs_sorted = u_abs[finite][order]
+    env_sorted   = envelope[finite][order]
+
     if smooth_window > 1:
         kernel = np.ones(smooth_window) / smooth_window
         env_smooth = np.convolve(env_sorted, kernel, mode="same")
     else:
         env_smooth = env_sorted
 
-    # Normalise to [0, 1]
     peak = np.nanmax(env_smooth)
-    if peak <= 0:
+    if not np.isfinite(peak) or peak <= 0:
         return np.array([])
     env_norm = env_smooth / peak
 
-    # Find local minima below threshold (candidate nulls), respecting |u| guard
-    threshold = 0.15
-    zeros = []
-    for i in range(1, len(env_norm) - 1):
-        if (
-            u_abs_sorted[i] >= min_u_lambda
-            and env_norm[i] < env_norm[i - 1]
-            and env_norm[i] < env_norm[i + 1]
-            and env_norm[i] < threshold
-        ):
-            zeros.append(u_sorted[i])
+    # Convert expected null spacing to a sample-count distance.
+    if len(u_abs_sorted) > 1:
+        median_du = float(np.median(np.diff(u_abs_sorted)))
+        min_distance = max(1, int(0.5 * expected_null_spacing / max(median_du, 1e-12)))
+    else:
+        min_distance = 1
 
-    return np.array(zeros)
+    # find_peaks operates on positive peaks: negate the envelope.
+    neg = -env_norm
+    peaks, props = find_peaks(
+        neg,
+        height=-threshold,            # env_norm < threshold
+        prominence=prominence_frac,   # noise rejection
+        distance=min_distance,        # one peak per Bessel sidelobe
+    )
+
+    # Skip peaks below the inner-edge guard.
+    peaks = peaks[u_abs_sorted[peaks] >= min_u_lambda]
+
+    if len(peaks) == 0:
+        return np.array([])
+
+    # Keep the n_max most prominent.
+    if "prominences" in props:
+        prom = props["prominences"]
+        # Re-extract prominences for the surviving peaks (after the guard cut)
+        # by recomputing on the same neg signal.
+        from scipy.signal import peak_prominences
+        prom_kept = peak_prominences(neg, peaks)[0]
+        order_p = np.argsort(prom_kept)[::-1][:n_max]
+        peaks = np.sort(peaks[order_p])
+
+    return u_sorted[peaks]
 
 
 # ---------------------------------------------------------------------------
@@ -209,93 +212,45 @@ def find_bessel_zeros_in_envelope(
 
 def solar_diameter_from_zeros(
     zero_u_lambda: np.ndarray,
-    n_zeros_to_use: int | None = None,
-    *,
-    expected_diameter_arcmin: float = 32.0,
-    n_candidate_nulls: int = 10,
+    expected_diameter_arcmin: float,
+    n_candidate_nulls: int,
 ) -> SolarDiameterResult:
     r"""Angular diameter from Bessel-function zero crossings.
 
-    For a uniform disk the first zero of :math:`J_1` occurs at:
-
-    .. math::
-
-        |u|\,R = \frac{j_{1,k}}{2\pi}
-
-    so :math:`R = j_{1,k} / (2\pi\,|u_k|)`.
-
-    Each detected null is matched to the nearest *theoretical* null
-    (computed from the expected diameter) rather than blindly assigning
-    :math:`j_{1,1}` to the first detection.  This prevents incorrect
-    indexing when the first Bessel null falls outside the observed
-    baseline range.
-
-    Parameters
-    ----------
-    zero_u_lambda : array_like
-        Projected baselines at observed nulls (in wavelengths).
-    n_zeros_to_use : int, optional
-        How many zeros to use (default: all).
-    expected_diameter_arcmin : float
-        Approximate solar diameter for matching detected nulls to
-        theoretical null orders.
-    n_candidate_nulls : int
-        Number of theoretical Bessel nulls to consider when matching.
+    Each detected null is matched to the nearest theoretical null (computed
+    from the expected diameter) so the index assignment stays consistent
+    even when the first Bessel null falls outside the observed baseline range.
     """
-    zeros = np.abs(np.asarray(zero_u_lambda))
-    if len(zeros) == 0:
-        return SolarDiameterResult(
-            diameter_arcmin=np.nan,
-            diameter_err_arcmin=np.inf,
-            method="bessel_zeros",
-        )
+    zeros = np.abs(zero_u_lambda)
 
-    if n_zeros_to_use is not None:
-        zeros = zeros[: n_zeros_to_use]
-
-    # Theoretical null baselines for the expected diameter
     R_expected = np.deg2rad(expected_diameter_arcmin / 2.0 / 60.0)
     j1_all = jn_zeros(1, n_candidate_nulls)
-    u_null_theory = j1_all / (2.0 * np.pi * R_expected)  # |u| at each null
+    u_null_theory = j1_all / (2.0 * np.pi * R_expected)
+    spacing = u_null_theory[1] - u_null_theory[0]
 
-    # Match each detected null to the nearest theoretical null
     matched_j1 = []
-    matched_u = []
-    used_theory = set()
+    matched_u  = []
+    used_theory: set[int] = set()
     for u_det in np.sort(zeros):
         dists = np.abs(u_null_theory - u_det)
-        best = np.argmin(dists)
-        # Only accept if within 40% of the null spacing to avoid mis-assignment
-        spacing = u_null_theory[1] - u_null_theory[0] if len(u_null_theory) > 1 else u_null_theory[0]
+        best = int(np.argmin(dists))
+        # Accept only within 40% of the null spacing to avoid mis-assignment.
         if dists[best] < 0.4 * spacing and best not in used_theory:
             matched_j1.append(j1_all[best])
             matched_u.append(u_det)
             used_theory.add(best)
 
     matched_j1 = np.array(matched_j1)
-    matched_u = np.array(matched_u)
+    matched_u  = np.array(matched_u)
 
-    if len(matched_u) == 0:
-        return SolarDiameterResult(
-            diameter_arcmin=np.nan,
-            diameter_err_arcmin=np.inf,
-            method="bessel_zeros",
-        )
-
-    u_R_theory = matched_j1 / (2.0 * np.pi)
-
-    # Each null gives an estimate of R
-    R_estimates = u_R_theory / matched_u  # angular radius in radians
-
-    R_mean = np.mean(R_estimates)
-    R_err = np.std(R_estimates) / np.sqrt(len(R_estimates)) if len(R_estimates) > 1 else np.inf
-
-    diameter_arcmin = np.rad2deg(2.0 * R_mean) * 60.0
-    diameter_err = np.rad2deg(2.0 * R_err) * 60.0
+    u_R_theory   = matched_j1 / (2.0 * np.pi)
+    R_estimates  = u_R_theory / matched_u
+    R_mean       = float(np.mean(R_estimates))
+    R_err        = float(np.std(R_estimates) / np.sqrt(len(R_estimates))) if len(R_estimates) > 1 else float("inf")
 
     return SolarDiameterResult(
-        diameter_arcmin=diameter_arcmin,
-        diameter_err_arcmin=diameter_err,
+        diameter_arcmin=np.rad2deg(2.0 * R_mean) * 60.0,
+        diameter_err_arcmin=np.rad2deg(2.0 * R_err) * 60.0,
         method="bessel_zeros",
         zero_crossings_u_R=u_R_theory,
         fitted_params={
@@ -311,93 +266,94 @@ def solar_diameter_from_zeros(
 # ---------------------------------------------------------------------------
 
 
-def _bessel_envelope_model(
-    u_lambda: np.ndarray,
-    amplitude: float,
-    angular_radius_rad: float,
-) -> np.ndarray:
-    """Model function for curve_fit: ``A * |2 J_1(x) / x|``."""
-    return amplitude * uniform_disk_visibility_amplitude(u_lambda, angular_radius_rad)
-
-
 def fit_solar_diameter_bessel(
     u_lambda: np.ndarray,
     envelope: np.ndarray,
-    *,
-    envelope_std: np.ndarray | None = None,
-    initial_diameter_arcmin: float = 32.0,
+    envelope_std: np.ndarray,
+    initial_diameter_arcmin: float,
 ) -> SolarDiameterResult:
     r"""Nonlinear least-squares fit of the Bessel envelope.
 
-    Fits ``A * |2 J_1(2*pi*|u|*R) / (2*pi*|u|*R)|`` to the observed
-    amplitude envelope using :func:`scipy.optimize.curve_fit`.
+    Fits ``A * |2 J_1(2*pi*|u|*R) / (2*pi*|u|*R)|`` to the observed envelope.
 
-    Parameters
-    ----------
-    u_lambda : array_like
-        Projected baseline in wavelengths.
-    envelope : array_like
-        Measured amplitude envelope (same length as *u_lambda*).
-    envelope_std : array_like, optional
-        Per-point uncertainties (used as sigma in curve_fit).
-    initial_diameter_arcmin : float
-        Starting guess for the angular diameter.
+    Uncertainties are computed in two ways and the *larger* of the two is
+    reported as the conservative diameter error:
+
+    1. The formal covariance from ``curve_fit`` with the supplied per-point
+       sigmas (``absolute_sigma=True``).
+    2. The same covariance rescaled by ``sqrt(chi2_reduced)`` so that
+       under-estimated input sigmas (or unmodelled systematics that inflate
+       the residuals) are absorbed into a residual-based error.
+
+    A floor of ``0.05 arcmin`` is applied to guard against pathological
+    near-singular covariance matrices that previously produced ``±0.00``
+    diameters.
     """
-    u = np.asarray(u_lambda)
-    env = np.asarray(envelope)
+    def model(u, amplitude, R_rad):
+        return amplitude * uniform_disk_visibility_amplitude(u, R_rad)
 
-    valid = np.isfinite(env) & np.isfinite(u)
-    u_fit = u[valid]
-    env_fit = env[valid]
-    sigma = envelope_std[valid] if envelope_std is not None else None
+    valid = (
+        np.isfinite(envelope)
+        & np.isfinite(u_lambda)
+        & np.isfinite(envelope_std)
+        & (envelope_std > 0)
+    )
+    u_fit = u_lambda[valid]
+    env_fit = envelope[valid]
+    sigma = envelope_std[valid]
+
+    if u_fit.size < 10:
+        raise ValueError("fit_solar_diameter_bessel: not enough valid points to fit.")
 
     R0 = np.deg2rad(initial_diameter_arcmin / 2.0 / 60.0)
     A0 = np.nanmax(env_fit)
 
-    try:
-        popt, pcov = curve_fit(
-            _bessel_envelope_model,
-            u_fit,
-            env_fit,
-            p0=[A0, R0],
-            sigma=sigma,
-            absolute_sigma=sigma is not None,
-            bounds=([0, 0], [np.inf, np.deg2rad(1.0)]),
-            maxfev=10000,
-        )
-    except RuntimeError:
-        return SolarDiameterResult(
-            diameter_arcmin=np.nan,
-            diameter_err_arcmin=np.inf,
-            method="bessel_fit",
-        )
-
+    popt, pcov = curve_fit(
+        model,
+        u_fit,
+        env_fit,
+        p0=[A0, R0],
+        sigma=sigma,
+        absolute_sigma=True,
+        bounds=([0, 0], [np.inf, np.deg2rad(1.0)]),
+        maxfev=10000,
+    )
     amplitude_fit, R_fit = popt
-    perr = np.sqrt(np.diag(pcov))
-    R_err = perr[1]
 
-    diameter_arcmin = np.rad2deg(2.0 * R_fit) * 60.0
-    diameter_err = np.rad2deg(2.0 * R_err) * 60.0
+    diag = np.diag(pcov)
+    if np.any(~np.isfinite(diag)) or np.any(diag < 0):
+        raise RuntimeError("fit_solar_diameter_bessel: covariance non-finite or negative.")
 
-    # Reduced chi-squared
-    model = _bessel_envelope_model(u_fit, *popt)
-    resid = env_fit - model
-    if sigma is not None:
-        chi2 = np.sum((resid / sigma) ** 2)
-    else:
-        chi2 = np.sum(resid**2)
+    R_err_formal = float(np.sqrt(diag[1]))
+
+    resid = env_fit - model(u_fit, *popt)
     dof = max(1, len(u_fit) - 2)
+    chi2 = float(np.sum((resid / sigma) ** 2))
     chi2_red = chi2 / dof
+    R_err_rescaled = R_err_formal * np.sqrt(max(chi2_red, 1.0))
+
+    R_err = max(R_err_formal, R_err_rescaled)
+
+    # Sanity floor: a baseline-uncertainty-limited diameter error is
+    #   dR/R ≈ d|u|/|u| ≈ d b_ew / b_ew ≈ 0.03/15 ≈ 2e-3
+    # giving ~0.06 arcmin for a 32 arcmin disk. Below this, the formal
+    # error is almost certainly under-estimated.
+    R_err_floor = np.deg2rad(0.05 / 2.0 / 60.0)
+    R_err = max(R_err, R_err_floor)
 
     return SolarDiameterResult(
-        diameter_arcmin=diameter_arcmin,
-        diameter_err_arcmin=diameter_err,
+        diameter_arcmin=np.rad2deg(2.0 * R_fit) * 60.0,
+        diameter_err_arcmin=np.rad2deg(2.0 * R_err) * 60.0,
         method="bessel_fit",
         fitted_params={
             "amplitude": amplitude_fit,
             "R_rad": R_fit,
             "R_err_rad": R_err,
+            "R_err_formal_rad": R_err_formal,
+            "R_err_rescaled_rad": R_err_rescaled,
+            "chi2": chi2,
             "chi2_reduced": chi2_red,
+            "dof": dof,
             "popt": popt,
             "pcov": pcov,
         },
@@ -413,132 +369,188 @@ def detect_sunspot_anomalies(
     u_lambda: np.ndarray,
     envelope: np.ndarray,
     disk_model: np.ndarray,
-    noise_std: np.ndarray | float,
-    *,
-    sigma_threshold: float = 3.0,
-    null_search_radius_frac: float = 0.1,
+    noise_std: np.ndarray,
+    sigma_threshold: float,
+    null_search_radius_frac: float,
 ) -> list[SunspotDetection]:
-    r"""Detect sunspot signatures as excess amplitude at Bessel nulls.
+    r"""Detect sunspot signatures as excess amplitude at uniform-disk nulls.
 
-    At a Bessel null, the uniform-disk visibility is zero, so any residual
-    amplitude comes from asymmetric structure (sunspots).  The spot flux
-    fraction is approximately:
-
-    .. math::
-
-        f_{\rm spot} \approx \frac{|V_{\rm null}|}{|V(0)|}
-
-    Parameters
-    ----------
-    disk_model : array_like
-        Expected amplitude from the uniform-disk model (same shape as
-        *envelope*).
-    noise_std : float or array_like
-        Noise estimate per point.
-    null_search_radius_frac : float
-        Fraction of the null spacing to search around each predicted null.
+    The spot flux fraction is approximately
+    :math:`f_{\rm spot} \approx |V_{\rm null}| / |V(0)|`.
     """
-    u = np.abs(np.asarray(u_lambda))
-    env = np.asarray(envelope)
-    model = np.asarray(disk_model)
-    noise = np.broadcast_to(np.asarray(noise_std), env.shape)
+    u = np.abs(u_lambda)
+    residual = envelope - disk_model
 
-    residual = env - model
+    # Local minima of the disk model are the predicted nulls.
+    null_indices = [
+        i
+        for i in range(1, len(disk_model) - 1)
+        if disk_model[i] < disk_model[i - 1] and disk_model[i] < disk_model[i + 1]
+    ]
 
-    # Find model nulls (local minima in model)
-    null_indices = []
-    for i in range(1, len(model) - 1):
-        if model[i] < model[i - 1] and model[i] < model[i + 1]:
-            null_indices.append(i)
-
-    v0 = np.nanmax(env)  # V(0) normalization
-    detections = []
+    v0 = float(np.nanmax(envelope))
+    detections: list[SunspotDetection] = []
 
     for null_idx in null_indices:
-        # Search region around null
         u_null = u[null_idx]
-        radius = null_search_radius_frac * u_null if u_null > 0 else 1.0
+        radius = null_search_radius_frac * u_null
         mask = np.abs(u - u_null) <= radius
-
         if not mask.any():
             continue
 
-        # Peak residual in the search window
         region_resid = residual[mask]
-        region_noise = noise[mask]
-        region_env = env[mask]
+        region_noise = noise_std[mask]
 
-        peak_in_region = np.argmax(np.abs(region_resid))
+        peak_in_region = int(np.argmax(np.abs(region_resid)))
         peak_resid = region_resid[peak_in_region]
         peak_noise = region_noise[peak_in_region]
-        peak_env = region_env[peak_in_region]
-
-        significance = np.abs(peak_resid) / peak_noise if peak_noise > 0 else 0.0
+        significance = float(np.abs(peak_resid) / peak_noise)
 
         if significance >= sigma_threshold:
-            # Map back to global index
-            global_indices = np.where(mask)[0]
-            gi = global_indices[peak_in_region]
-
-            flux_frac = np.abs(peak_resid) / v0 if v0 > 0 else np.nan
-
+            gi = int(np.where(mask)[0][peak_in_region])
             detections.append(
                 SunspotDetection(
                     null_index=len(detections) + 1,
-                    u_lambda_at_null=u[gi],
-                    ha_rad_at_null=np.nan,  # caller should fill from context
-                    residual_amplitude=peak_resid,
+                    u_lambda_at_null=float(u[gi]),
+                    ha_rad_at_null=float("nan"),
+                    residual_amplitude=float(peak_resid),
                     significance_sigma=significance,
-                    estimated_flux_fraction=flux_frac,
+                    estimated_flux_fraction=float(np.abs(peak_resid) / v0),
                 )
             )
-
     return detections
+
+
+def localize_sunspot_phase(
+    u_lambda: np.ndarray,
+    visibility_complex: np.ndarray,
+    disk_radius_rad: float,
+    null_index: int,
+    n_nulls: int = 6,
+    half_window_frac: float = 0.25,
+    sigma: np.ndarray | None = None,
+) -> SunspotLocalization | None:
+    """Fit (flux fraction, EW offset) of a sunspot from complex visibility.
+
+    Selects the points in a ``±half_window_frac`` window around the
+    ``null_index``-th theoretical Bessel null of the uniform-disk model and
+    fits, in the complex plane,
+
+        V(u) = (1 - f) * V_disk_signed(u; R)
+             + f * exp(-2 pi i * u * delta_alpha_rad)
+
+    treating ``f`` and ``delta_alpha_rad`` as nonlinear parameters.
+
+    Parameters
+    ----------
+    u_lambda
+        Signed projected baseline at each capture (wavelengths).
+    visibility_complex
+        Complex visibility at each capture, normalised so that ``|V(u→0)| ≈ 1``.
+    disk_radius_rad
+        Angular radius of the (best-fit uniform) solar disk, in radians.
+    null_index
+        1-based Bessel null index. ``1`` selects the *first* null.
+    n_nulls
+        Total number of theoretical nulls to compute (must be ≥ ``null_index``).
+    half_window_frac
+        Half-width of the |u|-window around the null, as a fraction of the
+        local null spacing ``Δu = 1/(2R)``.
+    sigma
+        Optional per-point uncertainty on |V|. If ``None``, an unweighted
+        fit is used and the chi^2 reported is the unweighted residual sum.
+    """
+    j1 = jn_zeros(1, max(n_nulls, null_index))
+    u_null = j1[null_index - 1] / (2.0 * np.pi * disk_radius_rad)
+    half_window = half_window_frac * 0.5 / disk_radius_rad
+
+    u_abs = np.abs(u_lambda)
+    mask = (
+        np.isfinite(u_abs)
+        & np.isfinite(visibility_complex.real)
+        & np.isfinite(visibility_complex.imag)
+        & (np.abs(u_abs - u_null) <= half_window)
+    )
+    if mask.sum() < 8:
+        return None
+
+    u_w = u_lambda[mask].astype(float)
+    V_w = visibility_complex[mask].astype(complex)
+    if sigma is None:
+        sig = np.ones(u_w.size)
+    else:
+        sig = np.where(np.isfinite(sigma[mask]) & (sigma[mask] > 0), sigma[mask], np.nan)
+        if not np.all(np.isfinite(sig)):
+            sig = np.ones(u_w.size)
+
+    def residuals(params):
+        f, delta_alpha = params
+        V_disk = (1.0 - f) * uniform_disk_visibility_signed(u_w, disk_radius_rad)
+        V_spot = f * np.exp(-2.0j * np.pi * u_w * delta_alpha)
+        V_model = V_disk + V_spot
+        r = (V_w - V_model) / sig
+        return np.concatenate([r.real, r.imag])
+
+    p0 = [0.05, 0.0]  # 5% spot, on-axis
+    bounds = ([0.0, -np.deg2rad(0.5)], [0.5, np.deg2rad(0.5)])
+    try:
+        result = least_squares(residuals, p0, bounds=bounds, max_nfev=2000)
+    except Exception:
+        return None
+    if not result.success:
+        return None
+
+    f_fit, delta_alpha_fit = result.x
+    n_dof = max(1, 2 * u_w.size - 2)
+    chi2_red = float(np.sum(result.fun ** 2) / n_dof)
+
+    # Approximate covariance from the Jacobian (Gauss-Newton).
+    try:
+        J = result.jac
+        JTJ = J.T @ J
+        cov = np.linalg.inv(JTJ) * chi2_red
+        f_err = float(np.sqrt(cov[0, 0]))
+        da_err = float(np.sqrt(cov[1, 1]))
+    except np.linalg.LinAlgError:
+        f_err = float("nan")
+        da_err = float("nan")
+
+    return SunspotLocalization(
+        flux_fraction=float(f_fit),
+        flux_fraction_err=f_err,
+        delta_alpha_arcmin=float(np.rad2deg(delta_alpha_fit) * 60.0),
+        delta_alpha_err_arcmin=float(np.rad2deg(da_err) * 60.0),
+        chi2_reduced=chi2_red,
+        n_points=int(u_w.size),
+        null_index=int(null_index),
+    )
 
 
 def characterize_sunspot_flux(
     u_lambda: np.ndarray,
     envelope: np.ndarray,
     disk_diameter_arcmin: float,
-    *,
-    n_nulls: int = 3,
+    n_nulls: int,
 ) -> dict:
-    """Estimate sunspot flux fraction from visibility at Bessel nulls.
-
-    A simpler interface than :func:`detect_sunspot_anomalies` — computes the
-    theoretical null locations and measures the envelope amplitude there.
-
-    Returns
-    -------
-    dict with keys:
-        ``null_u_R`` — theoretical u*R values,
-        ``null_u_observed`` — u_lambda at each null,
-        ``null_amplitude`` — measured envelope amplitude at each null,
-        ``flux_fraction`` — estimated spot flux fraction per null.
-    """
+    """Estimate sunspot flux fraction from envelope amplitude at theoretical nulls."""
     R_rad = np.deg2rad(disk_diameter_arcmin / 2.0 / 60.0)
     j1_zeros = jn_zeros(1, n_nulls)
     u_R_theory = j1_zeros / (2.0 * np.pi)
-    u_null_theory = u_R_theory / R_rad  # projected baseline at each null
+    u_null_theory = u_R_theory / R_rad
 
-    u_abs = np.abs(np.asarray(u_lambda))
-    env = np.asarray(envelope)
+    u_abs = np.abs(u_lambda)
+    v0 = float(np.nanmax(envelope))
 
-    v0 = np.nanmax(env)
-    null_amps = []
-    null_u_obs = []
-
-    for u_null in u_null_theory:
-        idx = np.argmin(np.abs(u_abs - u_null))
-        null_amps.append(env[idx])
-        null_u_obs.append(u_abs[idx])
-
-    null_amps = np.array(null_amps)
-    flux_fracs = null_amps / v0 if v0 > 0 else np.full_like(null_amps, np.nan)
+    null_amps  = np.empty(n_nulls)
+    null_u_obs = np.empty(n_nulls)
+    for k, u_null in enumerate(u_null_theory):
+        idx = int(np.argmin(np.abs(u_abs - u_null)))
+        null_amps[k]  = envelope[idx]
+        null_u_obs[k] = u_abs[idx]
 
     return {
-        "null_u_R": u_R_theory,
-        "null_u_observed": np.array(null_u_obs),
-        "null_amplitude": null_amps,
-        "flux_fraction": flux_fracs,
+        "null_u_R":         u_R_theory,
+        "null_u_observed":  null_u_obs,
+        "null_amplitude":   null_amps,
+        "flux_fraction":    null_amps / v0,
     }

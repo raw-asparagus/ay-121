@@ -1,47 +1,8 @@
 from .constants import (
     F_S_HZ,
     N_FFT,
-    LO1_HZ,
-    LO2_HZ,
-    IF1_BPF_CENTER_HZ,
-    IF1_BPF_HALF_BW_HZ,
     F_RF0_HZ,
     PLOT_BAND_GHZ,
-)
-from .plotting import (
-    TEXTWIDTH_IN, COLUMNWIDTH_IN,
-    LABEL_SIZE, TICK_SIZE, LEGEND_SIZE, ANNOTATION_SIZE, EMPHASIS_SIZE,
-    LW_NONE, LW_GRID, LW_FINE, LW_GUIDE, LW_LIGHT, LW_STANDARD,
-    LW_MEDIUM, LW_STRONG, LW_FIT, LW_MODEL, LW_EMPHASIS, LW_CALLOUT, LW_LEVEL,
-    LW_HAIRLINE,
-    SCATTER_S_FINE, SCATTER_S_STANDARD, SCATTER_S_EMPHASIS, SCATTER_S_CALLOUT,
-    MARKER_MS_FINE, MARKER_MS_SMALL, MARKER_MS_STANDARD, MARKER_MS_MEDIUM, MARKER_MS_LARGE,
-    PRIMARY_COLOR, SECONDARY_COLOR, TERTIARY_COLOR, QUATERNARY_COLOR,
-    QUINARY_COLOR, SENARY_COLOR, SEPTENARY_COLOR, NEUTRAL_COLOR,
-    LIGHT_NEUTRAL_COLOR, NONARY_COLOR, COMPONENT_COLORS,
-    ALPHA_SPAN_LIGHT, ALPHA_SHADE_LIGHT, ALPHA_SHADE_STANDARD, ALPHA_FILL,
-    ALPHA_BAR, ERRORBAR_CAPSIZE_SMALL, BAR_HEIGHT_STANDARD,
-    WATERFALL_HA_MIN_PER_IN, WATERFALL_PANEL_HEIGHT_IN, WATERFALL_GAP_FACTOR,
-)
-from .chips import (
-    ChipSegmentation,
-    segment_capture_times_by_gap,
-)
-from .captures import (
-    CaptureSeries,
-    load_capture_series,
-)
-from .chip_exports import (
-    ProcessedSunChipSeries,
-    load_processed_sun_chip_series,
-)
-from .dc import (
-    LocalDCResult,
-    local_real_dc_correction,
-    AdaptiveDCResult,
-    adaptive_real_dc_correction,
-)
-from .constants import (
     C_LIGHT_MS,
     SIDEREAL_DAY_S,
     OMEGA_EARTH_RAD_S,
@@ -49,17 +10,73 @@ from .constants import (
     NCH_LON_DEG,
     NOMINAL_B_EW_M,
     NOMINAL_B_NS_M,
+    NOMINAL_B_EW_ERR_M,
+    NOMINAL_B_NS_ERR_M,
     BAD_CHANNELS,
     SOLAR_DIAMETER_ARCMIN_NOMINAL,
 )
+from .plotting import (
+    TEXTWIDTH_IN,
+    COLUMNWIDTH_IN,
+    A4_WIDTH_IN,
+    A4_HEIGHT_IN,
+    A4_USABLE_WIDTH_IN,
+    A4_USABLE_HEIGHT_IN,
+    LABEL_SIZE,
+    TICK_SIZE,
+    LEGEND_SIZE,
+    EMPHASIS_SIZE,
+    LW_NONE,
+    LW_FINE,
+    LW_LIGHT,
+    LW_STANDARD,
+    LW_MEDIUM,
+    LW_THICK,
+    MS_MICRO,
+    MS_FINE,
+    MS_STANDARD,
+    MS_MEDIUM,
+    MS_LARGE,
+    SS_MICRO,
+    SS_FINE,
+    SS_STANDARD,
+    SS_MEDIUM,
+    SS_LARGE,
+    ALPHA_EXTRA_LIGHT,
+    ALPHA_FAINT,
+    ALPHA_LIGHT,
+    ALPHA_STANDARD,
+    ALPHA_FULL,
+    NEUTRAL_COLOR,
+    GRID_STYLE,
+    GUIDE_STYLE,
+    FIT_STYLE,
+    MODEL_STYLE,
+    ERRORBAR_STYLE,
+    FILL_STYLE,
+    SCATTER_STYLE,
+    textwidth_figure,
+    columnwidth_figure,
+    landscapewidth_figure,
+    corner_figure,
+    subpanels,
+    zero_line,
+    unity_line,
+)
+from .captures import CaptureSeries, load_capture_series
+from .chips import ChipSegmentation, segment_capture_times_by_gap
+from .chip_exports import ProcessedSunChipSeries, load_processed_sun_chip_series
+from .dc import (
+    LocalDCResult,
+    AdaptiveDCResult,
+    local_real_dc_correction,
+    adaptive_real_dc_correction,
+)
 from .geometry import (
-    jd_from_unix,
     lst_deg,
     hour_angle_deg,
     hour_angle_rad,
     geometric_delay_s,
-    effective_geometric_delay_s,
-    delay_baseline_lambda,
     sky_baseline_lambda,
     fringe_frequency_hz,
     fringe_period_s,
@@ -94,10 +111,12 @@ from .baseline_fitting import (
 from .solar_analysis import (
     SolarDiameterResult,
     SunspotDetection,
+    SunspotLocalization,
     extract_fringe_envelope,
     find_bessel_zeros_in_envelope,
     solar_diameter_from_zeros,
     fit_solar_diameter_bessel,
     detect_sunspot_anomalies,
+    localize_sunspot_phase,
     characterize_sunspot_flux,
 )

@@ -94,7 +94,8 @@ def main() -> None:
         unix_time_start_sorted=captures_s.unix_time_start,
         unix_time_end_sorted=captures_s.unix_time_end,
         unix_sorted=unix_mid,
-        ha_deg=ha_deg,
+        gap_multiplier=10.0,
+        min_split_gap_sec=5.0,
     )
     chip_slices = chip_info.chip_slices
     corr_chips = [captures_s.corr[chip_slice] for chip_slice in chip_slices]

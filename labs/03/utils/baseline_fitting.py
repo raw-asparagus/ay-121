@@ -23,7 +23,10 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .constants import C_LIGHT_MS, NCH_LAT_DEG
-from .geometry import geometric_delay_s, x_coordinate
+from .geometry import x_coordinate
+
+_LAT_RAD_NCH = np.deg2rad(NCH_LAT_DEG)
+_SIN_LAT_NCH = np.sin(_LAT_RAD_NCH)
 
 
 def _as_dec_array(dec_rad: float | np.ndarray, n: int) -> np.ndarray:
@@ -298,7 +301,6 @@ def phase_slope_baseline_single_channel(
     dec_rad: float | np.ndarray,
     freq_hz: float,
     *,
-    lat_rad: float = np.deg2rad(NCH_LAT_DEG),
     min_samples: int = 4,
 ) -> BaselineResult | None:
     r"""Baseline from unwrapped-phase slope.
@@ -338,11 +340,10 @@ def phase_slope_baseline_single_channel(
     dec = _as_dec_array(dec_rad, len(ha))
     phase = np.unwrap(np.angle(vis[valid]))
     cos_dec = np.cos(dec[valid])
-    sin_lat = np.sin(lat_rad)
 
     # Physical regressors: cos(δ)sin(h) and sin(L)cos(δ)cos(h)
     r_ew = cos_dec * np.sin(ha[valid])
-    r_ns = sin_lat * cos_dec * np.cos(ha[valid])
+    r_ns = _SIN_LAT_NCH * cos_dec * np.cos(ha[valid])
 
     X = np.column_stack([r_ew, r_ns, np.ones(n)])
     result = np.linalg.lstsq(X, phase, rcond=None)
@@ -525,7 +526,6 @@ def lag_delay_baseline_series(
     dec_rad: float | np.ndarray,
     df_hz: float,
     *,
-    lat_rad: float = np.deg2rad(NCH_LAT_DEG),
     pad_factor: int = 16,
     bad_channels: np.ndarray | tuple | None = None,
     min_snr: float = 0.0,
@@ -569,12 +569,11 @@ def lag_delay_baseline_series(
 
     dec = _as_dec_array(dec_rad, n_cap)
     cos_dec = np.cos(dec[valid])
-    sin_lat = np.sin(lat_rad)
     tau_valid = tau_ns[valid]
 
     # Physical regressors (delay in ns = b/c * geometry * 1e9)
     r_ew = cos_dec * np.sin(ha_rad[valid])  # (b_ew/c) * r_ew gives delay
-    r_ns = sin_lat * cos_dec * np.cos(ha_rad[valid])
+    r_ns = _SIN_LAT_NCH * cos_dec * np.cos(ha_rad[valid])
 
     X = np.column_stack([r_ew, r_ns, np.ones(n)])
     result = np.linalg.lstsq(X, tau_valid, rcond=None)
@@ -629,7 +628,6 @@ def _nls_residual_complex(
     b_vec: np.ndarray,
     ha_rad: np.ndarray,
     cos_dec: np.ndarray,
-    sin_lat: float,
     freq_hz: float,
     vis_re: np.ndarray,
     vis_im: np.ndarray,
@@ -643,7 +641,7 @@ def _nls_residual_complex(
     lam = C_LIGHT_MS / freq_hz
     psi = 2.0 * np.pi * (
         (b_ew / lam) * cos_dec * np.sin(ha_rad)
-        + (b_ns / lam) * sin_lat * cos_dec * np.cos(ha_rad)
+        + (b_ns / lam) * _SIN_LAT_NCH * cos_dec * np.cos(ha_rad)
     )
     cos_psi = np.cos(psi)
     sin_psi = np.sin(psi)
@@ -679,7 +677,6 @@ def nls_baseline_single_channel(
     dec_rad: float | np.ndarray,
     freq_hz: float,
     *,
-    lat_rad: float = np.deg2rad(NCH_LAT_DEG),
     min_samples: int = 16,
     b_ew_init: float | None = None,
     b_ns_init: float = 0.0,
@@ -718,12 +715,10 @@ def nls_baseline_single_channel(
     vis_im = vis[valid].imag
     ha_valid = ha[valid]
     cos_dec_valid = np.cos(dec[valid])
-    sin_lat = np.sin(lat_rad)
 
     if b_ew_init is None:
         ps_res = phase_slope_baseline_single_channel(
-            ha_rad, visibility_dc, dec_rad, freq_hz,
-            lat_rad=lat_rad, min_samples=min_samples,
+            ha_rad, visibility_dc, dec_rad, freq_hz, min_samples=min_samples,
         )
         if ps_res is not None:
             b_ew_init = ps_res.b_ew_m
@@ -738,7 +733,7 @@ def nls_baseline_single_channel(
     sol = least_squares(
         _nls_residual_complex,
         x0=[b_ew_init, b_ns_init],
-        args=(ha_valid, cos_dec_valid, sin_lat, freq_hz, vis_re, vis_im),
+        args=(ha_valid, cos_dec_valid, freq_hz, vis_re, vis_im),
         method="lm",
     )
 
@@ -761,7 +756,7 @@ def nls_baseline_single_channel(
     lam = C_LIGHT_MS / freq_hz
     psi = 2.0 * np.pi * (
         (b_ew / lam) * cos_dec_valid * np.sin(ha_valid)
-        + (b_ns / lam) * sin_lat * cos_dec_valid * np.cos(ha_valid)
+        + (b_ns / lam) * _SIN_LAT_NCH * cos_dec_valid * np.cos(ha_valid)
     )
     cos_psi, sin_psi = np.cos(psi), np.sin(psi)
     cc = np.dot(cos_psi, cos_psi)
@@ -801,7 +796,6 @@ def nls_baseline_broadband(
     dec_rad: float | np.ndarray,
     f_sky_hz: np.ndarray,
     *,
-    lat_rad: float = np.deg2rad(NCH_LAT_DEG),
     bad_channels: np.ndarray | tuple | None = None,
     band_hz: tuple[float, float] | None = None,
     **kwargs,
@@ -828,8 +822,7 @@ def nls_baseline_broadband(
 
     for k in np.where(good)[0]:
         res = nls_baseline_single_channel(
-            ha_rad, corr_dc[:, k], dec_rad, f_sky_hz[k],
-            lat_rad=lat_rad, **kwargs,
+            ha_rad, corr_dc[:, k], dec_rad, f_sky_hz[k], **kwargs,
         )
         if res is not None:
             per_ch[k]["b_ew_m"] = res.b_ew_m
@@ -927,7 +920,6 @@ def _evaluate_S2_grid(
     sin_h: np.ndarray,
     cos_h: np.ndarray,
     cos_dec: np.ndarray,
-    sin_lat: float,
     vis_re: np.ndarray,
     vis_im: np.ndarray,
 ) -> np.ndarray:
@@ -942,8 +934,8 @@ def _evaluate_S2_grid(
     S2 = np.empty((n_ns, n_ew), dtype=float)
 
     # Pre-compute per-capture geometry
-    cd_sin_h = cos_dec * sin_h        # cos(δ_i) sin(h_i)
-    cd_cos_h = sin_lat * cos_dec * cos_h  # sin(L) cos(δ_i) cos(h_i)
+    cd_sin_h = cos_dec * sin_h                  # cos(δ_i) sin(h_i)
+    cd_cos_h = _SIN_LAT_NCH * cos_dec * cos_h   # sin(L) cos(δ_i) cos(h_i)
 
     for j, Q_ns in enumerate(Q_ns_grid):
         for i, Q_ew in enumerate(Q_ew_grid):
@@ -1039,7 +1031,6 @@ def grid_search_baseline(
     dec_rad: float | np.ndarray,
     freq_hz: float,
     *,
-    lat_rad: float = np.deg2rad(NCH_LAT_DEG),
     q_ew_range: tuple[float, float] | None = None,
     q_ns_range: tuple[float, float] | None = None,
     n_coarse: int = 200,
@@ -1081,14 +1072,11 @@ def grid_search_baseline(
     cos_dec_valid = np.cos(dec[valid])
 
     lam = C_LIGHT_MS / freq_hz
-    cos_dec_mean = np.mean(cos_dec_valid)
-    sin_lat = np.sin(lat_rad)
 
     # --- Default coarse search range from phase-slope estimate ---
     if q_ew_range is None or q_ns_range is None:
         ps_res = phase_slope_baseline_single_channel(
-            ha_rad, visibility_dc, dec_rad, freq_hz,
-            lat_rad=lat_rad, min_samples=min_samples,
+            ha_rad, visibility_dc, dec_rad, freq_hz, min_samples=min_samples,
         )
         if ps_res is not None:
             q_ew_center = ps_res.b_ew_m / lam
@@ -1104,7 +1092,7 @@ def grid_search_baseline(
     # --- Pass 1: coarse grid ---
     Q_ew_coarse = np.linspace(q_ew_range[0], q_ew_range[1], n_coarse)
     Q_ns_coarse = np.linspace(q_ns_range[0], q_ns_range[1], n_coarse)
-    S2_coarse = _evaluate_S2_grid(Q_ew_coarse, Q_ns_coarse, sin_h, cos_h, cos_dec_valid, sin_lat, vis_re, vis_im)
+    S2_coarse = _evaluate_S2_grid(Q_ew_coarse, Q_ns_coarse, sin_h, cos_h, cos_dec_valid, vis_re, vis_im)
 
     idx_flat = np.argmin(S2_coarse)
     j_c, i_c = np.unravel_index(idx_flat, S2_coarse.shape)
@@ -1122,7 +1110,7 @@ def grid_search_baseline(
         Q_ns_coarse_best + fine_halfwidth_ns,
         n_fine,
     )
-    S2_fine = _evaluate_S2_grid(Q_ew_fine, Q_ns_fine, sin_h, cos_h, cos_dec_valid, sin_lat, vis_re, vis_im)
+    S2_fine = _evaluate_S2_grid(Q_ew_fine, Q_ns_fine, sin_h, cos_h, cos_dec_valid, vis_re, vis_im)
 
     idx_flat = np.argmin(S2_fine)
     j_best, i_best = np.unravel_index(idx_flat, S2_fine.shape)

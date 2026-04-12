@@ -151,10 +151,9 @@ def fft_baseline_single_channel(
     -----
     1. Compute ``x = cos(dec) sin(h)`` for each sample.
     2. Sort and interpolate visibility onto a uniform x-grid.
-    3. Subtract complex mean, apply Hanning window.
-    4. Zero-pad and FFT.
-    5. Find peak frequency via parabolic interpolation.
-    6. Convert: ``B_EW = |f_x| * c / freq_hz``.
+    3. Zero-pad and FFT.
+    4. Find peak frequency via parabolic interpolation.
+    5. Convert: ``B_EW = |f_x| * c / freq_hz``.
 
     Returns ``None`` if fewer than *min_samples* valid points.
     """
@@ -181,11 +180,6 @@ def fft_baseline_single_channel(
     vis_re = np.interp(x_uniform, x_good, vis_good.real)
     vis_im = np.interp(x_uniform, x_good, vis_good.imag)
     vis_uniform = vis_re + 1j * vis_im
-
-    # DC subtract + Hanning window
-    vis_uniform -= vis_uniform.mean()
-    window = np.hanning(n_pts)
-    vis_uniform *= window
 
     # FFT
     n_pad = pad_factor * n_pts
@@ -386,7 +380,7 @@ def phase_slope_baseline_single_channel(
     return BaselineResult(
         b_ew_m=np.abs(b_ew),
         b_ew_err_m=b_ew_err,
-        b_ns_m=b_ns,
+        b_ns_m=np.abs(b_ns),
         b_ns_err_m=b_ns_err,
         method="phase_slope",
         chi2_reduced=chi2,
@@ -616,7 +610,7 @@ def lag_delay_baseline_series(
     return BaselineResult(
         b_ew_m=np.abs(b_ew),
         b_ew_err_m=b_ew_err,
-        b_ns_m=b_ns,
+        b_ns_m=np.abs(b_ns),
         b_ns_err_m=b_ns_err,
         method="lag_delay",
         chi2_reduced=chi2,
@@ -790,7 +784,7 @@ def nls_baseline_single_channel(
     return BaselineResult(
         b_ew_m=np.abs(b_ew),
         b_ew_err_m=b_ew_err,
-        b_ns_m=b_ns,
+        b_ns_m=np.abs(b_ns),
         b_ns_err_m=b_ns_err,
         method="nls",
         chi2_reduced=s2,
@@ -1247,7 +1241,7 @@ def grid_search_baseline(
     return GridSearchResult(
         b_ew_m=np.abs(b_ew),
         b_ew_err_m=b_ew_err,
-        b_ns_m=b_ns,
+        b_ns_m=np.abs(b_ns),
         b_ns_err_m=b_ns_err,
         Q_ew_coarse=Q_ew_coarse,
         Q_ns_coarse=Q_ns_coarse,
@@ -1332,35 +1326,22 @@ def _stft_one_chip(
     # end by multiplying by omega_earth (since dHA/dt = omega_earth).
     freq_axis_cyc_per_rad = np.fft.fftshift(np.fft.fftfreq(n_pad, d=dha))
     freq_axis_hz = freq_axis_cyc_per_rad * OMEGA_EARTH_RAD_S
-    win = np.hanning(window_size)
-
     for idx, s in enumerate(starts):
         seg = vis_u[s : s + window_size].copy()
         ha_centers[idx] = np.mean(ha_uniform[s : s + window_size])
 
-        seg = seg - np.mean(seg)
-        seg *= win
-
         spectrum = np.fft.fftshift(np.fft.fft(seg, n=n_pad))
         amp = np.abs(spectrum)
 
-        # Default search mask: positive-frequency half, excluding the DC
-        # neighbourhood. The complex FFT of a real-positive-frequency fringe
-        # produces a peak only at +f_f (its mirror at -f_f is suppressed by
-        # the cos+i*sin combination of Re V + i*Im V), so we restrict to
-        # f > 0.
-        dc_excl = max(2, int(0.05 * n_pad))
-        search_mask = (
-            (np.abs(freq_axis_cyc_per_rad) > freq_axis_cyc_per_rad[n_pad // 2 + dc_excl])
-            & (freq_axis_cyc_per_rad > 0)
-        )
+        # Search all frequencies except the DC bin itself.
+        search_mask = freq_axis_cyc_per_rad != 0.0
 
         # Optional prior-constrained peak search
         if predicted_ff_hz_fn is not None and search_tol_hz is not None:
             f_pred_hz = float(abs(predicted_ff_hz_fn(ha_centers[idx])))
             search_mask &= (
-                (freq_axis_hz >= f_pred_hz - search_tol_hz)
-                & (freq_axis_hz <= f_pred_hz + search_tol_hz)
+                (np.abs(freq_axis_hz) >= f_pred_hz - search_tol_hz)
+                & (np.abs(freq_axis_hz) <= f_pred_hz + search_tol_hz)
             )
 
         peaks = _fft_sorted_local_peaks(amp, search_mask)
@@ -1370,10 +1351,7 @@ def _stft_one_chip(
         f_peak_cyc_per_rad = _fft_peak_refined(freq_axis_cyc_per_rad, amp, peaks[0])
         peak_amp = amp[peaks[0]]
 
-        # SNR: peak / median of off-peak background. The background is
-        # estimated from the *unconstrained* spectrum so that an SNR cut
-        # remains a meaningful "is the peak really above noise" criterion
-        # even when the search has been narrowed by a prior.
+        # SNR: peak / median of off-peak background.
         off_mask = np.ones(n_pad, dtype=bool)
         lo = max(0, peaks[0] - 5)
         hi = min(n_pad, peaks[0] + 6)
@@ -1381,9 +1359,10 @@ def _stft_one_chip(
         snr = peak_amp / np.median(amp[off_mask]) if off_mask.any() else np.nan
 
         snr_arr[idx] = snr
-        if snr >= min_snr:
-            # f_f [Hz] = f_f [cycles per radian of HA] * omega_earth
-            ff_hz[idx] = f_peak_cyc_per_rad * OMEGA_EARTH_RAD_S
+        # Take absolute value — fringe frequency is a positive quantity;
+        # the sign degeneracy (positive vs negative frequency peak) is
+        # resolved downstream by the geometric model.
+        ff_hz[idx] = abs(f_peak_cyc_per_rad * OMEGA_EARTH_RAD_S)
 
     return ha_centers, ff_hz, snr_arr
 
@@ -1402,8 +1381,8 @@ def stft_fringe_frequency(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r"""Measure the local fringe frequency per window via STFT.
 
-    Slides a Hann-windowed segment of *window_size* captures along the
-    band-averaged complex visibility time series. For each window the DFT
+    Slides a segment of *window_size* captures along the
+    complex visibility time series. For each window the DFT
     peak (sub-bin refined via parabolic interpolation) gives the local
     fringe frequency :math:`\hat f_{f,i}` at the window centre.
 
@@ -1642,7 +1621,7 @@ def stft_baseline_from_ff(
     return BaselineResult(
         b_ew_m=np.abs(b_ew),
         b_ew_err_m=b_ew_err,
-        b_ns_m=b_ns,
+        b_ns_m=np.abs(b_ns),
         b_ns_err_m=b_ns_err,
         method="stft_ff",
         chi2_reduced=resid_var,
@@ -1935,7 +1914,7 @@ def nls_real_baseline_single_channel(
     return BaselineResult(
         b_ew_m=np.abs(b_ew),
         b_ew_err_m=b_ew_err,
-        b_ns_m=b_ns,
+        b_ns_m=np.abs(b_ns),
         b_ns_err_m=b_ns_err,
         method="nls_real",
         chi2_reduced=s2,

@@ -1,6 +1,6 @@
 """Baseline determination from interferometric fringe observations.
 
-Four independent methods are provided, each returning a standardised
+Seven independent methods are provided, each returning a standardised
 :class:`BaselineResult`.  A combined inverse-variance estimator is also
 available.
 
@@ -8,12 +8,20 @@ Methods
 -------
 1. **FFT in x-coordinate** — remap visibility to ``x = cos(dec) sin(h)``
    and FFT to find the fringe spatial frequency (B_EW only).
+1a. **STFT fringe-frequency fit** — short-time Fourier transform of the
+   band-averaged time series to measure the local fringe frequency at each
+   epoch, then OLS fit of f_f(h) to the fringe-frequency equation
+   (lab-manual prescription; AY121-Lab3).
 2. **Phase slope** — fit unwrapped phase against ``[sin(h), cos(h)]``
    per channel (B_EW and B_NS).
 3. **Lag-spectrum delay** — IFFT the cross-spectrum to obtain geometric
    delay, then fit ``tau = A sin(h) + B cos(h) + tau_inst`` (B_EW and B_NS).
-4. **NLS fringe fit** — nonlinear least-squares fit of the full fringe
-   equation with separable linear/nonlinear parameters (B_EW and B_NS).
+4. **NLS fringe fit** — nonlinear least-squares fit of the full complex
+   fringe equation with separable linear/nonlinear parameters (B_EW and B_NS).
+4a. **NLS real fringe fit** — same as Method 4 but fits only Re[V], matching
+   the lab-manual F(h_s) = A cos(psi) + B sin(psi) prescription exactly.
+5. **Grid search** — brute-force 2-D grid over (Q_ew, Q_ns); lab-manual
+   prescribed technique.
 """
 
 from __future__ import annotations
@@ -22,7 +30,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .constants import C_LIGHT_MS, NCH_LAT_DEG
+from .constants import C_LIGHT_MS, NCH_LAT_DEG, OMEGA_EARTH_RAD_S
 from .geometry import x_coordinate
 
 _LAT_RAD_NCH = np.deg2rad(NCH_LAT_DEG)
@@ -41,13 +49,19 @@ __all__ = [
     "GridSearchResult",
     "fft_baseline_single_channel",
     "fft_baseline_broadband",
+    "stft_fringe_frequency",
+    "stft_baseline_from_ff",
+    "stft_baseline",
     "phase_slope_baseline_single_channel",
     "phase_slope_baseline_broadband",
     "lag_delay_single_capture",
     "lag_delay_baseline_series",
     "nls_baseline_single_channel",
     "nls_baseline_broadband",
+    "nls_real_baseline_single_channel",
+    "nls_real_baseline_broadband",
     "grid_search_baseline",
+    "brute_force_1d_Qew_sweep",
     "combined_baseline",
 ]
 
@@ -1012,7 +1026,7 @@ def _curvature_and_covariance(
     else:
         d2_cross = 0.0
 
-    alpha = np.array([[0.5 * d2_ew, d2_cross], [d2_cross, 0.5 * d2_ns]])
+    alpha = np.array([[0.5 * d2_ew, 0.5 * d2_cross], [0.5 * d2_cross, 0.5 * d2_ns]])
 
     # Scale by estimated variance: σ² = S²_min / dof
     sigma2 = S2_min / max(1, dof)
@@ -1023,6 +1037,101 @@ def _curvature_and_covariance(
         cov = np.full((2, 2), np.inf)
 
     return alpha, cov
+
+
+def brute_force_1d_Qew_sweep(
+    ha_rad: np.ndarray,
+    visibility_dc: np.ndarray,
+    dec_rad: float | np.ndarray,
+    freq_hz: float,
+    *,
+    q_ew_range: tuple[float, float],
+    n_points: int = 4000,
+    min_samples: int = 16,
+) -> dict | None:
+    r"""1-D brute-force sweep of :math:`\mathcal{S}^2` vs :math:`Q_{\rm ew}` at :math:`Q_{\rm ns}=0`.
+
+    Implements **Step 1** of the fitting procedure prescribed in
+    ``src/ugradio/lab_interf/fitting_notes_2017.pdf`` (and §8.4.3 of
+    ``interf.tex``): for each guessed value of :math:`Q_{\rm ew}`, the
+    linear-in-parameters coefficients :math:`(A, B)` in the fringe model
+
+    .. math::
+
+        F(h) = A \cos(2\pi\,Q_{\rm ew}\,\cos\delta\,\sin h)
+             + B \sin(2\pi\,Q_{\rm ew}\,\cos\delta\,\sin h)
+
+    are determined analytically by least squares (separable variable
+    projection), and the resulting sum of squared residuals
+    :math:`\mathcal{S}^2(Q_{\rm ew})` is tabulated. The grid minimum
+    locates the east-west baseline; a well-defined, sharp minimum is a
+    visual sanity check for the 2-D brute-force search and the proper
+    NLS fit that follow.
+
+    The complex visibility is fitted with *separate* (A, B) for the real
+    and imaginary parts (i.e. four linear parameters and the single
+    nonlinear parameter :math:`Q_{\rm ew}`), matching the treatment in
+    :func:`grid_search_baseline`.
+
+    Parameters
+    ----------
+    ha_rad
+        Per-capture hour angle in radians.
+    visibility_dc
+        Per-capture complex visibility (DC-corrected, single channel).
+    dec_rad
+        Source declination in radians (scalar or per-capture).
+    freq_hz
+        Channel frequency in Hz.
+    q_ew_range
+        ``(lo, hi)`` sweep range in wavelengths.
+    n_points
+        Number of grid points across ``q_ew_range`` (fine, densely sampled).
+
+    Returns
+    -------
+    dict or None
+        Dict with keys
+        ``{"Q_ew_grid", "S2", "Q_ew_best", "b_ew_best_m", "S2_min", "n_points"}``
+        or ``None`` if fewer than ``min_samples`` valid captures.
+    """
+    ha = np.asarray(ha_rad)
+    vis = np.asarray(visibility_dc, dtype=complex)
+    valid = np.isfinite(vis)
+    n = int(valid.sum())
+    if n < min_samples:
+        return None
+
+    dec = _as_dec_array(dec_rad, len(ha))
+    cos_dec_valid = np.cos(dec[valid])
+    ha_valid = ha[valid]
+    sin_h = np.sin(ha_valid)
+    cos_h = np.cos(ha_valid)
+    vis_re = vis[valid].real
+    vis_im = vis[valid].imag
+
+    Q_ew_grid = np.linspace(q_ew_range[0], q_ew_range[1], n_points)
+    S2 = _evaluate_S2_grid(
+        Q_ew_grid,
+        np.array([0.0]),
+        sin_h,
+        cos_h,
+        cos_dec_valid,
+        vis_re,
+        vis_im,
+    )[0]  # shape (n_points,)
+
+    idx = int(np.argmin(S2))
+    Q_ew_best = float(Q_ew_grid[idx])
+    lam = C_LIGHT_MS / freq_hz
+    return {
+        "Q_ew_grid": Q_ew_grid,
+        "S2": S2,
+        "Q_ew_best": Q_ew_best,
+        "b_ew_best_m": Q_ew_best * lam,
+        "S2_min": float(S2[idx]),
+        "n_points": n,
+    }
 
 
 def grid_search_baseline(
@@ -1153,6 +1262,764 @@ def grid_search_baseline(
         covariance_matrix=cov,
         n_points=n,
     )
+
+
+# ===================================================================
+# Method 1a — STFT fringe-frequency fit
+# ===================================================================
+
+
+def _stft_one_chip(
+    ha_chip: np.ndarray,
+    vis_chip: np.ndarray,
+    *,
+    window_size: int,
+    step_size: int,
+    pad_factor: int,
+    min_snr: float,
+    predicted_ff_hz_fn=None,
+    search_tol_hz: float | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Run an STFT fringe-frequency scan over one contiguous chip.
+
+    Resamples the chip onto a uniform HA grid (mean cadence) before
+    sliding the window so that the FFT frequency axis is well defined,
+    then converts the dimensionless frequency in cycles-per-radian-of-HA
+    back to Hz via :math:`\\omega_\\oplus`.
+
+    If ``predicted_ff_hz_fn`` is supplied (a callable that takes an
+    HA-in-radians scalar and returns the *expected* fringe frequency in
+    Hz from a baseline prior), the FFT peak search is restricted to a
+    band of half-width ``search_tol_hz`` around the prediction. This
+    keeps the per-window measurement honest at low SNR — at the Bessel
+    nulls of the disk envelope the fringe collapses below noise and the
+    unconstrained peak finder otherwise locks onto a sidelobe several
+    mHz away from the true location, producing wild outliers.
+    """
+    ha = np.asarray(ha_chip, dtype=float)
+    vis = np.asarray(vis_chip, dtype=complex)
+
+    n_in = len(ha)
+    if n_in < window_size:
+        return np.array([]), np.array([]), np.array([])
+
+    # --- Uniform-HA resampling --------------------------------------------
+    # The NCH cadence has up to ~40% jitter inside a chip; an FFT on the
+    # raw samples produces a biased frequency axis. Resample to a uniform
+    # HA grid spanning the chip with the same number of points.
+    ha_uniform = np.linspace(ha[0], ha[-1], n_in)
+    finite = np.isfinite(vis)
+    if finite.sum() < window_size:
+        return np.array([]), np.array([]), np.array([])
+    re_u = np.interp(ha_uniform, ha[finite], vis[finite].real)
+    im_u = np.interp(ha_uniform, ha[finite], vis[finite].imag)
+    vis_u = re_u + 1j * im_u
+
+    dha = ha_uniform[1] - ha_uniform[0]
+    if dha <= 0 or not np.isfinite(dha):
+        return np.array([]), np.array([]), np.array([])
+
+    starts = list(range(0, n_in - window_size + 1, step_size))
+    if not starts:
+        return np.array([]), np.array([]), np.array([])
+
+    ha_centers = np.empty(len(starts))
+    ff_hz = np.full(len(starts), np.nan)
+    snr_arr = np.full(len(starts), np.nan)
+
+    n_pad = window_size * pad_factor
+    # FFT frequency axis in cycles-per-radian-of-HA. Convert to Hz at the
+    # end by multiplying by omega_earth (since dHA/dt = omega_earth).
+    freq_axis_cyc_per_rad = np.fft.fftshift(np.fft.fftfreq(n_pad, d=dha))
+    freq_axis_hz = freq_axis_cyc_per_rad * OMEGA_EARTH_RAD_S
+    win = np.hanning(window_size)
+
+    for idx, s in enumerate(starts):
+        seg = vis_u[s : s + window_size].copy()
+        ha_centers[idx] = np.mean(ha_uniform[s : s + window_size])
+
+        seg = seg - np.mean(seg)
+        seg *= win
+
+        spectrum = np.fft.fftshift(np.fft.fft(seg, n=n_pad))
+        amp = np.abs(spectrum)
+
+        # Default search mask: positive-frequency half, excluding the DC
+        # neighbourhood. The complex FFT of a real-positive-frequency fringe
+        # produces a peak only at +f_f (its mirror at -f_f is suppressed by
+        # the cos+i*sin combination of Re V + i*Im V), so we restrict to
+        # f > 0.
+        dc_excl = max(2, int(0.05 * n_pad))
+        search_mask = (
+            (np.abs(freq_axis_cyc_per_rad) > freq_axis_cyc_per_rad[n_pad // 2 + dc_excl])
+            & (freq_axis_cyc_per_rad > 0)
+        )
+
+        # Optional prior-constrained peak search
+        if predicted_ff_hz_fn is not None and search_tol_hz is not None:
+            f_pred_hz = float(abs(predicted_ff_hz_fn(ha_centers[idx])))
+            search_mask &= (
+                (freq_axis_hz >= f_pred_hz - search_tol_hz)
+                & (freq_axis_hz <= f_pred_hz + search_tol_hz)
+            )
+
+        peaks = _fft_sorted_local_peaks(amp, search_mask)
+        if len(peaks) == 0:
+            continue
+
+        f_peak_cyc_per_rad = _fft_peak_refined(freq_axis_cyc_per_rad, amp, peaks[0])
+        peak_amp = amp[peaks[0]]
+
+        # SNR: peak / median of off-peak background. The background is
+        # estimated from the *unconstrained* spectrum so that an SNR cut
+        # remains a meaningful "is the peak really above noise" criterion
+        # even when the search has been narrowed by a prior.
+        off_mask = np.ones(n_pad, dtype=bool)
+        lo = max(0, peaks[0] - 5)
+        hi = min(n_pad, peaks[0] + 6)
+        off_mask[lo:hi] = False
+        snr = peak_amp / np.median(amp[off_mask]) if off_mask.any() else np.nan
+
+        snr_arr[idx] = snr
+        if snr >= min_snr:
+            # f_f [Hz] = f_f [cycles per radian of HA] * omega_earth
+            ff_hz[idx] = f_peak_cyc_per_rad * OMEGA_EARTH_RAD_S
+
+    return ha_centers, ff_hz, snr_arr
+
+
+def stft_fringe_frequency(
+    ha_rad: np.ndarray,
+    vis_band_avg: np.ndarray,
+    *,
+    window_size: int = 64,
+    step_size: int = 16,
+    pad_factor: int = 8,
+    min_snr: float = 3.0,
+    chip_slices: list[slice] | None = None,
+    predicted_ff_hz_fn=None,
+    search_tol_hz: float | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    r"""Measure the local fringe frequency per window via STFT.
+
+    Slides a Hann-windowed segment of *window_size* captures along the
+    band-averaged complex visibility time series. For each window the DFT
+    peak (sub-bin refined via parabolic interpolation) gives the local
+    fringe frequency :math:`\hat f_{f,i}` at the window centre.
+
+    Two robustness features are essential for the NCH dataset:
+
+    * **Per-chip operation.** When *chip_slices* is supplied, the STFT
+      is run independently on each chip so that no window straddles an
+      inter-chip dead-time gap (which would otherwise corrupt the FFT
+      frequency axis). The window-centre arrays from all chips are
+      concatenated.
+    * **Uniform-HA resampling.** Inside each chip the captures are
+      linearly interpolated onto a uniform HA grid before the FFT runs.
+      The NCH capture cadence has up to ~40% intra-chip jitter; without
+      resampling the FFT bin width is biased and the recovered fringe
+      frequency drifts.
+
+    The fringe frequency is computed in cycles-per-radian-of-HA from the
+    uniform-HA FFT and converted to Hz at the end via :math:`\omega_\oplus`.
+    This avoids any dependence on the (inaccurate) median capture cadence.
+
+    Parameters
+    ----------
+    ha_rad : (N,) array
+        Hour angle at each capture in radians (monotonically increasing
+        within each chip).
+    vis_band_avg : (N,) complex array
+        Band-averaged complex visibility (DC-corrected).
+    window_size : int
+        Number of captures per window.
+    step_size : int
+        Window step in captures.
+    pad_factor : int
+        Zero-padding factor for sub-bin frequency resolution.
+    min_snr : float
+        Windows with peak-to-median SNR below this are returned as NaN.
+    chip_slices : list of slice, optional
+        Row slices that partition ``ha_rad`` / ``vis_band_avg`` into
+        contiguous chips. If ``None``, the full series is treated as a
+        single chip.
+
+    Returns
+    -------
+    ha_centers : (M,) array
+        Mean hour angle of each window in radians (concatenated across
+        chips).
+    ff_hz : (M,) array
+        Measured fringe frequency in Hz (NaN where SNR < min_snr).
+    snr_arr : (M,) array
+        Peak-to-median SNR for each window.
+    """
+    ha = np.asarray(ha_rad, dtype=float)
+    vis = np.asarray(vis_band_avg, dtype=complex)
+
+    if chip_slices is None:
+        chip_slices = [slice(0, len(ha))]
+
+    parts_h, parts_f, parts_s = [], [], []
+    for sl in chip_slices:
+        h_c, f_c, s_c = _stft_one_chip(
+            ha[sl], vis[sl],
+            window_size=window_size,
+            step_size=step_size,
+            pad_factor=pad_factor,
+            min_snr=min_snr,
+            predicted_ff_hz_fn=predicted_ff_hz_fn,
+            search_tol_hz=search_tol_hz,
+        )
+        if len(h_c) > 0:
+            parts_h.append(h_c)
+            parts_f.append(f_c)
+            parts_s.append(s_c)
+
+    if not parts_h:
+        return np.array([]), np.array([]), np.array([])
+
+    return (
+        np.concatenate(parts_h),
+        np.concatenate(parts_f),
+        np.concatenate(parts_s),
+    )
+
+
+def stft_baseline_from_ff(
+    ha_centers: np.ndarray,
+    ff_hz: np.ndarray,
+    dec_rad: float | np.ndarray,
+    freq_hz: float,
+    *,
+    snr: np.ndarray | None = None,
+    min_snr: float = 3.0,
+    sigma_clip: float = 3.0,
+    max_iterations: int = 5,
+) -> BaselineResult | None:
+    r"""Fit measured fringe frequencies to the fringe-frequency equation.
+
+    The lab manual fringe-frequency equation ([AY121-Lab3] eq. ``fringefreq``,
+    boxed) is:
+
+    .. math::
+
+        \frac{f_{f,Hz}}{\omega_\oplus} =
+            \frac{b_{\rm ew}}{\lambda}\cos\delta\,\cos h
+          - \frac{b_{\rm ns}}{\lambda}\sin L\,\cos\delta\,\sin h
+
+    This is linear in :math:`(b_{\rm ew}, b_{\rm ns})`, so the solution
+    is a standard linear least-squares problem. The design matrix is
+
+    .. math::
+
+        X = \bigl[\omega_\oplus\cos\delta_i\cos h_i/\lambda,\;
+                  -\omega_\oplus\sin L\cos\delta_i\sin h_i/\lambda\bigr]
+
+    and we fit :math:`\hat f_{f,i} = X_i\,[b_{\rm ew}, b_{\rm ns}]^T`.
+
+    Two robustness layers are applied to handle the well-known failure
+    modes of the STFT method:
+
+    * **SNR weighting.** Windows are weighted by their SNR (the per-window
+      peak-to-noise ratio from :func:`stft_fringe_frequency`). High-SNR
+      windows — those near the fringe-amplitude peaks of the Bessel
+      envelope — drive the fit; near-null windows that just made the SNR
+      cut still contribute but with reduced influence.
+    * **Iterative sigma clipping.** Near the Bessel nulls of the disk
+      modulating function the fringe amplitude can collapse to noise and
+      the FFT peak finder occasionally locks onto a sidelobe — producing
+      a per-window outlier of several mHz. After the first weighted fit
+      the residuals are scaled by the weighted residual standard deviation
+      and any window outside ``sigma_clip`` is masked; the fit is then
+      re-run on the surviving subset until the mask stabilises.
+
+    Both layers can be disabled by passing ``snr=None`` (uniform weights)
+    and ``sigma_clip=np.inf``.
+
+    Parameters
+    ----------
+    ha_centers : (M,) array
+        Window-centre hour angles in radians.
+    ff_hz : (M,) array
+        Measured fringe frequencies in Hz (NaN entries are ignored).
+    dec_rad : float or (M,) array
+        Source declination at each window centre.
+    freq_hz : float
+        Band-centre sky frequency in Hz (used to compute λ).
+    snr : (M,) array, optional
+        Per-window SNR. Windows with ``snr < min_snr`` are excluded;
+        the surviving entries are used as weights in the WLS fit.
+    min_snr : float
+        Minimum SNR threshold (applied only when *snr* is provided).
+    sigma_clip : float
+        Outlier rejection threshold in units of the weighted residual
+        standard deviation. Windows whose residual exceeds
+        ``sigma_clip * sigma_resid`` are dropped and the fit is re-run.
+    max_iterations : int
+        Maximum number of sigma-clipping iterations.
+
+    Returns ``None`` if fewer than 4 valid windows.
+    """
+    ha = np.asarray(ha_centers)
+    ff = np.asarray(ff_hz)
+    dec = _as_dec_array(dec_rad, len(ha))
+
+    valid_full = np.isfinite(ff)
+    if snr is not None:
+        snr_arr = np.asarray(snr, dtype=float)
+        valid_full &= np.isfinite(snr_arr) & (snr_arr >= min_snr)
+    else:
+        snr_arr = np.ones_like(ff)
+
+    if int(valid_full.sum()) < 4:
+        return None
+
+    lam = C_LIGHT_MS / freq_hz
+    cos_dec_full = np.cos(dec)
+
+    # Full-length design matrix; we'll subset by mask each iteration.
+    r_ew_full = OMEGA_EARTH_RAD_S * cos_dec_full * np.cos(ha) / lam
+    r_ns_full = -OMEGA_EARTH_RAD_S * _SIN_LAT_NCH * cos_dec_full * np.sin(ha) / lam
+    X_full = np.column_stack([r_ew_full, r_ns_full])
+
+    mask = valid_full.copy()
+    coeffs = np.zeros(2)
+    cov = np.full((2, 2), np.inf)
+    resid = np.zeros(int(mask.sum()))
+    resid_var = np.inf
+
+    for _it in range(max_iterations):
+        n_it = int(mask.sum())
+        if n_it < 4:
+            break
+        Xm = X_full[mask]
+        ym = ff[mask]
+        wm = snr_arr[mask] if snr is not None else np.ones(n_it)
+
+        # Weighted least squares: solve (W^{1/2} X) b = (W^{1/2} y).
+        sw = np.sqrt(wm)
+        Xw = Xm * sw[:, None]
+        yw = ym * sw
+        coeffs, _, _, _ = np.linalg.lstsq(Xw, yw, rcond=None)
+
+        resid = ym - Xm @ coeffs
+        # Weighted residual std (avoid double-counting weights)
+        resid_var = float(np.average(resid ** 2, weights=wm))
+        sigma_resid = np.sqrt(max(resid_var, 1e-30))
+
+        new_mask = mask.copy()
+        new_mask[mask] = np.abs(resid) <= sigma_clip * sigma_resid
+        if int(new_mask.sum()) == n_it:
+            break  # converged
+        mask = new_mask
+
+    n = int(mask.sum())
+    if n < 4:
+        return None
+
+    Xm = X_full[mask]
+    wm = snr_arr[mask] if snr is not None else np.ones(n)
+    sw = np.sqrt(wm)
+    Xw = Xm * sw[:, None]
+
+    # Covariance: (X^T W X)^{-1} * (residual variance)
+    try:
+        cov_unscaled = np.linalg.inv(Xw.T @ Xw)
+    except np.linalg.LinAlgError:
+        cov_unscaled = np.full((2, 2), np.inf)
+    cov = cov_unscaled * resid_var
+
+    b_ew, b_ns = coeffs
+    b_ew_err = np.sqrt(max(0, cov[0, 0]))
+    b_ns_err = np.sqrt(max(0, cov[1, 1]))
+
+    # Build a full-length model array (NaN at excluded windows) so the
+    # caller can plot measured vs model on a single shared axis.
+    ff_model_full = np.full_like(ff, np.nan)
+    ff_model_full[mask] = X_full[mask] @ coeffs
+
+    return BaselineResult(
+        b_ew_m=np.abs(b_ew),
+        b_ew_err_m=b_ew_err,
+        b_ns_m=b_ns,
+        b_ns_err_m=b_ns_err,
+        method="stft_ff",
+        chi2_reduced=resid_var,
+        n_points=n,
+        metadata={
+            "ha_centers": ha_centers,
+            "ff_hz_measured": ff_hz,
+            "ff_hz_model": ff_model_full,
+            "residuals_hz": resid,
+            "valid_mask": mask,
+            "snr": snr_arr if snr is not None else None,
+        },
+    )
+
+
+def stft_baseline(
+    ha_rad: np.ndarray,
+    corr_dc: np.ndarray,
+    dec_rad: float | np.ndarray,
+    f_sky_hz: np.ndarray,
+    *,
+    bad_channels: np.ndarray | tuple | None = None,
+    band_hz: tuple[float, float] | None = None,
+    window_size: int = 64,
+    step_size: int = 16,
+    pad_factor: int = 8,
+    min_snr: float = 3.0,
+    chip_slices: list[slice] | None = None,
+    b_ew_prior_m: float | None = None,
+    b_ns_prior_m: float = 0.0,
+    search_tol_hz: float | None = None,
+) -> BaselineResult | None:
+    """STFT fringe-frequency baseline — band-average then fit.
+
+    Convenience wrapper: band-averages *corr_dc* over good channels, calls
+    :func:`stft_fringe_frequency` to extract per-window fringe frequencies,
+    then calls :func:`stft_baseline_from_ff` to fit the baseline.
+
+    Parameters
+    ----------
+    ha_rad : (N_cap,) array
+        Hour angles in radians.
+    corr_dc : (N_cap, N_ch) complex array
+        DC-corrected complex visibilities.
+    dec_rad : float or (N_cap,) array
+        Source declination(s) in radians.
+    f_sky_hz : (N_ch,) array
+        Sky frequency per channel in Hz.
+    bad_channels, band_hz
+        Channel masking (same convention as other broadband methods).
+    window_size, step_size, pad_factor, min_snr
+        Passed to :func:`stft_fringe_frequency`.
+
+    Returns ``None`` if no valid windows remain after masking.
+    """
+    n_ch = corr_dc.shape[1]
+    f_sky_hz = np.asarray(f_sky_hz)
+
+    good = np.ones(n_ch, dtype=bool)
+    if bad_channels is not None:
+        good[list(bad_channels)] = False
+    if band_hz is not None:
+        good &= (f_sky_hz >= band_hz[0]) & (f_sky_hz <= band_hz[1])
+
+    if not good.any():
+        return None
+
+    vis_band_avg = np.nanmean(corr_dc[:, good], axis=1)
+
+    # Representative sky frequency for λ
+    freq_hz = float(np.nanmedian(f_sky_hz[good]))
+
+    # Scalar or array declination
+    dec = _as_dec_array(dec_rad, len(ha_rad))
+
+    # Optional prior-constrained peak search. If a baseline prior is given,
+    # we build a closure that returns the predicted f_f at any HA from the
+    # prior baseline + per-capture declination, and pass it to the per-chip
+    # STFT loop. The peak finder then restricts its search to a band of
+    # ±search_tol_hz around the prediction.
+    predicted_ff_hz_fn = None
+    if b_ew_prior_m is not None and search_tol_hz is not None:
+        ha_arr_for_interp = np.asarray(ha_rad, dtype=float)
+        if dec.ndim > 0 and len(dec) == len(ha_arr_for_interp):
+            def _dec_at(h):
+                return float(np.interp(h, ha_arr_for_interp, dec))
+        else:
+            _dec_at_val = float(dec[0]) if dec.ndim > 0 else float(dec)
+            def _dec_at(h):
+                return _dec_at_val
+
+        # Inline the fringe-frequency formula (avoids importing geometry to
+        # prevent a circular import).
+        def predicted_ff_hz_fn(h_rad: float) -> float:
+            d = _dec_at(h_rad)
+            cd = np.cos(d)
+            lam_pred = C_LIGHT_MS / freq_hz
+            return float(OMEGA_EARTH_RAD_S * (
+                (b_ew_prior_m / lam_pred) * cd * np.cos(h_rad)
+                - (b_ns_prior_m / lam_pred) * _SIN_LAT_NCH * cd * np.sin(h_rad)
+            ))
+
+    ha_centers, ff_hz, snr_arr = stft_fringe_frequency(
+        ha_rad, vis_band_avg,
+        window_size=window_size,
+        step_size=step_size,
+        pad_factor=pad_factor,
+        min_snr=min_snr,
+        chip_slices=chip_slices,
+        predicted_ff_hz_fn=predicted_ff_hz_fn,
+        search_tol_hz=search_tol_hz,
+    )
+    if len(ha_centers) == 0:
+        return None
+
+    # Interpolate declination to window centres for per-capture dec support
+    if dec.ndim > 0 and len(dec) == len(ha_rad):
+        dec_centers = np.interp(ha_centers, ha_rad, dec)
+    else:
+        dec_centers = float(dec[0]) if dec.ndim > 0 else float(dec)
+
+    return stft_baseline_from_ff(
+        ha_centers, ff_hz, dec_centers, freq_hz,
+        snr=snr_arr, min_snr=min_snr,
+    )
+
+
+# ===================================================================
+# Method 4a — NLS real fringe fit (lab-manual prescription)
+# ===================================================================
+
+
+def _nls_residual_real(
+    b_vec: np.ndarray,
+    ha_rad: np.ndarray,
+    cos_dec: np.ndarray,
+    freq_hz: float,
+    vis_re: np.ndarray,
+) -> np.ndarray:
+    r"""Residual for the real-only NLS fringe fit.
+
+    The lab-manual fringe response equation ([AY121-Lab3] eq. ``fringeresponse``,
+    boxed):
+
+    .. math::
+
+        F(h_s) = A\cos(2\pi\nu\tau_g') + B\sin(2\pi\nu\tau_g')
+
+    where :math:`2\pi\nu\tau_g' = \psi`.  Parameters *b_vec* = ``[b_ew, b_ns]``
+    in metres; the linear parameters :math:`(A, B)` are solved analytically.
+    Returns the N-point real residual vector.
+    """
+    b_ew, b_ns = b_vec
+    lam = C_LIGHT_MS / freq_hz
+    psi = 2.0 * np.pi * (
+        (b_ew / lam) * cos_dec * np.sin(ha_rad)
+        + (b_ns / lam) * _SIN_LAT_NCH * cos_dec * np.cos(ha_rad)
+    )
+    cos_psi = np.cos(psi)
+    sin_psi = np.sin(psi)
+
+    cc = np.dot(cos_psi, cos_psi)
+    ss = np.dot(sin_psi, sin_psi)
+    cs = np.dot(cos_psi, sin_psi)
+    det = cc * ss - cs * cs
+    if abs(det) < 1e-30:
+        return vis_re
+
+    yc = np.dot(vis_re, cos_psi)
+    ys = np.dot(vis_re, sin_psi)
+    A = (ss * yc - cs * ys) / det
+    B = (cc * ys - cs * yc) / det
+
+    return vis_re - (A * cos_psi + B * sin_psi)
+
+
+def nls_real_baseline_single_channel(
+    ha_rad: np.ndarray,
+    visibility_dc: np.ndarray,
+    dec_rad: float | np.ndarray,
+    freq_hz: float,
+    *,
+    min_samples: int = 16,
+    b_ew_init: float | None = None,
+    b_ns_init: float = 0.0,
+) -> BaselineResult | None:
+    r"""Baseline from NLS fit of the real fringe — lab-manual prescription.
+
+    Fits the real part of the complex visibility to the lab-manual fringe
+    response equation ([AY121-Lab3] eq. ``fringeresponse``, boxed):
+
+    .. math::
+
+        F(h_s) = A\cos\psi_i + B\sin\psi_i, \quad
+        \psi_i = 2\pi\!\left[
+            \frac{b_{\rm ew}}{\lambda}\cos\delta_i\sin h_i
+          + \frac{b_{\rm ns}}{\lambda}\sin L\cos\delta_i\cos h_i
+        \right]
+
+    This is the exact real-valued fit described in the lab manual.  The
+    nonlinear parameters :math:`(b_{\rm ew}, b_{\rm ns})` are optimised
+    via Levenberg-Marquardt ([scipy] ``least_squares``); the linear
+    parameters :math:`(A, B)` are solved analytically at each step
+    (Golub-Pereyra separable NLS [Golub73]).
+
+    Compared to :func:`nls_baseline_single_channel` (Method 4), this uses
+    only Re[V] — N data points instead of 2N — so the uncertainties are
+    larger by roughly :math:`\sqrt{2}` when signal-to-noise is equal.
+
+    Parameters
+    ----------
+    dec_rad : float or (N,) array
+        Source declination in radians (scalar or per-capture).
+    b_ew_init : float, optional
+        Initial guess for :math:`b_{\rm ew}` in metres (default: seeded
+        from the phase-slope result).
+    b_ns_init : float
+        Initial guess for :math:`b_{\rm ns}` in metres (default: 0).
+
+    Returns ``None`` if fewer than *min_samples* valid points.
+    """
+    from scipy.optimize import least_squares
+
+    ha = np.asarray(ha_rad)
+    vis = np.asarray(visibility_dc, dtype=complex)
+
+    valid = np.isfinite(vis)
+    n = int(valid.sum())
+    if n < min_samples:
+        return None
+
+    dec = _as_dec_array(dec_rad, len(ha))
+    vis_re = vis[valid].real
+    ha_valid = ha[valid]
+    cos_dec_valid = np.cos(dec[valid])
+
+    if b_ew_init is None:
+        ps_res = phase_slope_baseline_single_channel(
+            ha_rad, visibility_dc, dec_rad, freq_hz, min_samples=min_samples,
+        )
+        if ps_res is not None:
+            b_ew_init = ps_res.b_ew_m
+            if np.isfinite(ps_res.b_ns_m):
+                b_ns_init = ps_res.b_ns_m
+        else:
+            fft_res = fft_baseline_single_channel(
+                ha_rad, visibility_dc, dec_rad, freq_hz, min_samples=min_samples,
+            )
+            b_ew_init = fft_res.b_ew_m if fft_res is not None else 20.0
+
+    sol = least_squares(
+        _nls_residual_real,
+        x0=[b_ew_init, b_ns_init],
+        args=(ha_valid, cos_dec_valid, freq_hz, vis_re),
+        method="lm",
+    )
+
+    b_ew, b_ns = sol.x
+
+    # Uncertainty: residual has N points, 4 effective params (A, B, b_ew, b_ns)
+    resid = sol.fun
+    dof = max(1, n - 4)
+    s2 = np.sum(resid**2) / dof
+    try:
+        JtJ = sol.jac.T @ sol.jac
+        cov_b = s2 * np.linalg.inv(JtJ)
+        b_ew_err = np.sqrt(max(0, cov_b[0, 0]))
+        b_ns_err = np.sqrt(max(0, cov_b[1, 1]))
+    except np.linalg.LinAlgError:
+        b_ew_err = np.inf
+        b_ns_err = np.inf
+
+    # Recover linear params at solution for metadata
+    lam = C_LIGHT_MS / freq_hz
+    psi = 2.0 * np.pi * (
+        (b_ew / lam) * cos_dec_valid * np.sin(ha_valid)
+        + (b_ns / lam) * _SIN_LAT_NCH * cos_dec_valid * np.cos(ha_valid)
+    )
+    cos_psi, sin_psi = np.cos(psi), np.sin(psi)
+    cc = np.dot(cos_psi, cos_psi)
+    ss = np.dot(sin_psi, sin_psi)
+    cs = np.dot(cos_psi, sin_psi)
+    det = cc * ss - cs * cs
+    if abs(det) > 1e-30:
+        A = (ss * np.dot(vis_re, cos_psi) - cs * np.dot(vis_re, sin_psi)) / det
+        B = (cc * np.dot(vis_re, sin_psi) - cs * np.dot(vis_re, cos_psi)) / det
+    else:
+        A = B = np.nan
+
+    return BaselineResult(
+        b_ew_m=np.abs(b_ew),
+        b_ew_err_m=b_ew_err,
+        b_ns_m=b_ns,
+        b_ns_err_m=b_ns_err,
+        method="nls_real",
+        chi2_reduced=s2,
+        n_points=n,
+        metadata={
+            "A": A, "B": B,
+            "amplitude": np.sqrt(A**2 + B**2) if np.isfinite(A) else np.nan,
+            "nfev": sol.nfev,
+            "cost": sol.cost,
+        },
+    )
+
+
+def nls_real_baseline_broadband(
+    ha_rad: np.ndarray,
+    corr_dc: np.ndarray,
+    dec_rad: float | np.ndarray,
+    f_sky_hz: np.ndarray,
+    *,
+    bad_channels: np.ndarray | tuple | None = None,
+    band_hz: tuple[float, float] | None = None,
+    **kwargs,
+) -> tuple[BaselineResult | None, np.ndarray]:
+    """Band-averaged real-NLS fringe-fit baseline across channels.
+
+    Identical aggregation to :func:`nls_baseline_broadband` but calls
+    :func:`nls_real_baseline_single_channel` (real part only).
+
+    Returns (aggregated result, per-channel structured array).
+    """
+    n_ch = corr_dc.shape[1]
+    f_sky_hz = np.asarray(f_sky_hz)
+
+    good = np.ones(n_ch, dtype=bool)
+    if bad_channels is not None:
+        good[list(bad_channels)] = False
+    if band_hz is not None:
+        good &= (f_sky_hz >= band_hz[0]) & (f_sky_hz <= band_hz[1])
+
+    per_ch = np.full(
+        n_ch,
+        np.nan,
+        dtype=[("b_ew_m", float), ("b_ew_err_m", float),
+               ("b_ns_m", float), ("b_ns_err_m", float)],
+    )
+
+    for k in np.where(good)[0]:
+        res = nls_real_baseline_single_channel(
+            ha_rad, corr_dc[:, k], dec_rad, f_sky_hz[k], **kwargs,
+        )
+        if res is not None:
+            per_ch[k]["b_ew_m"] = res.b_ew_m
+            per_ch[k]["b_ew_err_m"] = res.b_ew_err_m
+            per_ch[k]["b_ns_m"] = res.b_ns_m
+            per_ch[k]["b_ns_err_m"] = res.b_ns_err_m
+
+    valid = np.isfinite(per_ch["b_ew_m"])
+    if not valid.any():
+        return None, per_ch
+
+    b_ew_vals = per_ch["b_ew_m"][valid]
+    b_ns_vals = per_ch["b_ns_m"][valid]
+
+    med_ew = np.median(b_ew_vals)
+    p16_ew, p84_ew = np.percentile(b_ew_vals, [16, 84])
+    scatter_ew = 0.5 * (p84_ew - p16_ew)
+
+    med_ns = np.nanmedian(b_ns_vals)
+    finite_ns = np.isfinite(b_ns_vals)
+    if finite_ns.sum() > 1:
+        p16_ns, p84_ns = np.percentile(b_ns_vals[finite_ns], [16, 84])
+        scatter_ns = 0.5 * (p84_ns - p16_ns)
+    else:
+        scatter_ns = np.inf
+
+    result = BaselineResult(
+        b_ew_m=med_ew,
+        b_ew_err_m=scatter_ew,
+        b_ns_m=med_ns,
+        b_ns_err_m=scatter_ns,
+        method="nls_real_broadband",
+        n_points=int(valid.sum()),
+    )
+    return result, per_ch
 
 
 # ===================================================================

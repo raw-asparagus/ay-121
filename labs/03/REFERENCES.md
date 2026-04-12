@@ -32,6 +32,10 @@ between published values.
 | **vC34** | van Cittert, P. H. 1934, *Physica*, **1**, 201. The original derivation of the spatial coherence function. |
 | **Z38** | Zernike, F. 1938, *Physica*, **5**, 785. The radio-relevant statement of the same theorem. |
 | **Ryle52** | Ryle, M. 1952, *Proc. R. Soc. Lond. A*, **211**, 351. The adding interferometer (relevant for the §1.2 derivation of the NCH instrument response). |
+| **Golub73** | Golub, G. H., & Pereyra, V. 1973, *SIAM Journal on Numerical Analysis*, **10**, 413, "The differentiation of pseudo-inverses and nonlinear least squares problems whose variables separate". The variable-projection (separable NLS) algorithm used in Methods 4 and 4a: the nonlinear parameters $(b_{\rm ew}, b_{\rm ns})$ are iterated while the linear parameters $(A, B, C, D)$ are solved analytically at each step, reducing a 6-parameter NLS to a 2-parameter one. |
+| **Harris78** | Harris, F. J. 1978, *Proceedings of the IEEE*, **66**, 51, "On the Use of Windows for Harmonic Analysis with the Discrete Fourier Transform". The canonical reference for windowing in the DFT/FFT; the Hann window used in the STFT fringe-frequency method (Method 1a) and in the FFT x-space method (Method 1) is discussed in §III-B. |
+| **Oppenheim** | Oppenheim, A. V., & Schafer, R. W. 1989, *Discrete-Time Signal Processing*, Prentice Hall. §8.6 for the Short-Time Fourier Transform (STFT) framework used in Method 1a; §7 for the DFT. |
+| **Virtanen20** | Virtanen, P. et al. (SciPy 1.0 Contributors). 2020, *Nature Methods*, **17**, 261, "SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python". The `scipy.optimize.least_squares` Levenberg-Marquardt back-end used in Methods 4 and 4a. |
 
 ## Solar physics — quiet Sun, chromosphere, free–free
 

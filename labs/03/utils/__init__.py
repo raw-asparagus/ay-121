@@ -14,6 +14,9 @@ from .constants import (
     NOMINAL_B_NS_ERR_M,
     BAD_CHANNELS,
     SOLAR_DIAMETER_ARCMIN_NOMINAL,
+    CHIP_GAIN_RATIOS_DEFAULT,
+    DC_CORRECTION_ALPHA_DEFAULT,
+    apply_chip_gain_correction,
 )
 from .plotting import (
     TEXTWIDTH_IN,
@@ -105,8 +108,18 @@ from .baseline_fitting import (
     lag_delay_baseline_series,
     nls_baseline_single_channel,
     nls_baseline_broadband,
+    stft_fringe_frequency,
+    stft_baseline_from_ff,
+    stft_baseline,
+    nls_real_baseline_single_channel,
+    nls_real_baseline_broadband,
     grid_search_baseline,
+    brute_force_1d_Qew_sweep,
     combined_baseline,
+)
+from .synthetic import (
+    SyntheticDataset,
+    make_synthetic_sun_dataset,
 )
 from .solar_analysis import (
     SolarDiameterResult,
@@ -116,6 +129,8 @@ from .solar_analysis import (
     find_bessel_zeros_in_envelope,
     solar_diameter_from_zeros,
     fit_solar_diameter_bessel,
+    mf_theory_discrete,
+    diameter_from_mf_zero_crossings,
     detect_sunspot_anomalies,
     localize_sunspot_phase,
     characterize_sunspot_flux,

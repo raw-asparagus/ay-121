@@ -526,13 +526,280 @@ def localize_sunspot_phase(
     )
 
 
+# ---------------------------------------------------------------------------
+# Modulating function (interf.tex §8 formulation)
+# ---------------------------------------------------------------------------
+
+
+def mf_theory_discrete(f_f_R: np.ndarray, n_samples: int = 2001) -> np.ndarray:
+    r"""Theoretical modulating function for a uniform circular disk.
+
+    Implements the discrete-sum approximation from §8 of
+    ``src/ugradio/lab_interf/interf.tex``:
+
+    .. math::
+
+        \mathrm{MF}_{\mathrm{theory}}(f_f R)
+            \;\approx\;
+            \delta h \sum_{n=-N}^{+N}
+                \left[ 1 - \left(\tfrac{n}{N}\right)^{2} \right]^{1/2}
+                \cos\!\left( \frac{2\pi\,f_f R\,n}{N} \right),
+
+    where the integral that defines the modulating function runs over a
+    uniform disk of radius :math:`R` (so the brightness profile at 1-D
+    offset :math:`\Delta h` is :math:`\sqrt{R^2 - \Delta h^2}/R`) and
+    the sum depends only on the combination :math:`f_f R` (in units of
+    wavelengths — both ``f_f`` and ``R`` are multiplied together into a
+    single dimensionless variable). The result is normalised to unity
+    at ``f_f R = 0``.
+
+    Parameters
+    ----------
+    f_f_R
+        Scalar or array of the combination :math:`|u_{\mathrm{sky}}| R`
+        (equivalently :math:`f_f R / \omega_\oplus`) in wavelengths.
+    n_samples
+        Number of terms in the discrete sum. ``2001`` is well converged
+        for the Bessel-zero values of interest here (first five nulls).
+
+    Returns
+    -------
+    ndarray with same shape as ``f_f_R``
+        :math:`\mathrm{MF}_{\mathrm{theory}}`, a signed function that
+        crosses zero at the Bessel nulls :math:`j_{1,k}/(2\pi)`.
+
+    Notes
+    -----
+    This is numerically equivalent to :math:`2 J_1(2\pi\,f_f R)/(2\pi\,f_f R)`
+    (the jinc function used elsewhere in this module); the discrete-sum
+    form is kept because (i) the lab manual prescribes it, and (ii) it
+    makes explicit that :math:`\mathrm{MF}_{\mathrm{theory}}` depends on
+    the *product* :math:`f_f R` and not on :math:`f_f` and :math:`R`
+    separately — which is the basis of the zero-crossing measurement.
+    """
+    x = np.asarray(f_f_R, dtype=float)
+    N = int(n_samples) // 2
+    n_grid = np.arange(-N, N + 1)
+    weights = np.sqrt(np.maximum(0.0, 1.0 - (n_grid / N) ** 2))
+    # Normalisation: sum(weights) * delta_h -> 1 at x=0 where cos -> 1.
+    norm = np.sum(weights)
+    # Broadcast: shape (..., 2N+1). For large arrays we loop.
+    out = np.empty(x.shape, dtype=float)
+    flat = out.reshape(-1)
+    xf = x.reshape(-1)
+    for i, xi in enumerate(xf):
+        flat[i] = np.sum(weights * np.cos(2.0 * np.pi * xi * n_grid / N)) / norm
+    return out
+
+
+def diameter_from_mf_zero_crossings(
+    u_lambda: np.ndarray,
+    envelope: np.ndarray,
+    envelope_amplitude_ref: float,
+    expected_diameter_arcmin: float,
+    n_nulls: int = 4,
+    smooth_window: int = 21,
+) -> SolarDiameterResult:
+    r"""Solar diameter from zero crossings of the *observed* modulating function.
+
+    Follows the §8 procedure in ``interf.tex``:
+
+    1. Build :math:`\mathrm{MF}_{\mathrm{observed}}` by dividing the
+       observed fringe amplitude envelope by a reference amplitude
+       ``envelope_amplitude_ref`` (typically :math:`V(0)` or the best-fit
+       point-source amplitude from nb 04).
+    2. Locate zero crossings of :math:`\mathrm{MF}_{\mathrm{observed}}`
+       in the sorted-by-``|u|`` series.
+    3. Identify each observed crossing with a theoretical Bessel null
+       :math:`(u_k R) = j_{1,k}/(2\pi)` and solve for :math:`R`.
+
+    The mean over matched crossings is the point estimate; the scatter
+    across crossings is the 1-sigma uncertainty.
+
+    Parameters
+    ----------
+    u_lambda
+        Per-capture projected baseline (wavelengths). Can be signed.
+    envelope
+        Per-capture fringe envelope :math:`|V|` (same shape as ``u_lambda``).
+    envelope_amplitude_ref
+        Normalising amplitude used to build the observed MF. If you have
+        the best-fit point-source amplitude from nb 04, pass it here; if
+        not, the maximum of ``envelope`` (at the horizon) is a good proxy.
+    expected_diameter_arcmin
+        Prior-of-expectation diameter, used only to bracket the spacing
+        between nulls and reject spurious crossings.
+    n_nulls
+        Number of theoretical Bessel nulls to try to match.
+    smooth_window
+        Odd-length box smoothing of the signed MF before zero-finding.
+
+    Returns
+    -------
+    SolarDiameterResult
+        With ``method="mf_zero_crossings"``. The ``fitted_params`` dict
+        contains the matched :math:`(u_k,\, j_{1,k})` arrays and the
+        per-null radius estimates.
+
+    Notes
+    -----
+    **Prior dependence of sign reconstruction.**  The observed envelope
+    :math:`|V|` is strictly positive, so recovering the *signed* modulating
+    function requires flipping the sign between successive Bessel nulls.
+    The locations of those sign flips are computed from the
+    ``expected_diameter_arcmin`` prior (step 2 in the code).  If the prior
+    diameter is wrong by more than ~20 %, the sign boundaries shift enough
+    that some zero crossings in the reconstructed signed MF will be
+    artefacts of incorrect sign assignment rather than true Bessel nulls.
+    The 40 % acceptance tolerance on null matching (``dists[best] < 0.4 *
+    spacing``) partially mitigates this by rejecting crossings that fall
+    far from any theoretical null, but it cannot recover crossings whose
+    sign was inverted at the wrong baseline.  Users should therefore ensure
+    that the prior diameter is accurate to ~20 % or better; when in doubt,
+    iterate: use a coarse first estimate, measure the diameter, and re-run
+    with the improved value as the new prior.
+    """
+    u_abs = np.abs(u_lambda)
+    finite = np.isfinite(u_abs) & np.isfinite(envelope)
+    if not np.any(finite):
+        return SolarDiameterResult(
+            diameter_arcmin=float("nan"),
+            diameter_err_arcmin=float("nan"),
+            method="mf_zero_crossings",
+        )
+
+    order = np.argsort(u_abs[finite])
+    u_sorted = u_abs[finite][order]
+    env_sorted = envelope[finite][order]
+
+    mf_obs = env_sorted / float(envelope_amplitude_ref)
+
+    # Zero-crossing prescription: the *signed* modulating function crosses
+    # zero at each Bessel null. The observed envelope is always positive
+    # (|V|), so we re-introduce the expected sign by flipping between
+    # successive theoretical nulls using the prior-of-expectation diameter.
+    R_prior = np.deg2rad(expected_diameter_arcmin / 2.0 / 60.0)
+    j1_all = jn_zeros(1, n_nulls + 1)
+    u_null_prior = j1_all / (2.0 * np.pi * R_prior)
+
+    sign = np.ones_like(u_sorted)
+    for k, u_k in enumerate(u_null_prior):
+        sign[u_sorted > u_k] *= -1.0
+    mf_signed = sign * mf_obs
+
+    # Smooth the signed MF before zero-finding.
+    if smooth_window > 1:
+        kernel = np.ones(smooth_window) / smooth_window
+        mf_smooth = np.convolve(mf_signed, kernel, mode="same")
+    else:
+        mf_smooth = mf_signed
+
+    # Find sign changes in mf_smooth as a function of u.
+    sign_change = np.where(np.diff(np.sign(mf_smooth)) != 0)[0]
+    # Interpolate each crossing to sub-sample resolution.
+    u_crossings: list[float] = []
+    for idx in sign_change:
+        y0, y1 = mf_smooth[idx], mf_smooth[idx + 1]
+        x0, x1 = u_sorted[idx], u_sorted[idx + 1]
+        if y1 == y0:
+            u_cross = 0.5 * (x0 + x1)
+        else:
+            u_cross = x0 - y0 * (x1 - x0) / (y1 - y0)
+        u_crossings.append(float(u_cross))
+
+    u_crossings_arr = np.array(u_crossings)
+
+    # Match crossings to theoretical nulls.
+    matched_u: list[float] = []
+    matched_j1: list[float] = []
+    spacing = u_null_prior[1] - u_null_prior[0] if n_nulls > 1 else u_null_prior[0]
+    for u_c in u_crossings_arr:
+        dists = np.abs(u_null_prior - u_c)
+        best = int(np.argmin(dists))
+        if dists[best] < 0.4 * spacing:
+            matched_u.append(u_c)
+            matched_j1.append(j1_all[best])
+
+    if len(matched_u) == 0:
+        return SolarDiameterResult(
+            diameter_arcmin=float("nan"),
+            diameter_err_arcmin=float("nan"),
+            method="mf_zero_crossings",
+        )
+
+    matched_u_arr = np.array(matched_u)
+    matched_j1_arr = np.array(matched_j1)
+    R_estimates = matched_j1_arr / (2.0 * np.pi * matched_u_arr)
+    R_mean = float(np.mean(R_estimates))
+    R_err = (
+        float(np.std(R_estimates, ddof=1) / np.sqrt(len(R_estimates)))
+        if len(R_estimates) > 1
+        else float("inf")
+    )
+
+    return SolarDiameterResult(
+        diameter_arcmin=np.rad2deg(2.0 * R_mean) * 60.0,
+        diameter_err_arcmin=np.rad2deg(2.0 * R_err) * 60.0,
+        method="mf_zero_crossings",
+        zero_crossings_u_R=matched_j1_arr / (2.0 * np.pi),
+        fitted_params={
+            "u_crossings_observed": matched_u_arr,
+            "j1_zeros_used": matched_j1_arr,
+            "R_rad_per_null": R_estimates,
+            "u_sorted": u_sorted,
+            "mf_smooth": mf_smooth,
+        },
+    )
+
+
 def characterize_sunspot_flux(
     u_lambda: np.ndarray,
     envelope: np.ndarray,
     disk_diameter_arcmin: float,
     n_nulls: int,
+    envelope_std: np.ndarray | None = None,
+    avg_half_width: int = 3,
+    significance_sigma: float = 0.0,
 ) -> dict:
-    """Estimate sunspot flux fraction from envelope amplitude at theoretical nulls."""
+    r"""Estimate sunspot flux fraction from envelope amplitude at theoretical nulls.
+
+    At each Bessel null the residual envelope amplitude is a proxy for
+    sunspot flux:  :math:`f_{\rm spot} \approx |V_{\rm null}| / V(0)`.
+
+    Parameters
+    ----------
+    u_lambda
+        Per-capture projected baseline (wavelengths, may be signed).
+    envelope
+        Per-capture fringe envelope :math:`|V|`.
+    disk_diameter_arcmin
+        Best-fit uniform-disk diameter.
+    n_nulls
+        Number of theoretical Bessel nulls to examine.
+    envelope_std
+        Optional per-capture envelope uncertainty (same shape as
+        ``envelope``).  Used to compute ``flux_fraction_err`` and to
+        evaluate detection significance.  If ``None``, no uncertainty or
+        significance information is returned.
+    avg_half_width
+        Number of samples on each side of the nearest-to-null sample to
+        average over (default 3, so a 7-sample window).  Averaging
+        reduces noise at the null without biasing the result when the
+        envelope is locally flat.
+    significance_sigma
+        Minimum signal-to-noise ratio (flux_fraction / flux_fraction_err)
+        for a null to be marked as a significant detection.  Nulls below
+        this threshold have their ``significant`` flag set to ``False``.
+        Set to 0 (default) to keep all nulls.
+
+    Returns
+    -------
+    dict
+        Keys: ``null_u_R``, ``null_u_observed``, ``null_amplitude``,
+        ``flux_fraction``, ``flux_fraction_err`` (if ``envelope_std``
+        provided), ``snr`` (if ``envelope_std`` provided),
+        ``significant`` (bool array).
+    """
     R_rad = np.deg2rad(disk_diameter_arcmin / 2.0 / 60.0)
     j1_zeros = jn_zeros(1, n_nulls)
     u_R_theory = j1_zeros / (2.0 * np.pi)
@@ -543,14 +810,45 @@ def characterize_sunspot_flux(
 
     null_amps  = np.empty(n_nulls)
     null_u_obs = np.empty(n_nulls)
-    for k, u_null in enumerate(u_null_theory):
-        idx = int(np.argmin(np.abs(u_abs - u_null)))
-        null_amps[k]  = envelope[idx]
-        null_u_obs[k] = u_abs[idx]
+    null_amp_err = np.empty(n_nulls)
+    n_total = len(envelope)
 
-    return {
+    for k, u_null in enumerate(u_null_theory):
+        centre = int(np.argmin(np.abs(u_abs - u_null)))
+        lo = max(0, centre - avg_half_width)
+        hi = min(n_total, centre + avg_half_width + 1)
+        null_amps[k]  = float(np.nanmean(envelope[lo:hi]))
+        null_u_obs[k] = float(np.nanmean(u_abs[lo:hi]))
+
+        if envelope_std is not None:
+            # Propagate uncertainty of the mean over the neighbourhood.
+            region_std = envelope_std[lo:hi]
+            n_good = int(np.sum(np.isfinite(region_std)))
+            if n_good > 0:
+                null_amp_err[k] = float(
+                    np.sqrt(np.nansum(region_std ** 2)) / n_good
+                )
+            else:
+                null_amp_err[k] = float("nan")
+        else:
+            null_amp_err[k] = float("nan")
+
+    flux_frac = null_amps / v0
+
+    result: dict = {
         "null_u_R":         u_R_theory,
         "null_u_observed":  null_u_obs,
         "null_amplitude":   null_amps,
-        "flux_fraction":    null_amps / v0,
+        "flux_fraction":    flux_frac,
     }
+
+    if envelope_std is not None:
+        flux_frac_err = null_amp_err / v0
+        snr = np.where(flux_frac_err > 0, flux_frac / flux_frac_err, 0.0)
+        result["flux_fraction_err"] = flux_frac_err
+        result["snr"] = snr
+        result["significant"] = snr >= significance_sigma
+    else:
+        result["significant"] = np.ones(n_nulls, dtype=bool)
+
+    return result

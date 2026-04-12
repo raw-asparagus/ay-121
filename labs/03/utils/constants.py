@@ -105,3 +105,70 @@ BAD_CHANNELS = (0, 256, 512, 768)
 # and the actual observation date (recoverable from `unix_mid` in nb 05).
 # ---------------------------------------------------------------------------
 SOLAR_DIAMETER_ARCMIN_NOMINAL = 31.6  # operational value from [AY121-Lab3]
+
+# ---------------------------------------------------------------------------
+# Amplitude systematics wired from upstream notebooks
+#
+# These two constants carry diagnostic results from the data-inspection
+# notebooks (02a and 02b) into the fitting notebooks (04 and 05) so that
+# the chip-gain step and the adaptive DC-correction amplitude bias can be
+# applied consistently downstream.
+#
+# ``CHIP_GAIN_RATIOS`` holds the per-chip multiplicative gain relative to
+# a chosen reference chip (chip 0). It is measured in 02a from the ratio
+# of the median ``|V|`` in the analysis band between each chip and chip 0.
+# The measured value (~1.10 for chip 2 in the nominal dataset) is the
+# "starting prior"; notebook 02a overrides it at runtime with the actual
+# measured values and stores the vector in ``chip_gains_measured`` for
+# downstream use. The value here is used only if the runtime measurement
+# is unavailable (e.g. in synthetic end-to-end tests).
+#
+# ``DC_CORRECTION_ALPHA`` is the multiplicative amplitude-recovery factor
+# of the adaptive rolling-median DC corrector, measured in 02b by injecting
+# a known-amplitude synthetic fringe on top of a known DC pedestal and
+# recovering it with a least-squares fit. A value ``alpha < 1`` means the
+# corrector *attenuates* the real fringe (true fringe amplitude is larger
+# than what the corrector returns); ``alpha > 1`` means residual DC
+# pedestal leaks through and inflates the recovered amplitude. Either sign
+# is a multiplicative bias on any amplitude measured downstream (envelope
+# extraction, diameter fit, sunspot flux).
+# ---------------------------------------------------------------------------
+# Per-chip multiplicative gain relative to chip 0. Length must equal the
+# number of chips in the dataset. The default below assumes a three-chip
+# observation with a ~10% gain step on chip 2 (the empirical result from
+# the 2026 NCH Sun run). Override at runtime in 02a.
+CHIP_GAIN_RATIOS_DEFAULT = (1.0, 1.0, 1.0991)
+
+# Placeholder for the DC-correction amplitude bias. 02b overwrites this
+# module-level value *within the running process* via ``apply_dc_bias``
+# below; it is not persisted between notebook sessions. Downstream cells
+# that need a value when 02b has not been run should fall back to the
+# default of 1.0 (no correction) and flag the assumption.
+DC_CORRECTION_ALPHA_DEFAULT = 1.0
+
+
+def apply_chip_gain_correction(vis, chip_slices, gains):
+    """Divide visibilities by per-chip gain so all chips share one scale.
+
+    Parameters
+    ----------
+    vis : (N_cap, N_ch) complex ndarray
+        Raw or DC-corrected visibility matrix.
+    chip_slices : sequence of slice
+        Row slices that select each chip's captures out of ``vis``.
+    gains : sequence of float
+        Multiplicative gain per chip, same length as ``chip_slices``.
+        The reference chip should have gain ``1.0``.
+
+    Returns
+    -------
+    ndarray, same shape as ``vis``
+        A copy of ``vis`` with each chip's rows divided by its gain, so
+        that the median ``|V|`` per chip matches the reference chip.
+    """
+    import numpy as _np
+    out = _np.asarray(vis).astype(complex).copy()
+    for sl, g in zip(chip_slices, gains):
+        if g != 0 and _np.isfinite(g):
+            out[sl] = out[sl] / g
+    return out

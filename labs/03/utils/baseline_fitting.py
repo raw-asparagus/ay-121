@@ -515,8 +515,20 @@ def lag_delay_single_capture(
 
     amp = np.abs(lag)
     pk = np.argmax(amp)
-    tau_ns = tau_axis_ns[pk]
     peak_amp = amp[pk]
+
+    # Parabolic (3-point) interpolation for sub-bin delay refinement
+    if 0 < pk < len(amp) - 1:
+        y0, y1, y2 = amp[pk - 1], amp[pk], amp[pk + 1]
+        denom = y0 - 2.0 * y1 + y2
+        if abs(denom) > 1e-30:
+            delta = 0.5 * (y0 - y2) / denom
+            dtau = tau_axis_ns[1] - tau_axis_ns[0]
+            tau_ns = tau_axis_ns[pk] + delta * dtau
+        else:
+            tau_ns = tau_axis_ns[pk]
+    else:
+        tau_ns = tau_axis_ns[pk]
 
     # SNR: peak / median of region away from peak
     off_mask = np.ones(len(amp), dtype=bool)

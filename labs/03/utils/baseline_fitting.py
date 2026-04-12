@@ -485,7 +485,7 @@ def lag_delay_single_capture(
     pad_factor : int
         Zero-padding factor.
     bad_channels : array_like, optional
-        Channels to interpolate over.
+        Channels to zero (flagged data).
 
     Returns
     -------
@@ -499,15 +499,11 @@ def lag_delay_single_capture(
     vis = np.array(vis_spectrum, dtype=complex)
     n_ch = len(vis)
 
-    # Interpolate bad channels
+    # Zero bad channels (no interpolation — avoids injecting fabricated data)
     if bad_channels is not None:
-        good = np.ones(n_ch, dtype=bool)
-        good[list(bad_channels)] = False
-        x_good = np.where(good)[0]
-        x_bad = np.where(~good)[0]
-        if len(x_good) >= 2 and len(x_bad) > 0:
-            vis.real[x_bad] = np.interp(x_bad, x_good, vis.real[x_good])
-            vis.imag[x_bad] = np.interp(x_bad, x_good, vis.imag[x_good])
+        for ch in bad_channels:
+            if 0 <= ch < n_ch:
+                vis[ch] = 0.0
 
     n_pad = n_ch * pad_factor
     lag = np.fft.fftshift(np.fft.ifft(vis, n=n_pad))

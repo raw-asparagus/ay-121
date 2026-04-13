@@ -279,19 +279,14 @@ def fft_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    b_vals = per_ch["b_ew_m"][valid]
-    med = np.median(b_vals)
-    p16, p84 = np.percentile(b_vals, [16, 84])
-    scatter = 0.5 * (p84 - p16)
+    ivw_ew, ivw_ew_err, _ = _ivw(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
 
     result = BaselineResult(
-        b_ew_m=med,
-        b_ew_err_m=scatter,
+        b_ew_m=ivw_ew,
+        b_ew_err_m=ivw_ew_err,
         method="fft_broadband",
         n_points=int(valid.sum()),
         metadata={
-            "p16": p16,
-            "p84": p84,
             "median_snr": float(np.nanmedian(per_ch["snr"][valid])),
         },
     )
@@ -438,24 +433,14 @@ def phase_slope_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    b_ew_vals = per_ch["b_ew_m"][valid]
-    mean_ew = np.mean(b_ew_vals)
-    std_ew = np.std(b_ew_vals) / np.sqrt(len(b_ew_vals)) if len(b_ew_vals) > 1 else np.inf
-
-    b_ns_vals = per_ch["b_ns_m"][valid]
-    finite_ns = np.isfinite(b_ns_vals)
-    if finite_ns.sum() > 1:
-        mean_ns = np.nanmean(b_ns_vals[finite_ns])
-        std_ns = np.nanstd(b_ns_vals[finite_ns]) / np.sqrt(finite_ns.sum())
-    else:
-        mean_ns = np.nanmean(b_ns_vals) if finite_ns.any() else np.nan
-        std_ns = np.inf
+    ivw_ew, ivw_ew_err, _ = _ivw(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    ivw_ns, ivw_ns_err, _ = _ivw(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
 
     result = BaselineResult(
-        b_ew_m=mean_ew,
-        b_ew_err_m=std_ew,
-        b_ns_m=mean_ns,
-        b_ns_err_m=std_ns,
+        b_ew_m=ivw_ew,
+        b_ew_err_m=ivw_ew_err,
+        b_ns_m=ivw_ns,
+        b_ns_err_m=ivw_ns_err,
         method="phase_slope_broadband",
         n_points=int(valid.sum()),
     )
@@ -850,26 +835,14 @@ def nls_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    b_ew_vals = per_ch["b_ew_m"][valid]
-    b_ns_vals = per_ch["b_ns_m"][valid]
-
-    med_ew = np.median(b_ew_vals)
-    p16_ew, p84_ew = np.percentile(b_ew_vals, [16, 84])
-    scatter_ew = 0.5 * (p84_ew - p16_ew)
-
-    med_ns = np.nanmedian(b_ns_vals)
-    finite_ns = np.isfinite(b_ns_vals)
-    if finite_ns.sum() > 1:
-        p16_ns, p84_ns = np.percentile(b_ns_vals[finite_ns], [16, 84])
-        scatter_ns = 0.5 * (p84_ns - p16_ns)
-    else:
-        scatter_ns = np.inf
+    ivw_ew, ivw_ew_err, _ = _ivw(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    ivw_ns, ivw_ns_err, _ = _ivw(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
 
     result = BaselineResult(
-        b_ew_m=med_ew,
-        b_ew_err_m=scatter_ew,
-        b_ns_m=med_ns,
-        b_ns_err_m=scatter_ns,
+        b_ew_m=ivw_ew,
+        b_ew_err_m=ivw_ew_err,
+        b_ns_m=ivw_ns,
+        b_ns_err_m=ivw_ns_err,
         method="nls_broadband",
         n_points=int(valid.sum()),
     )
@@ -1983,26 +1956,14 @@ def nls_real_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    b_ew_vals = per_ch["b_ew_m"][valid]
-    b_ns_vals = per_ch["b_ns_m"][valid]
-
-    med_ew = np.median(b_ew_vals)
-    p16_ew, p84_ew = np.percentile(b_ew_vals, [16, 84])
-    scatter_ew = 0.5 * (p84_ew - p16_ew)
-
-    med_ns = np.nanmedian(b_ns_vals)
-    finite_ns = np.isfinite(b_ns_vals)
-    if finite_ns.sum() > 1:
-        p16_ns, p84_ns = np.percentile(b_ns_vals[finite_ns], [16, 84])
-        scatter_ns = 0.5 * (p84_ns - p16_ns)
-    else:
-        scatter_ns = np.inf
+    ivw_ew, ivw_ew_err, _ = _ivw(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    ivw_ns, ivw_ns_err, _ = _ivw(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
 
     result = BaselineResult(
-        b_ew_m=med_ew,
-        b_ew_err_m=scatter_ew,
-        b_ns_m=med_ns,
-        b_ns_err_m=scatter_ns,
+        b_ew_m=ivw_ew,
+        b_ew_err_m=ivw_ew_err,
+        b_ns_m=ivw_ns,
+        b_ns_err_m=ivw_ns_err,
         method="nls_real_broadband",
         n_points=int(valid.sum()),
     )

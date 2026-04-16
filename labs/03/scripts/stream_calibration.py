@@ -30,6 +30,7 @@ from ugradiolab.astronomy import (
     compute_sun_pointing,
 )
 from ugradiolab.capture import StreamingCapture
+from ugradiolab.capture.readers import make_snap_reader
 
 # ---------------------------------------------------------------------------
 # Source catalog (J2000)
@@ -160,9 +161,10 @@ def main():
     print(f'  Calibration saved → {cal_path}\n')
 
     # --- Cross-correlation streaming ---
+    read_fn = make_snap_reader(snap)
     capture = StreamingCapture(
-        interferometer=interferometer,
-        snap=snap,
+        telescope=interferometer,
+        read_fn=read_fn,
         target_selector=target_selector,
         outdir=OUTDIR,
         n_writers=2,

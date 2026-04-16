@@ -130,12 +130,17 @@ class PointingThread:
 # ---------------------------------------------------------------------------
 
 class ReaderThread:
-    """Sole consumer of ``snap.read_data()``.  Pushes every dump onto a queue.
+    """Calls a reader function and pushes every dump onto a queue.
+
+    The reader function is a callable ``read_fn(prev_cnt) -> dict`` produced
+    by one of the factory functions in :mod:`ugradiolab.capture.readers`.
 
     Parameters
     ----------
-    snap : object
-        SNAP correlator interface (``UGRadioSnap``).
+    read_fn : callable
+        ``read_fn(prev_cnt) -> dict``.  Must return a dict containing at
+        least a ``'time'`` key.  May contain ``'acc_cnt'`` (used as the
+        state token for the next call; defaults to ``None`` if absent).
     pointing_thread : PointingThread
         Provides the current pointing state to tag each dump.
     dump_queue : queue.Queue
@@ -146,12 +151,12 @@ class ReaderThread:
 
     def __init__(
         self,
-        snap,
+        read_fn: Callable,
         pointing_thread: PointingThread,
         dump_queue: queue.Queue,
         max_consecutive_errors: int = 3,
     ):
-        self._snap = snap
+        self._read_fn = read_fn
         self._pointing = pointing_thread
         self._queue = dump_queue
         self._max_consecutive_errors = max_consecutive_errors
@@ -173,13 +178,13 @@ class ReaderThread:
 
         while not self._stop_event.is_set():
             try:
-                d = self._snap.read_data(prev_cnt=prev_cnt)
+                d = self._read_fn(prev_cnt)
                 consecutive_errors = 0
             except AssertionError:
                 consecutive_errors += 1
                 if consecutive_errors >= self._max_consecutive_errors:
                     print(
-                        f'  [reader] SNAP interference: {consecutive_errors} '
+                        f'  [reader] {consecutive_errors} '
                         'consecutive failures, stopping reader.'
                     )
                     break
@@ -189,13 +194,11 @@ class ReaderThread:
             state = self._pointing.get_state()
             if state is None:
                 # No target acquired yet — discard dump.
-                prev_cnt = d['acc_cnt']
+                prev_cnt = d.get('acc_cnt')
                 continue
 
             dump = {
-                'corr01':      d['corr01'],
-                'time':        d['time'],
-                'acc_cnt':     d['acc_cnt'],
+                **d,
                 'target_name': state.target_name,
                 'alt_deg':     state.alt_deg,
                 'az_deg':      state.az_deg,
@@ -204,7 +207,7 @@ class ReaderThread:
                 'seq':         seq,
             }
             self._queue.put(dump)  # blocks if queue full (backpressure)
-            prev_cnt = d['acc_cnt']
+            prev_cnt = d.get('acc_cnt')
             seq += 1
 
 
@@ -289,10 +292,14 @@ class StreamingCapture:
 
     Parameters
     ----------
-    interferometer : object
-        Pointing controller.
-    snap : object
-        SNAP correlator interface.
+    telescope : object
+        Pointing controller — any object with
+        ``point(alt, az, wait=True)``.  Works with both
+        ``ugradio.interf.Interferometer`` and
+        ``ugradio.leusch.LeuschTelescope``.
+    read_fn : callable
+        ``read_fn(prev_cnt) -> dict`` — produced by a factory in
+        :mod:`ugradiolab.capture.readers`.
     target_selector : callable
         Returns ``(name, alt, az, ra, dec)`` or ``None``.
     outdir : str
@@ -309,8 +316,8 @@ class StreamingCapture:
 
     def __init__(
         self,
-        interferometer,
-        snap,
+        telescope,
+        read_fn: Callable,
         target_selector: Callable,
         outdir: str = 'data/',
         n_writers: int = 2,
@@ -320,9 +327,9 @@ class StreamingCapture:
     ):
         self._queue = queue.Queue(maxsize=queue_maxsize)
         self._pointing = PointingThread(
-            interferometer, target_selector, repoint_interval_sec,
+            telescope, target_selector, repoint_interval_sec,
         )
-        self._reader = ReaderThread(snap, self._pointing, self._queue)
+        self._reader = ReaderThread(read_fn, self._pointing, self._queue)
         self._writer = WriterPool(self._queue, outdir, n_writers, on_save)
 
     def run(self) -> None:

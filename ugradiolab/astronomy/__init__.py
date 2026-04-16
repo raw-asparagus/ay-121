@@ -14,9 +14,19 @@ from .ephemeris import (
     compute_radec_pointing,
     compute_sun_pointing,
 )
-from .site import NCH_LAT_DEG, NCH_LON_DEG, NCH_OBS_ALT_M
+from .site import (
+    LEO_LAT_DEG,
+    LEO_LON_DEG,
+    LEO_OBS_ALT_M,
+    NCH_LAT_DEG,
+    NCH_LON_DEG,
+    NCH_OBS_ALT_M,
+)
 
 __all__ = [
+    "LEO_LAT_DEG",
+    "LEO_LON_DEG",
+    "LEO_OBS_ALT_M",
     "NCH_LAT_DEG",
     "NCH_LON_DEG",
     "NCH_OBS_ALT_M",

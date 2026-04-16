@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 — Leuschner 21 cm HI observation.
+"""Lab 4 -Leuschner 21 cm HI observation.
 
 Dual-polarisation SDR capture with on-board FFT and correlation.
 Frequency-switched between two LO settings for bandpass removal.
@@ -164,7 +164,7 @@ def on_save(path, dump):
 
 
 def main():
-    print(f'Lab 4 — Leuschner 21 cm HI observation  (l={GAL_L_DEG}, b={GAL_B_DEG})')
+    print(f'Lab 4 -Leuschner 21 cm HI observation  (l={GAL_L_DEG}, b={GAL_B_DEG})')
     print('=' * 60)
     print()
     print('Initialising hardware ...')

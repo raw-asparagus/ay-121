@@ -46,10 +46,11 @@ M1_DEC_DEG  = +22.0145   # +22d 00' 52"
 # Configuration
 # ---------------------------------------------------------------------------
 
-SUN_MIN_ALT_DEG  = 6.5
-MOON_MIN_ALT_DEG = 6.5
-M17_MIN_ALT_DEG  = 6.5
-M1_MIN_ALT_DEG   = 6.5
+# Interferometer hardware: alt 6-174, az 88-300. Conservative guard: +2 deg margin.
+MIN_ALT_DEG  =  8.0
+MAX_ALT_DEG  = 172.0
+AZ_MIN_DEG   = 90.0
+AZ_MAX_DEG   = 298.0
 
 OUTDIR    = 'data/lab03/streaming'
 CAL_DUMPS = 20   # number of auto-correlation dumps to collect
@@ -119,23 +120,28 @@ def collect_autocorrelation(snap, n_dumps=CAL_DUMPS):
     return path
 
 
+def _in_bounds(alt, az):
+    """Check if pointing is within conservative interferometer limits."""
+    return (MIN_ALT_DEG <= alt <= MAX_ALT_DEG and AZ_MIN_DEG <= az <= AZ_MAX_DEG)
+
+
 def target_selector():
     """Return (name, alt, az, ra, dec) for the highest-priority visible target."""
     sun_alt, sun_az, sun_ra, sun_dec, _ = compute_sun_pointing()
-    if sun_alt >= SUN_MIN_ALT_DEG:
+    if _in_bounds(sun_alt, sun_az):
         return 'sun', sun_alt, sun_az, sun_ra, sun_dec
 
-    moon_alt, moon_az, moon_ra, moon_dec, _ = compute_moon_pointing()
-    if moon_alt >= MOON_MIN_ALT_DEG:
-        return 'moon', moon_alt, moon_az, moon_ra, moon_dec
-
-    m17_alt, m17_az, _ = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
-    if m17_alt >= M17_MIN_ALT_DEG:
-        return 'm17', m17_alt, m17_az, M17_RA_DEG, M17_DEC_DEG
-
-    m1_alt, m1_az, _ = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
-    if m1_alt >= M1_MIN_ALT_DEG:
-        return 'm1', m1_alt, m1_az, M1_RA_DEG, M1_DEC_DEG
+    # moon_alt, moon_az, moon_ra, moon_dec, _ = compute_moon_pointing()
+    # if _in_bounds(moon_alt, moon_az):
+    #     return 'moon', moon_alt, moon_az, moon_ra, moon_dec
+    #
+    # m17_alt, m17_az, _ = compute_radec_pointing(M17_RA_DEG, M17_DEC_DEG)
+    # if _in_bounds(m17_alt, m17_az):
+    #     return 'm17', m17_alt, m17_az, M17_RA_DEG, M17_DEC_DEG
+    #
+    # m1_alt, m1_az, _ = compute_radec_pointing(M1_RA_DEG, M1_DEC_DEG)
+    # if _in_bounds(m1_alt, m1_az):
+    #     return 'm1', m1_alt, m1_az, M1_RA_DEG, M1_DEC_DEG
 
     return None
 

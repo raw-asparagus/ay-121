@@ -45,7 +45,11 @@ SAMPLE_RATE  = 2.56e6    # Hz
 NSAMPLES     = 32768
 NBLOCKS      = 1025      # block 0 discarded -> 1024 valid
 NFFT         = 1024
-MIN_ALT_DEG  = 15.5      # Leuschner limit 15 deg + margin
+# Leuschner hardware: alt 15-85, az 5-350. Conservative guard: +2 deg margin.
+MIN_ALT_DEG  = 17.0
+MAX_ALT_DEG  = 83.0
+AZ_MIN_DEG   =  7.0
+AZ_MAX_DEG   = 348.0
 CAL_DUMPS    = 2         # dumps per LO frequency during noise cal
 OUTDIR       = 'data/lab04/streaming'
 
@@ -82,7 +86,7 @@ def target_selector():
         GAL_L_DEG, GAL_B_DEG,
         lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
     )
-    if alt >= MIN_ALT_DEG:
+    if (MIN_ALT_DEG <= alt <= MAX_ALT_DEG and AZ_MIN_DEG <= az <= AZ_MAX_DEG):
         return f'gal_{GAL_L_DEG:.0f}_{GAL_B_DEG:.0f}', alt, az, ra, dec
     return None
 

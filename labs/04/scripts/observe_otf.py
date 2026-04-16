@@ -52,9 +52,11 @@ SAMPLE_RATE  = 2.56e6
 NSAMPLES     = 32768
 NBLOCKS      = 1025
 NFFT         = 1024
-MIN_ALT_DEG  = 15.5
-AZ_MIN       = 5.0        # hardware limit: 5 deg
-AZ_MAX       = 350.0      # hardware limit: 350 deg
+# Leuschner hardware: alt 15-85, az 5-350. Conservative guard: +2 deg margin.
+MIN_ALT_DEG  = 17.0
+MAX_ALT_DEG  = 83.0
+AZ_MIN       =  7.0
+AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
 OUTDIR       = 'data/lab04/streaming'
@@ -188,7 +190,7 @@ def make_scan_target_selector(cells):
             lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
         )
 
-        if alt < MIN_ALT_DEG or alt > 85.0 or az < AZ_MIN or az > AZ_MAX:
+        if alt < MIN_ALT_DEG or alt > MAX_ALT_DEG or az < AZ_MIN or az > AZ_MAX:
             return None
 
         row, col = cells[current_cell_idx][0], cells[current_cell_idx][1]

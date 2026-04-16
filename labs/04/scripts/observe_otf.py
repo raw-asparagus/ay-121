@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF grid scan.
+"""Lab 4 - Leuschner 21 cm HI OTF parallelogram scan.
 
-Grid-based boustrophedon scan with exact dump counting per cell.
+Two-pass parallelogram scan with opposite slants for cross-linking:
+  - Rising pass: parallelogram slanted along the iso-HA direction
+  - Setting pass: parallelogram slanted in the opposite direction
+Both passes run automatically with a noise cal at the start of each.
 
-Observation cycle per cell:
-  1. Slew to grid cell (no data collected)
-  2. Track cell (repoint every REPOINT_TRACK_SEC for sky drift)
-  3. Collect exactly DUMPS_PER_BAND ON + DUMPS_PER_BAND OFF dumps
-  4. Move to next cell in boustrophedon order -> back to step 1
-
-Calibration:
-  - Noise diode ON for first CAL_DUMPS dumps per LO at the start
-  - Then frequency-switching science loop
+The parallelogram slant is computed from the HA gradient at the scan
+center, ensuring the starting edge of each parallelogram is at uniform
+hour angle. All pointings are at whole-degree galactic coordinates.
 
 Usage:
     python observe_otf.py
@@ -23,6 +20,8 @@ Output:
 import threading
 import time
 
+import numpy as np
+
 from ugradiolab.astronomy import (
     LEO_LAT_DEG,
     LEO_LON_DEG,
@@ -33,25 +32,15 @@ from ugradiolab.capture import StreamingCapture
 from ugradiolab.capture.readers import make_calibrated_sdr_reader
 
 # ---------------------------------------------------------------------------
-# Scan grid (galactic coordinates)
+# Parallelogram scan parameters (galactic coordinates)
 # ---------------------------------------------------------------------------
 
-# Center of the scan region (Cygnus, galactic plane)
-GAL_L_CENTER = 90.0
-GAL_B_CENTER =  0.0
-
-# Grid parameters (defined in galactic coordinates)
-SCAN_STEP_DEG   = 1.0     # cell spacing in l and b (< HPBW/2, oversampled)
-N_L_CELLS       = 22      # number of cells in galactic longitude
-N_B_CELLS       = 9       # number of cells in galactic latitude
-DUMPS_PER_BAND  = 4       # dumps per LO frequency per cell
-
-# Scan direction: 'l' = rows in b sweeping l, 'b' = rows in l sweeping b
-# Use 'l' for rising pass, 'b' for setting pass (orthogonal cross-linking)
-SCAN_ALONG      = 'l'
-
-# Total dumps per cell: ON + OFF alternating
-DUMPS_PER_CELL  = DUMPS_PER_BAND * 2
+GAL_L_CENTER = 90.0       # galactic longitude of scan center
+GAL_B_CENTER =  0.0       # galactic latitude of scan center
+L_EXTENT     = 17         # cells per row (setting may skip ~3 cells near az limit)
+B_EXTENT     = 9          # number of b-rows
+DUMPS_PER_BAND = 4        # dumps per LO frequency per cell
+DUMPS_PER_CELL = DUMPS_PER_BAND * 2
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -59,98 +48,115 @@ DUMPS_PER_CELL  = DUMPS_PER_BAND * 2
 
 LO_ON_MHZ   = 1420.0
 LO_OFF_MHZ  = 1421.0
-SAMPLE_RATE  = 2.56e6    # Hz
+SAMPLE_RATE  = 2.56e6
 NSAMPLES     = 32768
-NBLOCKS      = 1025      # block 0 discarded -> 1024 valid
+NBLOCKS      = 1025
 NFFT         = 1024
-MIN_ALT_DEG  = 15.5      # Leuschner limit 15 deg + margin
-CAL_DUMPS    = 2         # dumps per LO frequency during noise cal
-REPOINT_TRACK_SEC = 60.0 # tracking repoint interval (sky drift)
+MIN_ALT_DEG  = 15.5
+AZ_MIN       = 5.0        # hardware limit: 5 deg
+AZ_MAX       = 350.0      # hardware limit: 350 deg
+CAL_DUMPS    = 2
+REPOINT_TRACK_SEC = 60.0
 OUTDIR       = 'data/lab04/streaming'
 
 
 # ---------------------------------------------------------------------------
+# Parallelogram grid builder
+# ---------------------------------------------------------------------------
 
-def setup_hardware():
-    """Initialise telescope, SDRs, and noise diode.
+def compute_iso_ha_slant():
+    """Compute the iso-HA slant at the scan center (deg l per deg b)."""
+    import astropy.coordinates as _ac
+    import astropy.units as _u
+    from astropy.time import Time as _Time
 
-    Returns (telescope, sdrs, noise).
+    _now = _Time.now()
+    _lst = _now.sidereal_time('apparent', longitude=LEO_LON_DEG * _u.deg)
+
+    def _ha(l_deg, b_deg):
+        gc = _ac.SkyCoord(l=l_deg * _u.deg, b=b_deg * _u.deg, frame="galactic")
+        icrs = gc.transform_to(_ac.ICRS())
+        return (_lst - icrs.ra).wrap_at(12 * _u.hourangle).deg
+
+    dha_dl = (_ha(GAL_L_CENTER + 1, GAL_B_CENTER) -
+              _ha(GAL_L_CENTER - 1, GAL_B_CENTER)) / 2
+    dha_db = (_ha(GAL_L_CENTER, GAL_B_CENTER + 1) -
+              _ha(GAL_L_CENTER, GAL_B_CENTER - 1)) / 2
+    return -dha_db / dha_dl
+
+
+def build_parallelogram_cells(slant):
+    """Build a parallelogram grid at whole-degree galactic coordinates.
+
+    Returns list of (row_idx, col_idx, l, b) tuples in boustrophedon order,
+    starting from the highest-HA edge.
     """
-    from ugradio.leusch import LeuschNoise, LeuschTelescope
-    from ugradio.sdr import SDR
+    import astropy.coordinates as _ac
+    import astropy.units as _u
+    from astropy.time import Time as _Time
 
-    telescope = LeuschTelescope()
-    noise = LeuschNoise()
+    b_vals = [int(GAL_B_CENTER + (i - (B_EXTENT - 1) / 2)) for i in range(B_EXTENT)]
 
-    sdr_0 = SDR(
-        device_index=0, direct=False,
-        center_freq=LO_ON_MHZ * 1e6,
-        sample_rate=SAMPLE_RATE, gain=0.0,
-    )
-    sdr_1 = SDR(
-        device_index=1, direct=False,
-        center_freq=LO_ON_MHZ * 1e6,
-        sample_rate=SAMPLE_RATE, gain=0.0,
-    )
-    return telescope, [sdr_0, sdr_1], noise
+    # Build all cells per row with integer l-shift
+    rows = {}
+    for row_idx, b_val in enumerate(b_vals):
+        l_shift = round(slant * (b_val - GAL_B_CENTER))
+        l_center_row = int(GAL_L_CENTER) + l_shift
+        l_vals = [l_center_row + j - (L_EXTENT - 1) // 2 for j in range(L_EXTENT)]
+        rows[row_idx] = [(row_idx, j, l_vals[j], b_val) for j in range(L_EXTENT)]
 
+    # Compute HA of the first cell in each possible starting corner
+    _now = _Time.now()
+    _lst = _now.sidereal_time('apparent', longitude=LEO_LON_DEG * _u.deg)
 
-def make_scan_target_selector():
-    """Create a grid-based scan target selector with dump counting.
+    def _ha(l_deg, b_deg):
+        gc = _ac.SkyCoord(l=l_deg * _u.deg, b=b_deg * _u.deg, frame="galactic")
+        icrs = gc.transform_to(_ac.ICRS())
+        return (_lst - icrs.ra).wrap_at(12 * _u.hourangle).deg
 
-    The grid is defined in **galactic coordinates** (l, b) so that both
-    rising and setting passes cover the same sky. Each cell's galactic
-    position is converted to alt/az at the current time for pointing.
-
-    Returns (target_selector, dump_notifier):
-      - target_selector: callable for PointingThread
-      - dump_notifier: callable to invoke from on_save after each dump
-    """
-    # Build galactic offsets centered on scan center
-    b_offsets = [
-        (i - (N_B_CELLS - 1) / 2) * SCAN_STEP_DEG
-        for i in range(N_B_CELLS)
+    # Determine starting direction: first row's first cell vs last cell
+    first_row = rows[0]
+    last_row = rows[B_EXTENT - 1]
+    corners = [
+        (0, False, _ha(first_row[0][2], first_row[0][3])),     # row 0, forward
+        (0, True, _ha(first_row[-1][2], first_row[-1][3])),     # row 0, reversed
+        (B_EXTENT-1, False, _ha(last_row[0][2], last_row[0][3])),
+        (B_EXTENT-1, True, _ha(last_row[-1][2], last_row[-1][3])),
     ]
-    l_offsets = [
-        (j - (N_L_CELLS - 1) / 2) * SCAN_STEP_DEG
-        for j in range(N_L_CELLS)
-    ]
+    best = max(corners, key=lambda x: x[2])
+    start_from_last_row = (best[0] == B_EXTENT - 1)
+    start_l_reversed = best[1]
 
-    # Build ordered cell list (boustrophedon)
-    # SCAN_ALONG='l': rows in b, sweep along l (rising pass)
-    # SCAN_ALONG='b': rows in l, sweep along b (setting pass, orthogonal)
+    # Build boustrophedon
     cells = []
-    if SCAN_ALONG == 'l':
-        for row_idx in range(N_B_CELLS):
-            cols = range(N_L_CELLS) if row_idx % 2 == 0 else reversed(range(N_L_CELLS))
-            for col_idx in cols:
-                cell_l = GAL_L_CENTER + l_offsets[col_idx]
-                cell_b = GAL_B_CENTER + b_offsets[row_idx]
-                cells.append((row_idx, col_idx, cell_l, cell_b))
-    else:  # SCAN_ALONG == 'b'
-        for col_idx in range(N_L_CELLS):
-            rows = range(N_B_CELLS) if col_idx % 2 == 0 else reversed(range(N_B_CELLS))
-            for row_idx in rows:
-                cell_l = GAL_L_CENTER + l_offsets[col_idx]
-                cell_b = GAL_B_CENTER + b_offsets[row_idx]
-                cells.append((row_idx, col_idx, cell_l, cell_b))
+    b_order = range(B_EXTENT - 1, -1, -1) if start_from_last_row else range(B_EXTENT)
+    for i, row_idx in enumerate(b_order):
+        row = list(rows[row_idx])
+        reverse_this = (i % 2 == 0) == start_l_reversed
+        if reverse_this:
+            row = list(reversed(row))
+        cells.extend(row)
 
+    return cells
+
+
+# ---------------------------------------------------------------------------
+# Target selector factory
+# ---------------------------------------------------------------------------
+
+def make_scan_target_selector(cells):
+    """Create target selector and dump notifier for a cell list."""
     total_cells = len(cells)
-
-    # Shared state
     lock = threading.Lock()
     cell_dump_count = 0
     current_cell_idx = 0
     transitioning = False
 
-    print(f'  [scan] Grid: {N_L_CELLS} l x {N_B_CELLS} b = {total_cells} cells')
-    print(f'  [scan] Galactic coverage: l=[{cells[0][2]:.1f}, {cells[-1][2]:.1f}], '
-          f'b=[{b_offsets[0] + GAL_B_CENTER:.1f}, {b_offsets[-1] + GAL_B_CENTER:.1f}]')
-    print(f'  [scan] Dumps per cell: {DUMPS_PER_CELL} '
-          f'({DUMPS_PER_BAND} ON + {DUMPS_PER_BAND} OFF)')
+    print(f'  [scan] {total_cells} cells')
+    print(f'  [scan] First: l={cells[0][2]}, b={cells[0][3]}')
+    print(f'  [scan] Last:  l={cells[-1][2]}, b={cells[-1][3]}')
 
     def dump_notifier():
-        """Call from on_save after each dump is written."""
         nonlocal cell_dump_count
         with lock:
             cell_dump_count += 1
@@ -161,13 +167,11 @@ def make_scan_target_selector():
         if current_cell_idx >= total_cells:
             return None
 
-        # Atomic check: dump count and transition state
         with lock:
             count = cell_dump_count
             if count >= DUMPS_PER_CELL and not transitioning:
                 transitioning = True
                 return None
-
             if transitioning:
                 transitioning = False
                 current_cell_idx += 1
@@ -175,66 +179,50 @@ def make_scan_target_selector():
                 if current_cell_idx >= total_cells:
                     print('  [scan] All cells complete.')
                     return None
-                row, col, cell_l, cell_b = cells[current_cell_idx]
-                print(f'  [scan] Cell {current_cell_idx + 1}/{total_cells}: '
-                      f'row={row}, col={col}, l={cell_l:.1f}, b={cell_b:.1f}')
+                _, _, cl, cb = cells[current_cell_idx]
+                print(f'  [scan] Cell {current_cell_idx+1}/{total_cells}: l={cl}, b={cb}')
 
-        # Current cell: convert galactic -> alt/az at current time
-        row, col, cell_l, cell_b = cells[current_cell_idx]
-
+        _, _, cell_l, cell_b = cells[current_cell_idx]
         alt, az, ra, dec, _ = compute_gal_pointing(
             cell_l, cell_b,
             lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
         )
 
-        # Enforce Leuschner limits
-        if alt < MIN_ALT_DEG or alt > 85.0:
-            return None
-        if az < 5.0 or az > 350.0:
+        if alt < MIN_ALT_DEG or alt > 85.0 or az < AZ_MIN or az > AZ_MAX:
             return None
 
-        # Stable name per cell
-        name = f'scan_r{row}_c{col}'
-        return name, alt, az, ra, dec
+        row, col = cells[current_cell_idx][0], cells[current_cell_idx][1]
+        return f'scan_r{row}_c{col}', alt, az, ra, dec
 
     return target_selector, dump_notifier
 
 
-def main():
-    dump_cadence_s = NBLOCKS * NSAMPLES / SAMPLE_RATE + 1.5
-    cell_dwell_s = DUMPS_PER_CELL * dump_cadence_s
-    total_cells = N_L_CELLS * N_B_CELLS
-    total_time_s = total_cells * cell_dwell_s
+# ---------------------------------------------------------------------------
 
-    scan_dir = 'along l (rows in b)' if SCAN_ALONG == 'l' else 'along b (rows in l)'
-    print('Lab 4 - Leuschner 21 cm HI OTF grid scan')
-    print(f'  Center: l={GAL_L_CENTER}, b={GAL_B_CENTER}')
-    print(f'  Grid: {N_L_CELLS} l x {N_B_CELLS} b = {total_cells} cells (galactic)')
-    print(f'  Scan direction: {scan_dir}')
-    print(f'  Cell spacing: {SCAN_STEP_DEG} deg')
-    print(f'  Coverage: l=[{GAL_L_CENTER - (N_L_CELLS-1)/2*SCAN_STEP_DEG:.1f}, '
-          f'{GAL_L_CENTER + (N_L_CELLS-1)/2*SCAN_STEP_DEG:.1f}], '
-          f'b=[{GAL_B_CENTER - (N_B_CELLS-1)/2*SCAN_STEP_DEG:.1f}, '
-          f'{GAL_B_CENTER + (N_B_CELLS-1)/2*SCAN_STEP_DEG:.1f}]')
-    print(f'  Dumps per cell: {DUMPS_PER_CELL} '
-          f'({DUMPS_PER_BAND} per band)')
-    print(f'  Dwell per cell: ~{cell_dwell_s:.0f}s')
-    print(f'  Estimated total: ~{total_time_s / 60:.1f} min '
-          f'(+ cal + slews)')
-    print('=' * 60)
-    print()
-    print('Initialising hardware ...')
-    telescope, sdrs, noise = setup_hardware()
-    print('Hardware ready.\n')
+def setup_hardware():
+    from ugradio.leusch import LeuschNoise, LeuschTelescope
+    from ugradio.sdr import SDR
 
-    target_selector, dump_notifier = make_scan_target_selector()
+    telescope = LeuschTelescope()
+    noise = LeuschNoise()
+    sdr_0 = SDR(device_index=0, direct=False,
+                center_freq=LO_ON_MHZ * 1e6, sample_rate=SAMPLE_RATE, gain=0.0)
+    sdr_1 = SDR(device_index=1, direct=False,
+                center_freq=LO_ON_MHZ * 1e6, sample_rate=SAMPLE_RATE, gain=0.0)
+    return telescope, [sdr_0, sdr_1], noise
+
+
+def run_pass(telescope, sdrs, noise, cells, pass_name):
+    """Run one scan pass (rising or setting) with calibration."""
+    print(f'\n{"="*60}')
+    print(f'  {pass_name}')
+    print(f'{"="*60}')
+
+    target_selector, dump_notifier = make_scan_target_selector(cells)
 
     read_fn = make_calibrated_sdr_reader(
-        sdrs,
-        noise,
-        nsamples=NSAMPLES,
-        nblocks=NBLOCKS,
-        nfft=NFFT,
+        sdrs, noise,
+        nsamples=NSAMPLES, nblocks=NBLOCKS, nfft=NFFT,
         lo_freqs_mhz=(LO_ON_MHZ, LO_OFF_MHZ),
         cal_dumps_per_lo=CAL_DUMPS,
     )
@@ -243,10 +231,8 @@ def main():
         dump_notifier()
         noise_tag = ' [CAL]' if dump.get('noise_on') else ''
         lo_tag = f'  LO={dump["lo_freq_mhz"]}' if 'lo_freq_mhz' in dump else ''
-        print(
-            f'  [{dump["target_name"]}]  seq={dump["seq"]:05d}'
-            f'{lo_tag}{noise_tag}  -> {path}'
-        )
+        print(f'  [{dump["target_name"]}]  seq={dump["seq"]:05d}'
+              f'{lo_tag}{noise_tag}  -> {path}')
 
     capture = StreamingCapture(
         telescope=telescope,
@@ -258,6 +244,61 @@ def main():
         on_save=on_save,
     )
     capture.run()
+
+
+def main():
+    print('Lab 4 - Leuschner 21 cm HI OTF parallelogram scan')
+    print(f'  Center: l={GAL_L_CENTER}, b={GAL_B_CENTER}')
+    print(f'  Grid: {L_EXTENT} l x {B_EXTENT} b = {L_EXTENT * B_EXTENT} cells/pass')
+    print(f'  Dumps per cell: {DUMPS_PER_CELL} ({DUMPS_PER_BAND}/band)')
+
+    # Compute iso-HA slant
+    iso_ha_slant = compute_iso_ha_slant()
+    print(f'  Iso-HA slant: {iso_ha_slant:+.2f} deg l per deg b')
+    print()
+
+    # Build both parallelogram cell lists
+    rising_slant = iso_ha_slant
+    setting_slant = -iso_ha_slant
+
+    print(f'Rising parallelogram (slant={rising_slant:+.2f}):')
+    rising_cells = build_parallelogram_cells(rising_slant)
+    for b in sorted(set(c[3] for c in rising_cells)):
+        row = [c for c in rising_cells if c[3] == b]
+        ls = sorted(c[2] for c in row)
+        print(f'  b={b:+d}: l=[{ls[0]}, {ls[-1]}]')
+
+    print(f'\nSetting parallelogram (slant={setting_slant:+.2f}):')
+    setting_cells = build_parallelogram_cells(setting_slant)
+    for b in sorted(set(c[3] for c in setting_cells)):
+        row = [c for c in setting_cells if c[3] == b]
+        ls = sorted(c[2] for c in row)
+        print(f'  b={b:+d}: l=[{ls[0]}, {ls[-1]}]')
+
+    dump_cadence = NBLOCKS * NSAMPLES / SAMPLE_RATE + 1.5
+    cell_time = DUMPS_PER_CELL * dump_cadence + 5
+    pass_time = len(rising_cells) * cell_time / 3600
+    print(f'\nEstimated {pass_time:.1f} h per pass, {2*pass_time + 0.5:.1f} h total')
+
+    # Initialise hardware once
+    print('\nInitialising hardware ...')
+    telescope, sdrs, noise = setup_hardware()
+    print('Hardware ready.')
+
+    # ---- RISING PASS ----
+    run_pass(telescope, sdrs, noise, rising_cells, 'RISING PASS (along l)')
+
+    # ---- Wait for az gap to clear, then SETTING PASS ----
+    print('\n' + '='*60)
+    print('  Rising pass complete. Waiting for setting window...')
+    print('  (The script will auto-start when the target clears az exclusion)')
+    print('='*60 + '\n')
+
+    run_pass(telescope, sdrs, noise, setting_cells, 'SETTING PASS (along l, opposite slant)')
+
+    print('\n' + '='*60)
+    print('  Both passes complete!')
+    print('='*60)
 
 
 if __name__ == '__main__':

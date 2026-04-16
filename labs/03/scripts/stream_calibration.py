@@ -155,7 +155,18 @@ def main():
     interferometer, snap = setup_hardware()
     print('Hardware ready.\n')
 
-    # --- Auto-correlation calibration scan ---
+    # --- Point at target first ---
+    print('Acquiring target ...')
+    result = target_selector()
+    if result is None:
+        print('No target above minimum altitude. Exiting.')
+        return
+    name, alt, az, ra, dec = result
+    print(f'  Slewing to {name} (alt={alt:.1f}, az={az:.1f}) ...')
+    interferometer.point(alt, az, wait=True)
+    print('  Pointing complete.\n')
+
+    # --- Auto-correlation calibration scan (on-target) ---
     print(f'Collecting auto-correlation calibration ({CAL_DUMPS} dumps) ...')
     cal_path = collect_autocorrelation(snap)
     print(f'  Calibration saved -> {cal_path}\n')

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI observation.
+"""Lab 4 - Leuschner 21 cm HI observation (single target).
 
 Dual-polarisation SDR capture with on-board FFT and correlation.
 Frequency-switched between two LO settings for bandpass removal.
 
 Unified calibration + science pipeline:
   1. Slew to target (handled by StreamingCapture pointing thread)
-  2. Noise diode ON  - 32 dumps at LO = 1420 MHz, 32 at LO = 1421 MHz
+  2. Noise diode ON - CAL_DUMPS dumps per LO
   3. Noise diode OFF - frequency-switching science loop (1420 / 1421 alternating)
 
 All dumps (calibration and science) flow through the same reader/writer
@@ -43,7 +43,7 @@ LO_ON_MHZ   = 1420.0
 LO_OFF_MHZ  = 1421.0
 SAMPLE_RATE  = 2.56e6    # Hz
 NSAMPLES     = 32768
-NBLOCKS      = 513       # block 0 discarded -> 512 valid
+NBLOCKS      = 1025      # block 0 discarded -> 1024 valid
 NFFT         = 1024
 MIN_ALT_DEG  = 15.5      # Leuschner limit 15 deg + margin
 CAL_DUMPS    = 2         # dumps per LO frequency during noise cal
@@ -77,7 +77,7 @@ def setup_hardware():
 
 
 def target_selector():
-    """Return galactic (l=180, b=0) pointing if above minimum altitude, else None."""
+    """Return galactic (l, b) pointing if above minimum altitude, else None."""
     alt, az, ra, dec, _ = compute_gal_pointing(
         GAL_L_DEG, GAL_B_DEG,
         lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,

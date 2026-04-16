@@ -340,8 +340,16 @@ class StreamingCapture:
         self._reader = ReaderThread(read_fn, self._pointing, self._queue)
         self._writer = WriterPool(self._queue, outdir, n_writers, on_save)
 
-    def run(self) -> None:
-        """Start all threads and block until KeyboardInterrupt."""
+    def run(self, done_event: 'threading.Event | None' = None) -> None:
+        """Start all threads and block until KeyboardInterrupt or done_event.
+
+        Parameters
+        ----------
+        done_event : threading.Event, optional
+            If provided, exit automatically when this event is set
+            (e.g. by the target_selector when the scan grid is complete).
+            If None (default), run until KeyboardInterrupt.
+        """
         self._pointing.start()
 
         # Wait for the first valid pointing before starting the reader.
@@ -359,6 +367,9 @@ class StreamingCapture:
         try:
             while True:
                 time.sleep(1.0)
+                if done_event is not None and done_event.is_set():
+                    print('\nScan complete (done_event set).')
+                    break
         except KeyboardInterrupt:
             pass
         finally:

@@ -147,12 +147,17 @@ def build_parallelogram_cells(slant):
 # ---------------------------------------------------------------------------
 
 def make_scan_target_selector(cells):
-    """Create target selector and dump notifier for a cell list."""
+    """Create target selector, dump notifier, and done_event for a cell list.
+
+    Returns (target_selector, dump_notifier, done_event).
+    done_event is set when all cells have been observed.
+    """
     total_cells = len(cells)
     lock = threading.Lock()
     cell_dump_count = 0
     current_cell_idx = 0
     transitioning = False
+    done_event = threading.Event()
 
     print(f'  [scan] {total_cells} cells')
     print(f'  [scan] First: l={cells[0][2]}, b={cells[0][3]}')
@@ -167,6 +172,7 @@ def make_scan_target_selector(cells):
         nonlocal current_cell_idx, cell_dump_count, transitioning
 
         if current_cell_idx >= total_cells:
+            done_event.set()
             return None
 
         with lock:
@@ -180,6 +186,7 @@ def make_scan_target_selector(cells):
                 cell_dump_count = 0
                 if current_cell_idx >= total_cells:
                     print('  [scan] All cells complete.')
+                    done_event.set()
                     return None
                 _, _, cl, cb = cells[current_cell_idx]
                 print(f'  [scan] Cell {current_cell_idx+1}/{total_cells}: l={cl}, b={cb}')
@@ -196,7 +203,7 @@ def make_scan_target_selector(cells):
         row, col = cells[current_cell_idx][0], cells[current_cell_idx][1]
         return f'scan_r{row}_c{col}', alt, az, ra, dec
 
-    return target_selector, dump_notifier
+    return target_selector, dump_notifier, done_event
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +227,7 @@ def run_pass(telescope, sdrs, noise, cells, pass_name):
     print(f'  {pass_name}')
     print(f'{"="*60}')
 
-    target_selector, dump_notifier = make_scan_target_selector(cells)
+    target_selector, dump_notifier, done_event = make_scan_target_selector(cells)
 
     read_fn = make_calibrated_sdr_reader(
         sdrs, noise,
@@ -245,7 +252,7 @@ def run_pass(telescope, sdrs, noise, cells, pass_name):
         repoint_interval_sec=REPOINT_TRACK_SEC,
         on_save=on_save,
     )
-    capture.run()
+    capture.run(done_event=done_event)
 
 
 def main():

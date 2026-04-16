@@ -1,5 +1,5 @@
 from .base import Experiment
-from .readers import make_sdr_reader, make_snap_reader
+from .readers import make_calibrated_sdr_reader, make_sdr_reader, make_snap_reader
 from .sequential import SequentialRunner
 from .sdr import CalExperiment, ObsExperiment, SDRExperiment
 from .streaming import PointingState, StreamingCapture
@@ -12,6 +12,7 @@ __all__ = [
     "SDRExperiment",
     "SequentialRunner",
     "StreamingCapture",
+    "make_calibrated_sdr_reader",
     "make_sdr_reader",
     "make_snap_reader",
 ]

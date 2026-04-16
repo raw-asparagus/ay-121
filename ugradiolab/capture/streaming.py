@@ -1,15 +1,18 @@
-"""Producer-consumer streaming capture for the SNAP correlator.
+"""Producer-consumer streaming capture pipeline.
 
-Instead of averaging accumulator dumps over a window, this module saves
-every single dump to disk individually.  Three independent threads handle
-pointing, reading, and writing:
+Saves every single dump to disk individually.  Three independent threads
+handle pointing, reading, and writing:
 
-    PointingThread  — manages target selection and dish repointing
-    ReaderThread    — sole consumer of snap.read_data(); enqueues each dump
-    WriterPool      — N workers dequeue and save .npz files
+    PointingThread  -- manages target selection and telescope repointing
+    ReaderThread    -- calls a read_fn callable; enqueues each dump
+    WriterPool      -- N workers dequeue and save .npz files
 
 StreamingCapture wires them together and provides a single ``run()`` entry
 point that blocks until Ctrl-C.
+
+Hardware-agnostic: works with any telescope that exposes
+``point(alt, az, wait=True)`` and any reader callable produced by the
+factories in :mod:`ugradiolab.capture.readers`.
 """
 
 from __future__ import annotations
@@ -45,26 +48,27 @@ class PointingState:
 # ---------------------------------------------------------------------------
 
 class PointingThread:
-    """Periodically selects a target and repoints the dishes.
+    """Periodically selects a target and repoints the telescope.
 
     Parameters
     ----------
-    interferometer : object
-        Pointing controller (``interf.Interferometer``).
+    telescope : object
+        Pointing controller -- any object with
+        ``point(alt, az, wait=True)``.
     target_selector : callable
         Returns ``(name, alt, az, ra, dec)`` for the highest-priority
         visible target, or ``None`` when nothing is up.
     repoint_interval_sec : float
-        Maximum time between dish repoints for the same target.
+        Maximum time between repoints for the same target.
     """
 
     def __init__(
         self,
-        interferometer,
+        telescope,
         target_selector: Callable[[], tuple[str, float, float, float, float] | None],
         repoint_interval_sec: float = 30.0,
     ):
-        self._interferometer = interferometer
+        self._telescope = telescope
         self._target_selector = target_selector
         self._repoint_interval_sec = repoint_interval_sec
 
@@ -103,7 +107,7 @@ class PointingThread:
 
             if need_repoint:
                 try:
-                    self._interferometer.point(alt, az, wait=True)
+                    self._telescope.point(alt, az, wait=True)
                 except (AssertionError, TimeoutError, OSError) as exc:
                     print(f'  [pointing] slew failed: {exc}')
                     self._stop_event.wait(timeout=5.0)
@@ -342,7 +346,7 @@ class StreamingCapture:
             time.sleep(0.5)
         state = self._pointing.get_state()
         print(f'Acquired target: {state.target_name}  '
-              f'(alt={state.alt_deg:.1f}°, az={state.az_deg:.1f}°)')
+              f'(alt={state.alt_deg:.1f} deg, az={state.az_deg:.1f} deg)')
 
         self._reader.start()
         self._writer.start()

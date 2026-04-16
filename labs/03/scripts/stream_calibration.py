@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Lab 3 — Streaming interferometer capture.
+"""Lab 3 — Streaming interferometer capture with auto-correlation calibration.
 
-Saves every single SNAP accumulator dump to its own .npz file using a
-producer-consumer architecture (see ``ugradiolab.capture.streaming``).
+Runs a brief auto-correlation calibration scan (spec mode) at the start of the
+observation, then switches to cross-correlation mode (corr) and streams every
+SNAP accumulator dump to disk.
 
 Priority (highest first):
   1. Sun  — observed when alt >= 6.5°
@@ -14,8 +15,14 @@ Usage:
     python stream_calibration.py
 
 Output:
+    data/lab03/streaming/calibration/autocorr_<timestamp>.npz
     data/lab03/streaming/<target>/<target>_dump_<timestamp>_<seq>.npz
 """
+
+import os
+import time
+
+import numpy as np
 
 from ugradiolab.astronomy import (
     compute_moon_pointing,
@@ -43,7 +50,8 @@ MOON_MIN_ALT_DEG = 6.5
 M17_MIN_ALT_DEG  = 6.5
 M1_MIN_ALT_DEG   = 6.5
 
-OUTDIR = 'data/lab03/streaming'
+OUTDIR    = 'data/lab03/streaming'
+CAL_DUMPS = 20   # number of auto-correlation dumps to collect
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +73,49 @@ def setup_hardware(snap_retries=5):
         except AssertionError as exc:
             print(f'  SNAP init attempt {attempt}/{snap_retries} failed ({exc}), retrying...')
     raise RuntimeError(f'SNAP initialization failed after {snap_retries} attempts.')
+
+
+def collect_autocorrelation(snap, n_dumps=CAL_DUMPS):
+    """Switch to spec mode, collect n_dumps of auto-correlation, switch back.
+
+    Returns the path to the saved calibration .npz file.
+    """
+    # Switch to spec mode (auto-correlations).
+    snap.mode = 'spec'
+    snap.corr_0.set_input(snap.stream_1, snap.stream_1)  # auto0: (0, 0)
+    snap.corr_1.set_input(snap.stream_2, snap.stream_2)  # auto1: (1, 1)
+
+    # Discard first dump (stale accumulation from corr mode).
+    snap.read_data(prev_cnt=None)
+
+    auto0_list = []
+    auto1_list = []
+    times = []
+    prev_cnt = None
+    for i in range(n_dumps):
+        d = snap.read_data(prev_cnt=prev_cnt)
+        auto0_list.append(d['auto0'])
+        auto1_list.append(d['auto1'])
+        times.append(d['time'])
+        prev_cnt = d['acc_cnt']
+
+    # Switch back to corr mode (cross-correlation).
+    snap.mode = 'corr'
+    snap.corr_0.set_input(snap.stream_1, snap.stream_2)  # cross: (0, 1)
+
+    # Save.
+    cal_dir = os.path.join(OUTDIR, 'calibration')
+    os.makedirs(cal_dir, exist_ok=True)
+    ts = time.strftime('%Y%m%d_%H%M%S')
+    path = os.path.join(cal_dir, f'autocorr_{ts}.npz')
+    np.savez(
+        path,
+        auto0=np.array(auto0_list),
+        auto1=np.array(auto1_list),
+        times=np.array(times),
+        n_dumps=n_dumps,
+    )
+    return path
 
 
 def target_selector():
@@ -103,6 +154,12 @@ def main():
     interferometer, snap = setup_hardware()
     print('Hardware ready.\n')
 
+    # --- Auto-correlation calibration scan ---
+    print(f'Collecting auto-correlation calibration ({CAL_DUMPS} dumps) ...')
+    cal_path = collect_autocorrelation(snap)
+    print(f'  Calibration saved → {cal_path}\n')
+
+    # --- Cross-correlation streaming ---
     capture = StreamingCapture(
         interferometer=interferometer,
         snap=snap,

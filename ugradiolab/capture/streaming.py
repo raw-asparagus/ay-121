@@ -95,7 +95,10 @@ class PointingThread:
         while not self._stop_event.is_set():
             result = self._target_selector()
             if result is None:
-                self._stop_event.wait(timeout=10.0)
+                with self._lock:
+                    self._state = None
+                current_target = None
+                self._stop_event.wait(timeout=1.0)
                 continue
 
             name, alt, az, ra, dec = result
@@ -181,6 +184,13 @@ class ReaderThread:
         consecutive_errors = 0
 
         while not self._stop_event.is_set():
+            # Wait for a valid pointing before capturing.
+            state = self._pointing.get_state()
+            if state is None:
+                self._stop_event.wait(timeout=0.5)
+                prev_cnt = None  # reset state token (SNAP may miss acc_cnt ticks)
+                continue
+
             try:
                 d = self._read_fn(prev_cnt)
                 consecutive_errors = 0
@@ -193,12 +203,6 @@ class ReaderThread:
                     )
                     break
                 prev_cnt = None
-                continue
-
-            state = self._pointing.get_state()
-            if state is None:
-                # No target acquired yet --discard dump.
-                prev_cnt = d.get('acc_cnt')
                 continue
 
             dump = {

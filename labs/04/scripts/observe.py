@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI observation (single target).
+"""Lab 4 - Leuschner 21 cm HI observation of M31.
 
 Dual-polarisation SDR capture with on-board FFT and correlation.
 Frequency-switched between two LO settings for bandpass removal.
@@ -23,24 +23,23 @@ from ugradiolab.astronomy import (
     LEO_LAT_DEG,
     LEO_LON_DEG,
     LEO_OBS_ALT_M,
-    compute_gal_pointing,
+    compute_radec_pointing,
 )
 from ugradiolab.capture import StreamingCapture
 from ugradiolab.capture.readers import make_calibrated_sdr_reader
 
 # ---------------------------------------------------------------------------
-# Source catalog (galactic coordinates)
+# Source catalog (J2000 equatorial, SIMBAD)
 # ---------------------------------------------------------------------------
 
-GAL_L_DEG = 180.0   # galactic longitude
-GAL_B_DEG =   0.0   # galactic latitude (plane)
+M31_RA_DEG  = 10.6847   # 00h 42m 44.3s
+M31_DEC_DEG = 41.2687   # +41d 16' 07"
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-LO_ON_MHZ   = 1420.0
-LO_OFF_MHZ  = 1421.0
+LO_FREQS_MHZ = (1420.0, 1421.0, 1422.0, 1423.0)  # 4 LOs for full M31 coverage
 SAMPLE_RATE  = 2.56e6    # Hz
 NSAMPLES     = 32768
 NBLOCKS      = 1025      # block 0 discarded -> 1024 valid
@@ -69,25 +68,25 @@ def setup_hardware():
 
     sdr_0 = SDR(
         device_index=0, direct=False,
-        center_freq=LO_ON_MHZ * 1e6,
+        center_freq=LO_FREQS_MHZ[0] * 1e6,
         sample_rate=SAMPLE_RATE, gain=0.0,
     )
     sdr_1 = SDR(
         device_index=1, direct=False,
-        center_freq=LO_ON_MHZ * 1e6,
+        center_freq=LO_FREQS_MHZ[0] * 1e6,
         sample_rate=SAMPLE_RATE, gain=0.0,
     )
     return telescope, [sdr_0, sdr_1], noise
 
 
 def target_selector():
-    """Return galactic (l, b) pointing if above minimum altitude, else None."""
-    alt, az, ra, dec, _ = compute_gal_pointing(
-        GAL_L_DEG, GAL_B_DEG,
+    """Return M31 pointing if within telescope limits, else None."""
+    alt, az, _ = compute_radec_pointing(
+        M31_RA_DEG, M31_DEC_DEG,
         lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
     )
     if (MIN_ALT_DEG <= alt <= MAX_ALT_DEG and AZ_MIN_DEG <= az <= AZ_MAX_DEG):
-        return f'gal_{GAL_L_DEG:.0f}_{GAL_B_DEG:.0f}', alt, az, ra, dec
+        return 'm31', alt, az, M31_RA_DEG, M31_DEC_DEG
     return None
 
 
@@ -101,7 +100,7 @@ def on_save(path, dump):
 
 
 def main():
-    print(f'Lab 4 - Leuschner 21 cm HI observation  (l={GAL_L_DEG}, b={GAL_B_DEG})')
+    print(f'Lab 4 - Leuschner 21 cm HI observation  (M31)')
     print('=' * 60)
     print()
     print('Initialising hardware ...')
@@ -115,7 +114,7 @@ def main():
         nsamples=NSAMPLES,
         nblocks=NBLOCKS,
         nfft=NFFT,
-        lo_freqs_mhz=(LO_ON_MHZ, LO_OFF_MHZ),
+        lo_freqs_mhz=LO_FREQS_MHZ,
         cal_dumps_per_lo=CAL_DUMPS,
     )
     capture = StreamingCapture(

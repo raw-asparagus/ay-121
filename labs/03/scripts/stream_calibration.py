@@ -161,12 +161,13 @@ def main():
     interferometer, snap = setup_hardware()
     print('Hardware ready.\n')
 
-    # --- Point at target first ---
-    print('Acquiring target ...')
-    result = target_selector()
-    if result is None:
-        print('No target above minimum altitude. Exiting.')
-        return
+    # --- Wait for target and point ---
+    print('Waiting for target to rise ...')
+    while True:
+        result = target_selector()
+        if result is not None:
+            break
+        time.sleep(10)
     name, alt, az, ra, dec = result
     print(f'  Slewing to {name} (alt={alt:.1f}, az={az:.1f}) ...')
     interferometer.point(alt, az, wait=True)

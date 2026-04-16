@@ -46,7 +46,7 @@ NSAMPLES     = 32768
 NBLOCKS      = 2049      # block 0 discarded -> 2048 valid
 NFFT         = 1024
 MIN_ALT_DEG  = 15.5      # Leuschner limit 15 deg + margin
-CAL_DUMPS    = 32        # dumps per LO frequency during noise cal
+CAL_DUMPS    = 2         # dumps per LO frequency during noise cal
 OUTDIR       = 'data/lab04/streaming'
 
 

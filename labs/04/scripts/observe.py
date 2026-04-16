@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 — Leuschner 21 cm HI observation of M31.
+"""Lab 4 — Leuschner 21 cm HI observation.
 
 Dual-polarisation SDR capture with on-board FFT and correlation.
 Frequency-switched between two LO settings for bandpass removal.
@@ -26,17 +26,17 @@ from ugradiolab.astronomy import (
     LEO_LAT_DEG,
     LEO_LON_DEG,
     LEO_OBS_ALT_M,
-    compute_radec_pointing,
+    compute_gal_pointing,
 )
 from ugradiolab.capture import StreamingCapture
 from ugradiolab.capture.readers import make_sdr_reader
 
 # ---------------------------------------------------------------------------
-# Source catalog (J2000, SIMBAD)
+# Source catalog (galactic coordinates)
 # ---------------------------------------------------------------------------
 
-M31_RA_DEG  = 10.6847   # 00h 42m 44.3s
-M31_DEC_DEG = 41.2687   # +41° 16' 07"
+GAL_L_DEG = 180.0   # galactic longitude
+GAL_B_DEG =   0.0   # galactic latitude (plane)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -145,13 +145,13 @@ def collect_noise_cal(sdrs, noise, n_dumps=CAL_DUMPS):
 
 
 def target_selector():
-    """Return M31 pointing if above minimum altitude, else None."""
-    alt, az, _ = compute_radec_pointing(
-        M31_RA_DEG, M31_DEC_DEG,
+    """Return galactic (l=180, b=0) pointing if above minimum altitude, else None."""
+    alt, az, ra, dec, _ = compute_gal_pointing(
+        GAL_L_DEG, GAL_B_DEG,
         lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
     )
     if alt >= MIN_ALT_DEG:
-        return 'm31', alt, az, M31_RA_DEG, M31_DEC_DEG
+        return f'gal_{GAL_L_DEG:.0f}_{GAL_B_DEG:.0f}', alt, az, ra, dec
     return None
 
 
@@ -164,7 +164,7 @@ def on_save(path, dump):
 
 
 def main():
-    print('Lab 4 — Leuschner 21 cm HI observation  (M31)')
+    print(f'Lab 4 — Leuschner 21 cm HI observation  (l={GAL_L_DEG}, b={GAL_B_DEG})')
     print('=' * 60)
     print()
     print('Initialising hardware ...')

@@ -1976,7 +1976,7 @@ def nls_real_baseline_broadband(
 
 
 def _ivw(values: np.ndarray, errors: np.ndarray, sigma_clip: float = 3.0):
-    """Inverse-variance weighted mean with MAD-based sigma clipping."""
+    """Unweighted mean with errors added in quadrature, after MAD-based sigma clipping."""
     finite = np.isfinite(values) & np.isfinite(errors) & (errors > 0)
     if not finite.any():
         return np.nan, np.inf, np.zeros(len(values), dtype=bool)
@@ -1989,9 +1989,9 @@ def _ivw(values: np.ndarray, errors: np.ndarray, sigma_clip: float = 3.0):
     if not keep_local.any():
         keep_local[:] = True
 
-    w = 1.0 / e[keep_local] ** 2
-    combined = np.sum(w * v[keep_local]) / np.sum(w)
-    err = 1.0 / np.sqrt(np.sum(w))
+    n = int(keep_local.sum())
+    combined = float(np.mean(v[keep_local]))
+    err = float(np.sqrt(np.sum(e[keep_local] ** 2)) / n)
 
     # Map back to original indexing
     keep_full = np.zeros(len(values), dtype=bool)
@@ -2005,7 +2005,7 @@ def combined_baseline(
     *,
     sigma_clip: float = 3.0,
 ) -> BaselineResult:
-    """Inverse-variance weighted combination of multiple baseline estimates.
+    """Unweighted mean combination of multiple baseline estimates (errors in quadrature).
 
     Combines both :math:`b_{\\rm ew}` and :math:`b_{\\rm ns}` independently.
 

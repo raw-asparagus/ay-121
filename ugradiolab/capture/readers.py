@@ -63,23 +63,37 @@ def _sdr_capture_and_correlate(sdrs, nsamples, nblocks, nfft, lo_mhz):
 
     dev_ids = sorted(data.keys())
 
-    # Discard block 0 (stale USB buffer), convert int8 I/Q to complex float32
-    raw_0 = data[dev_ids[0]][1:]  # (nblocks-1, nsamples, 2)
-    raw_1 = data[dev_ids[1]][1:]
+    # Keep full data; block 0 is stale, skip it in the loop
+    raw_0 = data[dev_ids[0]]  # (nblocks, nsamples, 2)
+    raw_1 = data[dev_ids[1]]
 
-    iq_0 = raw_0[..., 0].astype(np.float32) + 1j * raw_0[..., 1].astype(np.float32)
-    iq_1 = raw_1[..., 0].astype(np.float32) + 1j * raw_1[..., 1].astype(np.float32)
-
-    # Reshape into FFT chunks and transform
     n_valid = nblocks - 1
     n_chunks = nsamples // nfft
-    V0 = np.fft.fft(iq_0.reshape(n_valid, n_chunks, nfft), axis=-1)
-    V1 = np.fft.fft(iq_1.reshape(n_valid, n_chunks, nfft), axis=-1)
 
-    # Correlations, averaged across all windows
-    corr00 = np.mean((V0 * np.conj(V0)).real, axis=(0, 1))  # (nfft,) float
-    corr11 = np.mean((V1 * np.conj(V1)).real, axis=(0, 1))  # (nfft,) float
-    corr01 = np.mean(V0 * np.conj(V1), axis=(0, 1))         # (nfft,) complex
+    # Accumulate correlations block-by-block to avoid allocating the full
+    # (n_valid, n_chunks, nfft) FFT array, which can exceed Pi memory.
+    corr00 = np.zeros(nfft, dtype=np.float64)
+    corr11 = np.zeros(nfft, dtype=np.float64)
+    corr01 = np.zeros(nfft, dtype=np.complex128)
+
+    for b in range(1, nblocks):  # skip block 0
+        block_0 = raw_0[b]  # (nsamples, 2) int8
+        block_1 = raw_1[b]
+
+        iq_0 = block_0[:, 0].astype(np.float32) + 1j * block_0[:, 1].astype(np.float32)
+        iq_1 = block_1[:, 0].astype(np.float32) + 1j * block_1[:, 1].astype(np.float32)
+
+        V0 = np.fft.fft(iq_0.reshape(n_chunks, nfft), axis=-1)
+        V1 = np.fft.fft(iq_1.reshape(n_chunks, nfft), axis=-1)
+
+        corr00 += np.sum((V0 * np.conj(V0)).real, axis=0)
+        corr11 += np.sum((V1 * np.conj(V1)).real, axis=0)
+        corr01 += np.sum(V0 * np.conj(V1), axis=0)
+
+    total_windows = n_valid * n_chunks
+    corr00 /= total_windows
+    corr11 /= total_windows
+    corr01 /= total_windows
 
     return {
         'corr00': corr00,

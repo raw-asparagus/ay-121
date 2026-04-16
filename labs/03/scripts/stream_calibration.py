@@ -24,8 +24,6 @@ from ugradiolab.astronomy import (
 )
 from ugradiolab.capture import StreamingCapture
 
-from utils import setup_hardware
-
 # ---------------------------------------------------------------------------
 # Source catalog (J2000)
 # ---------------------------------------------------------------------------
@@ -49,6 +47,25 @@ OUTDIR = 'data/lab03/streaming'
 
 
 # ---------------------------------------------------------------------------
+
+def setup_hardware(snap_retries=5):
+    """Initialise interferometer and SNAP correlator.  Returns (interferometer, snap)."""
+    import ugradio.interf as interf
+    from snap_spec.snap import UGRadioSnap
+
+    interferometer = interf.Interferometer()
+    snap = UGRadioSnap(host='localhost', stream_1=0, stream_2=1)
+    for attempt in range(1, snap_retries + 1):
+        try:
+            snap.initialize(mode='corr', sample_rate=500, force=True)
+            snap.input.use_adc()
+            if attempt > 1:
+                print(f'  SNAP initialized on attempt {attempt}.')
+            return interferometer, snap
+        except AssertionError as exc:
+            print(f'  SNAP init attempt {attempt}/{snap_retries} failed ({exc}), retrying...')
+    raise RuntimeError(f'SNAP initialization failed after {snap_retries} attempts.')
+
 
 def target_selector():
     """Return (name, alt, az, ra, dec) for the highest-priority visible target."""

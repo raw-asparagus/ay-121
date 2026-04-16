@@ -193,7 +193,10 @@ class ReaderThread:
                 continue
 
             dump = {
+                'corr00':      d['corr00'],
                 'corr01':      d['corr01'],
+                'corr10':      d['corr10'],
+                'corr11':      d['corr11'],
                 'time':        d['time'],
                 'acc_cnt':     d['acc_cnt'],
                 'target_name': state.target_name,

@@ -171,10 +171,21 @@ def main():
     telescope, sdrs, noise = setup_hardware()
     print('Hardware ready.\n')
 
-    # --- Noise diode calibration ---
+    # --- Point at target first ---
+    print('Acquiring target ...')
+    result = target_selector()
+    if result is None:
+        print('Target is below minimum altitude. Exiting.')
+        return
+    name, alt, az, ra, dec = result
+    print(f'  Slewing to {name} (alt={alt:.1f}, az={az:.1f}) ...')
+    telescope.point(alt, az, wait=True)
+    print('  Pointing complete.\n')
+
+    # --- Noise diode calibration (on-target) ---
     print(f'Collecting noise diode calibration ({CAL_DUMPS} dumps per LO) ...')
     cal_path = collect_noise_cal(sdrs, noise)
-    print(f'  Calibration saved → {cal_path}\n')
+    print(f'  Calibration saved -> {cal_path}\n')
 
     # --- Frequency-switching science streaming ---
     read_fn = make_sdr_reader(

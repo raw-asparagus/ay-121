@@ -79,10 +79,7 @@ Experiment (ABC)              ← shared fields: alt_deg, az_deg, outdir, prefix
 ├── SDRExperiment (ABC)       ← adds sdr, nsamples, nblocks, sample_rate, center_freq, gain, direct
 │   ├── CalExperiment         ← adds synth, siggen_freq_mhz, siggen_amp_dbm
 │   └── ObsExperiment
-└── InterfExperiment          ← adds interferometer, snap, duration_sec, pointing_tol_deg
-    ├── SunExperiment
-    ├── MoonExperiment
-    └── RadecExperiment
+└── StreamingCapture          ← producer-consumer: PointingThread + ReaderThread + WriterPool
 ```
 
 Hardware is bound at construction time (e.g. `ObsExperiment(sdr=sdr, ...)`), so `run()` takes no arguments. The calling script opens hardware before the loop and closes it in `finally` — experiment objects hold a *reference* to already-open hardware, not ownership.
@@ -146,7 +143,7 @@ rec2 = dataclasses.replace(rec, gain=30.0)
 | `Record.from_sdr` | RTL-SDR (`ugradio.sdr.SDR`) |
 | `CalExperiment.run` | RTL-SDR (`self.sdr`) + Keysight N9310A (`self.synth`) |
 | `ObsExperiment.run` | RTL-SDR (`self.sdr`) |
-| `InterfExperiment.run` | Interferometer (`self.interferometer`) + SNAP (`self.snap`) |
+| `StreamingCapture.run` | Interferometer + SNAP (via `PointingThread` + `ReaderThread`) |
 | `QueueRunner.run` | None — hardware is embedded in each experiment |
 | `compute_pointing` | None (reads system clock only) |
 | `Record.load`, `Spectrum.load` | None |

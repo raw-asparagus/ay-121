@@ -1,25 +1,14 @@
 from .base import Experiment
-from .interferometer import (
-    InterfExperiment,
-    MoonExperiment,
-    PointingError,
-    RadecExperiment,
-    SunExperiment,
-)
-from .pipelined import PipelinedCapture
 from .sequential import SequentialRunner
 from .sdr import CalExperiment, ObsExperiment, SDRExperiment
+from .streaming import PointingState, StreamingCapture
 
 __all__ = [
     "CalExperiment",
     "Experiment",
-    "InterfExperiment",
-    "MoonExperiment",
     "ObsExperiment",
-    "PipelinedCapture",
-    "PointingError",
-    "RadecExperiment",
+    "PointingState",
     "SDRExperiment",
     "SequentialRunner",
-    "SunExperiment",
+    "StreamingCapture",
 ]

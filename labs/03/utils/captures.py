@@ -1,6 +1,6 @@
 """Array-backed capture loading for the Lab 03 Sun notebooks.
 
-The capture NPZ files are produced by ``labs/03/scripts/multi_calibration.py``;
+The capture NPZ files are produced by ``labs/03/scripts/stream_calibration.py``;
 every key referenced here is guaranteed to be present.
 """
 

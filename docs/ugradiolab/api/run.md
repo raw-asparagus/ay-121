@@ -98,31 +98,32 @@ Returns `str` — path to the saved `.npz` file.
 
 ---
 
-## InterfExperiment
+## StreamingCapture
 
-`@dataclass` — subclass of `Experiment`. Interferometric observation.
+Producer-consumer streaming capture for the SNAP correlator. Saves every individual accumulator dump to its own `.npz` file.
 
-### Additional Fields
+### Constructor
 
-| Field | Type | Default | Description |
+```python
+StreamingCapture(interferometer, snap, target_selector, outdir='data/',
+                 n_writers=2, queue_maxsize=200, repoint_interval_sec=30.0,
+                 on_save=None)
+```
+
+| Parameter | Type | Default | Description |
 |---|---|---|---|
-| `interferometer` | `object` | `None` | Interferometer controller (not in repr) |
-| `snap` | `object` | `None` | SNAP correlator (not in repr) |
-| `duration_sec` | `float` | `10.0` | Integration time for the SNAP accumulation loop |
+| `interferometer` | `object` | required | Pointing controller |
+| `snap` | `object` | required | SNAP correlator interface |
+| `target_selector` | `callable` | required | Returns `(name, alt, az, ra, dec)` or `None` |
+| `outdir` | `str` | `'data/'` | Root output directory |
+| `n_writers` | `int` | `2` | Number of writer threads |
+| `queue_maxsize` | `int` | `200` | Bounded queue size (backpressure when full) |
+| `repoint_interval_sec` | `float` | `30.0` | Max time between repoints for same target |
+| `on_save` | `callable` | `None` | `on_save(path, dump)` callback |
 
 ### `run()`
 
-Points both antennas and captures correlation data.
-
-Returns `str` — path to the saved `.npz` file.
-
----
-
-## SunExperiment / MoonExperiment
-
-`@dataclass` — subclasses of `InterfExperiment`.
-
-Compute the current Sun/Moon position at `run()` time and delegate to `InterfExperiment.run()`.
+Starts all threads and blocks until `KeyboardInterrupt`. Orderly shutdown drains the queue so no dumps are lost.
 
 ---
 

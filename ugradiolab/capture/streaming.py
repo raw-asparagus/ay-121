@@ -197,7 +197,7 @@ class ReaderThread:
 
             state = self._pointing.get_state()
             if state is None:
-                # No target acquired yet — discard dump.
+                # No target acquired yet --discard dump.
                 prev_cnt = d.get('acc_cnt')
                 continue
 
@@ -297,12 +297,12 @@ class StreamingCapture:
     Parameters
     ----------
     telescope : object
-        Pointing controller — any object with
+        Pointing controller --any object with
         ``point(alt, az, wait=True)``.  Works with both
         ``ugradio.interf.Interferometer`` and
         ``ugradio.leusch.LeuschTelescope``.
     read_fn : callable
-        ``read_fn(prev_cnt) -> dict`` — produced by a factory in
+        ``read_fn(prev_cnt) -> dict`` --produced by a factory in
         :mod:`ugradiolab.capture.readers`.
     target_selector : callable
         Returns ``(name, alt, az, ra, dec)`` or ``None``.

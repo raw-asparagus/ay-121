@@ -29,6 +29,6 @@ def get_unix_time(timeout: float = 2.0, local: bool = False) -> float:
         client = ntplib.NTPClient()
         response = client.request("pool.ntp.org", version=3, timeout=timeout)
         return response.tx_time
-    except (ImportError, OSError, Exception):
+    except (ImportError, OSError):
         print("Unable to connect to NTP! Using system time.")
         return timing.unix_time()

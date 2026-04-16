@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Lab 3 — Streaming interferometer capture with auto-correlation calibration.
+"""Lab 3 - Streaming interferometer capture with auto-correlation calibration.
 
 Runs a brief auto-correlation calibration scan (spec mode) at the start of the
 observation, then switches to cross-correlation mode (corr) and streams every
 SNAP accumulator dump to disk.
 
 Priority (highest first):
-  1. Sun  — observed when alt >= 6.5°
-  2. Moon — observed when alt >= 6.5°
-  3. M17  — fallback
-  4. M1   — lowest priority fallback (Crab Nebula)
+  1. Sun  - observed when alt >= 6.5 deg
+  2. Moon - observed when alt >= 6.5 deg
+  3. M17  - fallback
+  4. M1   - lowest priority fallback (Crab Nebula)
 
 Usage:
     python stream_calibration.py
@@ -37,10 +37,10 @@ from ugradiolab.capture.readers import make_snap_reader
 # ---------------------------------------------------------------------------
 
 M17_RA_DEG  = 275.1083   # 18h 20m 26s
-M17_DEC_DEG = -16.1767   # -16° 10' 36"
+M17_DEC_DEG = -16.1767   # -16d 10' 36"
 
 M1_RA_DEG   =  83.6331   # 05h 34m 31.9s  (Crab Nebula)
-M1_DEC_DEG  = +22.0145   # +22° 00' 52"
+M1_DEC_DEG  = +22.0145   # +22d 00' 52"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -143,12 +143,12 @@ def target_selector():
 def on_save(path, dump):
     print(
         f'  [{dump["target_name"]}]  seq={dump["seq"]:05d}  '
-        f'acc={dump["acc_cnt"]}  → {path}'
+        f'acc={dump["acc_cnt"]}  -> {path}'
     )
 
 
 def main():
-    print('Lab 3 — Streaming capture  (Sun > Moon > M17 > M1)')
+    print('Lab 3 - Streaming capture  (Sun > Moon > M17 > M1)')
     print('=' * 60)
     print()
     print('Initialising hardware ...')
@@ -158,7 +158,7 @@ def main():
     # --- Auto-correlation calibration scan ---
     print(f'Collecting auto-correlation calibration ({CAL_DUMPS} dumps) ...')
     cal_path = collect_autocorrelation(snap)
-    print(f'  Calibration saved → {cal_path}\n')
+    print(f'  Calibration saved -> {cal_path}\n')
 
     # --- Cross-correlation streaming ---
     read_fn = make_snap_reader(snap)

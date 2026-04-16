@@ -42,8 +42,8 @@ GAL_B_CENTER =  0.0
 
 # Grid parameters (defined in galactic coordinates)
 SCAN_STEP_DEG   = 1.0     # cell spacing in l and b (< HPBW/2, oversampled)
-N_L_CELLS       = 29      # number of cells in galactic longitude
-N_B_CELLS       = 7       # number of cells in galactic latitude
+N_L_CELLS       = 26      # number of cells in galactic longitude
+N_B_CELLS       = 9       # number of cells in galactic latitude
 DUMPS_PER_BAND  = 4       # dumps per LO frequency per cell
 
 # Scan direction: 'l' = rows in b sweeping l, 'b' = rows in l sweeping b

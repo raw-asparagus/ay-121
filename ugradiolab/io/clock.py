@@ -1,4 +1,3 @@
-import ntplib
 import ugradio.timing as timing
 
 
@@ -25,11 +24,11 @@ def get_unix_time(timeout: float = 2.0, local: bool = False) -> float:
     if local:
         return timing.unix_time()
 
-    client = ntplib.NTPClient()
-
     try:
+        import ntplib
+        client = ntplib.NTPClient()
         response = client.request("pool.ntp.org", version=3, timeout=timeout)
         return response.tx_time
-    except (ntplib.NTPException, OSError):
+    except (ImportError, OSError, Exception):
         print("Unable to connect to NTP! Using system time.")
         return timing.unix_time()

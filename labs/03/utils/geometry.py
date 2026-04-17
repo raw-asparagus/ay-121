@@ -89,7 +89,7 @@ def sky_baseline_lambda(ha_rad, dec_rad, b_ew, b_ns, freq_hz):
     ff = fringe_frequency_hz(ha_rad, dec_rad, b_ew, b_ns, freq_hz)
     u = np.abs(ff) / OMEGA_EARTH_RAD_S
     lam = C_LIGHT_MS / freq_hz
-    v0 = b_ns * np.cos(_LAT_RAD_NCH) / lam
+    v0 = b_ns * np.cos(_LAT_RAD_NCH) * np.sin(dec_rad) / lam
     return np.sqrt(u**2 + v0**2)
 
 

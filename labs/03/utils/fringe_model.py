@@ -138,10 +138,19 @@ def solar_visibility(
         return v_disk
 
     f = sunspot_params.flux_fraction
-    wavelength = C_LIGHT_MS / fringe_params.freq_hz
-    delta_phase = 2.0 * np.pi * (
-        (fringe_params.b_ew / wavelength) * sunspot_params.offset_ha_rad
-        + (fringe_params.b_ns / wavelength) * _SIN_LAT_NCH * sunspot_params.offset_dec_rad
+    lam = C_LIGHT_MS / fringe_params.freq_hz
+    cos_dec = np.cos(fringe_params.dec_rad)
+    sin_dec = np.sin(fringe_params.dec_rad)
+    sin_h = np.sin(ha_rad)
+    cos_h = np.cos(ha_rad)
+    # Differential phase for offset source: 2π ν Δτ where
+    # Δτ = (∂τ_g/∂h)·Δh + (∂τ_g/∂δ)·Δδ
+    b_ew, b_ns = fringe_params.b_ew, fringe_params.b_ns
+    dtau_dh = (b_ew / C_LIGHT_MS) * cos_dec * cos_h - (b_ns / C_LIGHT_MS) * _SIN_LAT_NCH * cos_dec * sin_h
+    dtau_ddec = -(b_ew / C_LIGHT_MS) * sin_dec * sin_h - (b_ns / C_LIGHT_MS) * _SIN_LAT_NCH * sin_dec * cos_h
+    delta_phase = 2.0 * np.pi * fringe_params.freq_hz * (
+        dtau_dh * sunspot_params.offset_ha_rad
+        + dtau_ddec * sunspot_params.offset_dec_rad
     )
     v_spot = point_source_visibility(ha_rad, fringe_params) * np.exp(1j * delta_phase)
     return (1.0 - f) * v_disk + f * v_spot

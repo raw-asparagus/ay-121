@@ -2,9 +2,12 @@
 """Lab 4 - Leuschner 21 cm HI OTF raster scan (DR3).
 
 Simple raster in galactic coordinates at 2° spacing.
+Cells are filtered to one side of the az exclusion zone (rising or
+setting) to prevent the telescope from crossing the north gap.
+
 Two parts run sequentially:
-  Part 2: Galactic plane l=120–180, b=-4 to +4 (run first, currently up)
   Part 1: Orion-Eridanus / wide plane intersection l=160–220, b=-20 to -10
+  Part 2: Galactic plane l=120–180, b=-4 to +4
 
 Usage:
     python observe_otf.py
@@ -30,16 +33,16 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 
 SURVEY_PARTS = [
     {
-        'name': 'Part 2: Galactic plane',
-        'l_min': 120, 'l_max': 180,
-        'b_min':  -4, 'b_max':   4,
+        'name': 'Part 1: Orion-Eridanus / wide plane',
+        'l_min': 160, 'l_max': 220,
+        'b_min': -20, 'b_max': -10,
         'step': 2,
         'dumps_per_band': 4,
     },
     {
-        'name': 'Part 1: Orion-Eridanus / wide plane',
-        'l_min': 160, 'l_max': 220,
-        'b_min': -20, 'b_max': -10,
+        'name': 'Part 2: Galactic plane',
+        'l_min': 120, 'l_max': 180,
+        'b_min':  -4, 'b_max':   4,
         'step': 2,
         'dumps_per_band': 4,
     },
@@ -65,7 +68,7 @@ OUTDIR       = 'data/lab04/streaming/DR3'
 
 
 # ---------------------------------------------------------------------------
-# Grid builder
+# Grid builder with az-side filtering
 # ---------------------------------------------------------------------------
 
 def build_raster_cells(l_min, l_max, b_min, b_max, step):
@@ -85,6 +88,42 @@ def build_raster_cells(l_min, l_max, b_min, b_max, step):
         cells.extend(row)
 
     return cells
+
+
+def filter_cells_by_az_side(cells):
+    """Filter cells to one side of the az exclusion zone.
+
+    Computes current alt/az for each cell, classifies as rising (az 7-180)
+    or setting (az 180-348), and keeps only the side with more accessible
+    cells. Also removes cells outside alt limits.
+    """
+    classified = []
+    for row, col, l, b in cells:
+        alt, az, ra, dec, _ = compute_gal_pointing(
+            l, b,
+            lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
+        )
+        in_limits = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
+        is_rising = AZ_MIN <= az <= 180
+        is_setting = 180 < az <= AZ_MAX
+        classified.append((row, col, l, b, alt, az, in_limits, is_rising, is_setting))
+
+    n_rising = sum(1 for c in classified if c[6] and c[7])
+    n_setting = sum(1 for c in classified if c[6] and c[8])
+
+    if n_rising >= n_setting:
+        side = 'rising'
+        kept = [(r, c, l, b) for r, c, l, b, alt, az, ok, rising, setting
+                in classified if ok and rising]
+    else:
+        side = 'setting'
+        kept = [(r, c, l, b) for r, c, l, b, alt, az, ok, rising, setting
+                in classified if ok and setting]
+
+    print(f'  Az filter: {side} ({n_rising} rising / {n_setting} setting)')
+    print(f'  {len(kept)} cells kept, {len(cells) - len(kept)} dropped')
+
+    return kept
 
 
 # ---------------------------------------------------------------------------
@@ -169,27 +208,6 @@ def main():
     print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR3)')
     print('=' * 60)
 
-    for part in SURVEY_PARTS:
-        print(f'\n--- {part["name"]} ---')
-        l_min, l_max = part['l_min'], part['l_max']
-        b_min, b_max = part['b_min'], part['b_max']
-        step = part['step']
-        dumps_per_band = part['dumps_per_band']
-        dumps_per_cell = dumps_per_band * 2
-
-        cells = build_raster_cells(l_min, l_max, b_min, b_max, step)
-        n_l = len(range(l_min, l_max + 1, step))
-        n_b = len(range(b_min, b_max + 1, step))
-
-        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}°')
-        print(f'  Grid: {n_l} x {n_b} = {len(cells)} cells')
-        print(f'  Dumps per cell: {dumps_per_cell} ({dumps_per_band}/band)')
-
-        dump_cadence = NBLOCKS * NSAMPLES / SAMPLE_RATE + 1.5
-        cell_time = dumps_per_cell * dump_cadence + 5
-        pass_time = len(cells) * cell_time / 3600
-        print(f'  Estimated: {pass_time:.1f} h')
-
     print('\nInitialising hardware ...')
     telescope, sdrs, noise = setup_hardware()
     print('Hardware ready.')
@@ -203,9 +221,22 @@ def main():
 
         print(f'\n{"="*60}')
         print(f'  {part["name"]}')
+        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}°')
         print(f'{"="*60}')
 
-        cells = build_raster_cells(l_min, l_max, b_min, b_max, step)
+        # Build grid and filter to one az side
+        all_cells = build_raster_cells(l_min, l_max, b_min, b_max, step)
+        cells = filter_cells_by_az_side(all_cells)
+
+        if not cells:
+            print('  No accessible cells on either side — skipping.')
+            continue
+
+        dump_cadence = NBLOCKS * NSAMPLES / SAMPLE_RATE + 1.5
+        cell_time = dumps_per_cell * dump_cadence + 5
+        pass_time = len(cells) * cell_time / 3600
+        print(f'  Dumps per cell: {dumps_per_cell} ({dumps_per_band}/band)')
+        print(f'  Estimated: {pass_time:.1f} h')
 
         target_selector, dump_notifier, done_event = \
             make_scan_target_selector(cells, dumps_per_cell)

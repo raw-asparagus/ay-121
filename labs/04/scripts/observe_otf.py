@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan.
+"""Lab 4 - Leuschner 21 cm HI OTF parallelogram scan.
 
-Simple boustrophedon raster in galactic coordinates, scanning in
-decreasing l first to follow the sky rotation and minimise slews.
+Parallelogram raster in galactic coordinates, slanted along the
+iso-hour-angle direction. Boustrophedon ordering with even rows
+scanning in decreasing l to follow the sky rotation.
 
 Usage:
     python observe_otf.py
@@ -26,11 +27,11 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # Scan grid (galactic coordinates)
 # ---------------------------------------------------------------------------
 
-GAL_L_CENTER = 180.0      # anti-center
-GAL_B_CENTER =  30.0      # mid-latitude
-L_EXTENT     =  7         # cells per row
-B_EXTENT     =  4         # number of b-rows
-DUMPS_PER_BAND = 16       # dumps per LO per cell (mid-lat SNR)
+GAL_L_CENTER = 111.0      # Cepheus/Cassiopeia, extends DR1 toward l=120
+GAL_B_CENTER =   0.0      # galactic plane
+L_EXTENT     =  17        # cells per row
+B_EXTENT     =   9        # number of b-rows
+DUMPS_PER_BAND = 4        # dumps per LO per cell (bright plane)
 DUMPS_PER_CELL = DUMPS_PER_BAND * 2
 
 # ---------------------------------------------------------------------------
@@ -53,27 +54,56 @@ OUTDIR       = 'data/lab04/streaming'
 
 
 # ---------------------------------------------------------------------------
-# Grid builder
+# Parallelogram grid builder
 # ---------------------------------------------------------------------------
 
-def build_raster_cells():
-    """Build a simple raster grid in whole-degree galactic coordinates.
+def compute_iso_ha_slant():
+    """Compute the iso-HA slant at the scan center (deg l per deg b)."""
+    import astropy.coordinates as _ac
+    import astropy.units as _u
+    from astropy.time import Time as _Time
 
-    Boustrophedon ordering: even rows scan in decreasing l (follows sky
-    rotation), odd rows in increasing l.
+    _now = _Time.now()
+    _lst = _now.sidereal_time('apparent', longitude=LEO_LON_DEG * _u.deg)
 
-    Returns list of (row_idx, col_idx, l, b) tuples.
+    def _ha(l_deg, b_deg):
+        gc = _ac.SkyCoord(l=l_deg * _u.deg, b=b_deg * _u.deg, frame="galactic")
+        icrs = gc.transform_to(_ac.ICRS())
+        return (_lst - icrs.ra).wrap_at(12 * _u.hourangle).deg
+
+    dha_dl = (_ha(GAL_L_CENTER + 1, GAL_B_CENTER) -
+              _ha(GAL_L_CENTER - 1, GAL_B_CENTER)) / 2
+    dha_db = (_ha(GAL_L_CENTER, GAL_B_CENTER + 1) -
+              _ha(GAL_L_CENTER, GAL_B_CENTER - 1)) / 2
+    return -dha_db / dha_dl
+
+
+def build_parallelogram_cells(slant):
+    """Build a parallelogram grid at whole-degree galactic coordinates.
+
+    For each b-row, the l-range is shifted by round(slant * (b - b_center)).
+    Returns list of (row_idx, col_idx, l, b) tuples in boustrophedon order,
+    with even rows scanning in decreasing l.
     """
     b_vals = [int(GAL_B_CENTER + (i - (B_EXTENT - 1) / 2))
               for i in range(B_EXTENT)]
-    l_vals = [int(GAL_L_CENTER + (j - (L_EXTENT - 1) / 2))
-              for j in range(L_EXTENT)]
 
-    cells = []
+    cells_by_row = {}
     for row_idx, b_val in enumerate(b_vals):
-        row = [(row_idx, j, l_vals[j], b_val) for j in range(L_EXTENT)]
+        l_shift = round(slant * (b_val - GAL_B_CENTER))
+        l_row_center = int(GAL_L_CENTER) + l_shift
+        l_row = [l_row_center + j - (L_EXTENT - 1) // 2
+                 for j in range(L_EXTENT)]
+        cells_by_row[row_idx] = [
+            (row_idx, j, l_row[j], b_val) for j in range(L_EXTENT)
+        ]
+
+    # Boustrophedon: even rows decreasing l
+    cells = []
+    for row_idx in range(B_EXTENT):
+        row = list(cells_by_row[row_idx])
         if row_idx % 2 == 0:
-            row = list(reversed(row))  # decreasing l on even rows
+            row = list(reversed(row))
         cells.extend(row)
 
     return cells
@@ -161,18 +191,23 @@ def setup_hardware():
 
 
 def main():
-    print('Lab 4 - Leuschner 21 cm HI OTF raster scan')
+    print('Lab 4 - Leuschner 21 cm HI OTF parallelogram scan')
     print(f'  Center: l={GAL_L_CENTER}, b={GAL_B_CENTER}')
     print(f'  Grid: {L_EXTENT} l x {B_EXTENT} b = {L_EXTENT * B_EXTENT} cells')
     print(f'  Dumps per cell: {DUMPS_PER_CELL} ({DUMPS_PER_BAND}/band)')
 
-    cells = build_raster_cells()
+    # Compute iso-HA slant
+    iso_ha_slant = compute_iso_ha_slant()
+    print(f'  Iso-HA slant: {iso_ha_slant:+.2f} deg l per deg b')
+
+    cells = build_parallelogram_cells(iso_ha_slant)
 
     # Print grid layout
     b_vals = sorted(set(c[3] for c in cells))
     for b in b_vals:
         row = sorted([c for c in cells if c[3] == b], key=lambda c: c[2])
-        print(f'  b={b:+d}: l=[{row[0][2]}, {row[-1][2]}]')
+        shift = round(iso_ha_slant * (b - GAL_B_CENTER))
+        print(f'  b={b:+d}: l=[{row[0][2]}, {row[-1][2]}] (shift={shift:+d})')
 
     dump_cadence = NBLOCKS * NSAMPLES / SAMPLE_RATE + 1.5
     cell_time = DUMPS_PER_CELL * dump_cadence + 5

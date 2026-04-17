@@ -30,16 +30,16 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 
 SURVEY_PARTS = [
     {
-        'name': 'Part 1: Orion-Eridanus / wide plane',
-        'l_min': 160, 'l_max': 220,
-        'b_min': -20, 'b_max': -10,
+        'name': 'Part 2: Galactic plane',
+        'l_min': 120, 'l_max': 180,
+        'b_min':  -4, 'b_max':   4,
         'step': 2,
         'dumps_per_band': 4,
     },
     {
-        'name': 'Part 2: Galactic plane',
-        'l_min': 120, 'l_max': 180,
-        'b_min':  -4, 'b_max':   4,
+        'name': 'Part 1: Orion-Eridanus / wide plane',
+        'l_min': 160, 'l_max': 220,
+        'b_min': -20, 'b_max': -10,
         'step': 2,
         'dumps_per_band': 4,
     },

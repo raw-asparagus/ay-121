@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF parallelogram scan.
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR3).
 
-Parallelogram raster in galactic coordinates, slanted along the
-iso-hour-angle direction. Boustrophedon ordering with even rows
-scanning in decreasing l to follow the sky rotation.
+Simple raster in galactic coordinates at 2° spacing.
+Two parts run sequentially:
+  Part 2: Galactic plane l=120–180, b=-4 to +4 (run first, currently up)
+  Part 1: Orion-Eridanus / wide plane intersection l=160–220, b=-20 to -10
 
 Usage:
     python observe_otf.py
 
 Output:
-    data/lab04/streaming/<target>/<target>_dump_<timestamp>_<seq>.npz
+    data/lab04/streaming/DR3/scan_r<row>_c<col>/...npz
 """
 
 import threading
@@ -24,15 +25,25 @@ from ugradiolab.capture import StreamingCapture
 from ugradiolab.capture.readers import make_calibrated_sdr_reader
 
 # ---------------------------------------------------------------------------
-# Scan grid (galactic coordinates)
+# Survey parts (run sequentially)
 # ---------------------------------------------------------------------------
 
-GAL_L_CENTER = 111.0      # Cepheus/Cassiopeia, extends DR1 toward l=120
-GAL_B_CENTER =   0.0      # galactic plane
-L_EXTENT     =  17        # cells per row
-B_EXTENT     =   9        # number of b-rows
-DUMPS_PER_BAND = 4        # dumps per LO per cell (bright plane)
-DUMPS_PER_CELL = DUMPS_PER_BAND * 2
+SURVEY_PARTS = [
+    {
+        'name': 'Part 2: Galactic plane',
+        'l_min': 120, 'l_max': 180,
+        'b_min':  -4, 'b_max':   4,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+    {
+        'name': 'Part 1: Orion-Eridanus / wide plane',
+        'l_min': 160, 'l_max': 220,
+        'b_min': -20, 'b_max': -10,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+]
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -50,60 +61,27 @@ AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
-OUTDIR       = 'data/lab04/streaming'
+OUTDIR       = 'data/lab04/streaming/DR3'
 
 
 # ---------------------------------------------------------------------------
-# Parallelogram grid builder
+# Grid builder
 # ---------------------------------------------------------------------------
 
-def compute_iso_ha_slant():
-    """Compute the iso-HA slant at the scan center (deg l per deg b)."""
-    import astropy.coordinates as _ac
-    import astropy.units as _u
-    from astropy.time import Time as _Time
+def build_raster_cells(l_min, l_max, b_min, b_max, step):
+    """Build a raster grid in galactic coordinates.
 
-    _now = _Time.now()
-    _lst = _now.sidereal_time('apparent', longitude=LEO_LON_DEG * _u.deg)
-
-    def _ha(l_deg, b_deg):
-        gc = _ac.SkyCoord(l=l_deg * _u.deg, b=b_deg * _u.deg, frame="galactic")
-        icrs = gc.transform_to(_ac.ICRS())
-        return (_lst - icrs.ra).wrap_at(12 * _u.hourangle).deg
-
-    dha_dl = (_ha(GAL_L_CENTER + 1, GAL_B_CENTER) -
-              _ha(GAL_L_CENTER - 1, GAL_B_CENTER)) / 2
-    dha_db = (_ha(GAL_L_CENTER, GAL_B_CENTER + 1) -
-              _ha(GAL_L_CENTER, GAL_B_CENTER - 1)) / 2
-    return -dha_db / dha_dl
-
-
-def build_parallelogram_cells(slant):
-    """Build a parallelogram grid at whole-degree galactic coordinates.
-
-    For each b-row, the l-range is shifted by round(slant * (b - b_center)).
-    Returns list of (row_idx, col_idx, l, b) tuples in boustrophedon order,
-    with even rows scanning in decreasing l.
+    Boustrophedon ordering: even rows scan in decreasing l.
+    Returns list of (row_idx, col_idx, l, b) tuples.
     """
-    b_vals = [int(GAL_B_CENTER + (i - (B_EXTENT - 1) / 2))
-              for i in range(B_EXTENT)]
+    b_vals = list(range(b_min, b_max + 1, step))
+    l_vals = list(range(l_min, l_max + 1, step))
 
-    cells_by_row = {}
-    for row_idx, b_val in enumerate(b_vals):
-        l_shift = round(slant * (b_val - GAL_B_CENTER))
-        l_row_center = int(GAL_L_CENTER) + l_shift
-        l_row = [l_row_center + j - (L_EXTENT - 1) // 2
-                 for j in range(L_EXTENT)]
-        cells_by_row[row_idx] = [
-            (row_idx, j, l_row[j], b_val) for j in range(L_EXTENT)
-        ]
-
-    # Boustrophedon: even rows decreasing l
     cells = []
-    for row_idx in range(B_EXTENT):
-        row = list(cells_by_row[row_idx])
+    for row_idx, b in enumerate(b_vals):
+        row = [(row_idx, j, l_vals[j], b) for j in range(len(l_vals))]
         if row_idx % 2 == 0:
-            row = list(reversed(row))
+            row = list(reversed(row))  # decreasing l
         cells.extend(row)
 
     return cells
@@ -113,11 +91,8 @@ def build_parallelogram_cells(slant):
 # Target selector factory
 # ---------------------------------------------------------------------------
 
-def make_scan_target_selector(cells):
-    """Create target selector, dump notifier, and done_event for a cell list.
-
-    Returns (target_selector, dump_notifier, done_event).
-    """
+def make_scan_target_selector(cells, dumps_per_cell):
+    """Create target selector, dump notifier, and done_event."""
     total_cells = len(cells)
     lock = threading.Lock()
     cell_dump_count = 0
@@ -145,7 +120,7 @@ def make_scan_target_selector(cells):
 
         with lock:
             count = cell_dump_count
-            if count >= DUMPS_PER_CELL and not transitioning:
+            if count >= dumps_per_cell and not transitioning:
                 transitioning = True
                 return None
             if transitioning:
@@ -191,62 +166,79 @@ def setup_hardware():
 
 
 def main():
-    print('Lab 4 - Leuschner 21 cm HI OTF parallelogram scan')
-    print(f'  Center: l={GAL_L_CENTER}, b={GAL_B_CENTER}')
-    print(f'  Grid: {L_EXTENT} l x {B_EXTENT} b = {L_EXTENT * B_EXTENT} cells')
-    print(f'  Dumps per cell: {DUMPS_PER_CELL} ({DUMPS_PER_BAND}/band)')
+    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR3)')
+    print('=' * 60)
 
-    # Compute iso-HA slant
-    iso_ha_slant = compute_iso_ha_slant()
-    print(f'  Iso-HA slant: {iso_ha_slant:+.2f} deg l per deg b')
+    for part in SURVEY_PARTS:
+        print(f'\n--- {part["name"]} ---')
+        l_min, l_max = part['l_min'], part['l_max']
+        b_min, b_max = part['b_min'], part['b_max']
+        step = part['step']
+        dumps_per_band = part['dumps_per_band']
+        dumps_per_cell = dumps_per_band * 2
 
-    cells = build_parallelogram_cells(iso_ha_slant)
+        cells = build_raster_cells(l_min, l_max, b_min, b_max, step)
+        n_l = len(range(l_min, l_max + 1, step))
+        n_b = len(range(b_min, b_max + 1, step))
 
-    # Print grid layout
-    b_vals = sorted(set(c[3] for c in cells))
-    for b in b_vals:
-        row = sorted([c for c in cells if c[3] == b], key=lambda c: c[2])
-        shift = round(iso_ha_slant * (b - GAL_B_CENTER))
-        print(f'  b={b:+d}: l=[{row[0][2]}, {row[-1][2]}] (shift={shift:+d})')
+        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}°')
+        print(f'  Grid: {n_l} x {n_b} = {len(cells)} cells')
+        print(f'  Dumps per cell: {dumps_per_cell} ({dumps_per_band}/band)')
 
-    dump_cadence = NBLOCKS * NSAMPLES / SAMPLE_RATE + 1.5
-    cell_time = DUMPS_PER_CELL * dump_cadence + 5
-    pass_time = len(cells) * cell_time / 3600
-    print(f'\nEstimated {pass_time:.1f} h')
+        dump_cadence = NBLOCKS * NSAMPLES / SAMPLE_RATE + 1.5
+        cell_time = dumps_per_cell * dump_cadence + 5
+        pass_time = len(cells) * cell_time / 3600
+        print(f'  Estimated: {pass_time:.1f} h')
 
     print('\nInitialising hardware ...')
     telescope, sdrs, noise = setup_hardware()
     print('Hardware ready.')
 
-    target_selector, dump_notifier, done_event = make_scan_target_selector(cells)
+    for part_idx, part in enumerate(SURVEY_PARTS):
+        l_min, l_max = part['l_min'], part['l_max']
+        b_min, b_max = part['b_min'], part['b_max']
+        step = part['step']
+        dumps_per_band = part['dumps_per_band']
+        dumps_per_cell = dumps_per_band * 2
 
-    read_fn = make_calibrated_sdr_reader(
-        sdrs, noise,
-        nsamples=NSAMPLES, nblocks=NBLOCKS, nfft=NFFT,
-        lo_freqs_mhz=(LO_ON_MHZ, LO_OFF_MHZ),
-        cal_dumps_per_lo=CAL_DUMPS,
-    )
+        print(f'\n{"="*60}')
+        print(f'  {part["name"]}')
+        print(f'{"="*60}')
 
-    def on_save(path, dump):
-        dump_notifier()
-        noise_tag = ' [CAL]' if dump.get('noise_on') else ''
-        lo_tag = f'  LO={dump["lo_freq_mhz"]}' if 'lo_freq_mhz' in dump else ''
-        print(f'  [{dump["target_name"]}]  seq={dump["seq"]:05d}'
-              f'{lo_tag}{noise_tag}  -> {path}')
+        cells = build_raster_cells(l_min, l_max, b_min, b_max, step)
 
-    capture = StreamingCapture(
-        telescope=telescope,
-        read_fn=read_fn,
-        target_selector=target_selector,
-        outdir=OUTDIR,
-        n_writers=2,
-        repoint_interval_sec=REPOINT_TRACK_SEC,
-        on_save=on_save,
-    )
-    capture.run(done_event=done_event)
+        target_selector, dump_notifier, done_event = \
+            make_scan_target_selector(cells, dumps_per_cell)
+
+        read_fn = make_calibrated_sdr_reader(
+            sdrs, noise,
+            nsamples=NSAMPLES, nblocks=NBLOCKS, nfft=NFFT,
+            lo_freqs_mhz=(LO_ON_MHZ, LO_OFF_MHZ),
+            cal_dumps_per_lo=CAL_DUMPS,
+        )
+
+        def on_save(path, dump, _notifier=dump_notifier):
+            _notifier()
+            noise_tag = ' [CAL]' if dump.get('noise_on') else ''
+            lo_tag = f'  LO={dump["lo_freq_mhz"]}' if 'lo_freq_mhz' in dump else ''
+            print(f'  [{dump["target_name"]}]  seq={dump["seq"]:05d}'
+                  f'{lo_tag}{noise_tag}  -> {path}')
+
+        capture = StreamingCapture(
+            telescope=telescope,
+            read_fn=read_fn,
+            target_selector=target_selector,
+            outdir=OUTDIR,
+            n_writers=2,
+            repoint_interval_sec=REPOINT_TRACK_SEC,
+            on_save=on_save,
+        )
+        capture.run(done_event=done_event)
+
+        print(f'  {part["name"]} complete.')
 
     print('\n' + '=' * 60)
-    print('  Scan complete!')
+    print('  All survey parts complete!')
     print('=' * 60)
 
 

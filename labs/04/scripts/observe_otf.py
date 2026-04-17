@@ -33,16 +33,9 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 
 SURVEY_PARTS = [
     {
-        'name': 'Part 1: Orion-Eridanus / wide plane',
-        'l_min': 160, 'l_max': 220,
+        'name': 'Orion-Eridanus fill (rising)',
+        'l_min': 164, 'l_max': 220,
         'b_min': -20, 'b_max': -10,
-        'step': 2,
-        'dumps_per_band': 4,
-    },
-    {
-        'name': 'Part 2: Galactic plane',
-        'l_min': 120, 'l_max': 180,
-        'b_min':  -4, 'b_max':   4,
         'step': 2,
         'dumps_per_band': 4,
     },
@@ -65,6 +58,7 @@ AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
 OUTDIR       = 'data/lab04/streaming/DR3'
+MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +116,34 @@ def filter_cells_by_az_side(cells):
 
     print(f'  Az filter: {side} ({n_rising} rising / {n_setting} setting)')
     print(f'  {len(kept)} cells kept, {len(cells) - len(kept)} dropped')
+
+    return kept
+
+
+def filter_cells_by_manifest(cells):
+    """Remove cells that are already marked complete in the survey manifest."""
+    import sys
+    from pathlib import Path
+
+    # Try to find manifest relative to the script location
+    script_dir = Path(__file__).resolve().parent.parent  # labs/04/
+    manifest_path = script_dir / MANIFEST_PATH
+
+    if not manifest_path.exists():
+        print(f'  Manifest not found at {manifest_path} — skipping manifest filter')
+        return cells
+
+    sys.path.insert(0, str(script_dir))
+    from manifest import get_complete_cells
+
+    complete = get_complete_cells(manifest_path)
+    if not complete:
+        print(f'  Manifest has no complete cells — keeping all')
+        return cells
+
+    kept = [(r, c, l, b) for r, c, l, b in cells if (l, b) not in complete]
+    n_skipped = len(cells) - len(kept)
+    print(f'  Manifest filter: {n_skipped} complete cells skipped, {len(kept)} remaining')
 
     return kept
 
@@ -224,15 +246,16 @@ def main():
         print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}°')
         print(f'{"="*60}')
 
-        # Build grid and filter to one az side
+        # Build grid, filter by az side, then skip complete cells
         all_cells = build_raster_cells(l_min, l_max, b_min, b_max, step)
         cells = filter_cells_by_az_side(all_cells)
+        cells = filter_cells_by_manifest(cells)
 
         if not cells:
-            print('  No accessible cells on either side — skipping.')
+            print('  No remaining cells — skipping.')
             continue
 
-        dump_cadence = NBLOCKS * NSAMPLES / SAMPLE_RATE + 1.5
+        dump_cadence = 20.0  # conservative estimate with pipelined reader (measured: 17s)
         cell_time = dumps_per_cell * dump_cadence + 5
         pass_time = len(cells) * cell_time / 3600
         print(f'  Dumps per cell: {dumps_per_cell} ({dumps_per_band}/band)')

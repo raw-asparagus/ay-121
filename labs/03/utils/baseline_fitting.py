@@ -279,7 +279,7 @@ def fft_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    ivw_ew, ivw_ew_err, _ = _ivw(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    ivw_ew, ivw_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
 
     result = BaselineResult(
         b_ew_m=ivw_ew,
@@ -433,8 +433,8 @@ def phase_slope_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    ivw_ew, ivw_ew_err, _ = _ivw(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
-    ivw_ns, ivw_ns_err, _ = _ivw(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
+    ivw_ew, ivw_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    ivw_ns, ivw_ns_err, _ = _robust_mean(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
 
     result = BaselineResult(
         b_ew_m=ivw_ew,
@@ -835,8 +835,8 @@ def nls_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    ivw_ew, ivw_ew_err, _ = _ivw(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
-    ivw_ns, ivw_ns_err, _ = _ivw(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
+    ivw_ew, ivw_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    ivw_ns, ivw_ns_err, _ = _robust_mean(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
 
     result = BaselineResult(
         b_ew_m=ivw_ew,
@@ -1956,8 +1956,8 @@ def nls_real_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    ivw_ew, ivw_ew_err, _ = _ivw(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
-    ivw_ns, ivw_ns_err, _ = _ivw(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
+    ivw_ew, ivw_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    ivw_ns, ivw_ns_err, _ = _robust_mean(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
 
     result = BaselineResult(
         b_ew_m=ivw_ew,
@@ -1975,7 +1975,7 @@ def nls_real_baseline_broadband(
 # ===================================================================
 
 
-def _ivw(values: np.ndarray, errors: np.ndarray, sigma_clip: float = 3.0):
+def _robust_mean(values: np.ndarray, errors: np.ndarray, sigma_clip: float = 3.0):
     """Unweighted mean with errors added in quadrature, after MAD-based sigma clipping."""
     finite = np.isfinite(values) & np.isfinite(errors) & (errors > 0)
     if not finite.any():
@@ -2027,8 +2027,8 @@ def combined_baseline(
     b_ns = np.array([r.b_ns_m for r in good])
     e_ns = np.array([r.b_ns_err_m for r in good])
 
-    ew_combined, ew_err, keep_ew = _ivw(b_ew, e_ew, sigma_clip)
-    ns_combined, ns_err, keep_ns = _ivw(b_ns, e_ns, sigma_clip)
+    ew_combined, ew_err, keep_ew = _robust_mean(b_ew, e_ew, sigma_clip)
+    ns_combined, ns_err, keep_ns = _robust_mean(b_ns, e_ns, sigma_clip)
 
     methods = list({good[i].method for i in np.where(keep_ew)[0]})
 

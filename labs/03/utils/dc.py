@@ -142,10 +142,13 @@ def adaptive_real_dc_correction(
 
         dt = np.diff(unix)
         cadence = np.empty(n_cap)
-        cadence[0] = dt[0]
-        cadence[-1] = dt[-1]
-        if n_cap > 2:
-            cadence[1:-1] = 0.5 * (dt[:-1] + dt[1:])
+        if n_cap == 1:
+            cadence[0] = 1.0  # fallback: single capture, cadence is irrelevant
+        else:
+            cadence[0] = dt[0]
+            cadence[-1] = dt[-1]
+            if n_cap > 2:
+                cadence[1:-1] = 0.5 * (dt[:-1] + dt[1:])
 
         win = np.round(window_sec / cadence).astype(int)
         win = np.clip(win, min_window_caps, max_window_caps) | 1  # ensure odd

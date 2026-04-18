@@ -337,7 +337,9 @@ def make_calibrated_sdr_reader(
     def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
         nonlocal call_count, cal_started, submit_count
 
-        # Determine LO and noise state for this submission
+        # Determine LO and noise state for this submission.
+        # Turn diode off BEFORE the first science submission so the
+        # capture doesn't contain residual diode power.
         if submit_count < total_cal_dumps:
             if not cal_started:
                 noise.on()
@@ -346,6 +348,9 @@ def make_calibrated_sdr_reader(
             lo = cal_lo_schedule[submit_count]
             is_noise_on = True
         else:
+            if submit_count == total_cal_dumps and noise is not None:
+                noise.off()
+                print('  [reader] Noise diode OFF - entering science mode')
             lo = next(science_cycle)
             is_noise_on = False
 
@@ -360,6 +365,9 @@ def make_calibrated_sdr_reader(
                 lo2 = cal_lo_schedule[submit_count]
                 is_noise_on2 = True
             else:
+                if submit_count == total_cal_dumps and noise is not None:
+                    noise.off()
+                    print('  [reader] Noise diode OFF - entering science mode')
                 lo2 = next(science_cycle)
                 is_noise_on2 = False
             dump = pipeline.next_dump(lo2)
@@ -371,11 +379,6 @@ def make_calibrated_sdr_reader(
             # (which is from call_count, not submit_count)
             dump['noise_on'] = noise_on_flags[call_count]
             call_count += 1
-
-            # Check if we just finished the cal phase
-            if call_count == total_cal_dumps and noise is not None:
-                noise.off()
-                print('  [reader] Noise diode OFF - entering science mode')
 
         return dump
 

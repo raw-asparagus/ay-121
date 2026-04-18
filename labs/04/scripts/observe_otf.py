@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR3).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR4a + DR4b).
 
 Simple raster in galactic coordinates at 2° spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
 setting) to prevent the telescope from crossing the north gap.
 
 Two parts run sequentially:
-  Part 1: Orion-Eridanus / wide plane intersection l=160–220, b=-20 to -10
-  Part 2: Galactic plane l=120–180, b=-4 to +4
+  Part 1 (DR4a): Galactic plane l=124–250, b=-4 to +4
+  Part 2 (DR4b): North Polar Spur l=210–380, b=0 to +30
 
 Usage:
     python observe_otf.py
 
 Output:
-    data/lab04/streaming/DR3/scan_r<row>_c<col>/...npz
+    data/lab04/streaming/DR4a/scan_r<row>_c<col>/...npz
+    data/lab04/streaming/DR4b/scan_r<row>_c<col>/...npz
 """
 
 import threading
@@ -32,12 +33,21 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # Plane l=60-180 rising --- fill remaining cells
+    {   # DR4a: Plane l=124-250 rising
         'name': 'Galactic plane (rising)',
-        'l_min': 60, 'l_max': 180,
+        'l_min': 124, 'l_max': 250,
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
+        'outdir': 'data/lab04/streaming/DR4a',
+    },
+    {   # DR4b: North Polar Spur l=210-380 rising
+        'name': 'North Polar Spur (rising)',
+        'l_min': 210, 'l_max': 380,
+        'b_min': 0, 'b_max': 30,
+        'step': 2,
+        'dumps_per_band': 4,
+        'outdir': 'data/lab04/streaming/DR4b',
     },
 ]
 
@@ -57,7 +67,7 @@ AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
-OUTDIR       = 'data/lab04/streaming/DR3'
+OUTDIR       = 'data/lab04/streaming/DR4a'  # default; overridden per part
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 
@@ -227,7 +237,7 @@ def setup_hardware():
 
 
 def main():
-    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR3)')
+    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR4a + DR4b)')
     print('=' * 60)
 
     print('\nInitialising hardware ...')
@@ -278,11 +288,12 @@ def main():
             print(f'  [{dump["target_name"]}]  seq={dump["seq"]:05d}'
                   f'{lo_tag}{noise_tag}  -> {path}')
 
+        part_outdir = part.get('outdir', OUTDIR)
         capture = StreamingCapture(
             telescope=telescope,
             read_fn=read_fn,
             target_selector=target_selector,
-            outdir=OUTDIR,
+            outdir=part_outdir,
             n_writers=2,
             repoint_interval_sec=REPOINT_TRACK_SEC,
             on_save=on_save,

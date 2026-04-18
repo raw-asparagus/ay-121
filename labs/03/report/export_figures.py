@@ -225,8 +225,8 @@ def fig_dc_before_after():
     dc_re = d["corr_dc"][:, k].real
     offset = np.vstack(d["real_offset_chips"])[:, k]
 
-    fig, axes = plt.subplots(3, 1, figsize=(TEXTWIDTH_IN, 4.5), sharex=True,
-                             gridspec_kw={"hspace": 0.06, "height_ratios": [2, 2, 1]})
+    fig, axes = plt.subplots(3, 1, figsize=(TEXTWIDTH_IN, 3.2), sharex=True,
+                             gridspec_kw={"hspace": 0.06, "height_ratios": [1, 1, 0.5]})
     for ci, sl in enumerate(d["chip_slices"]):
         axes[0].scatter(d["ha_deg"][sl], raw_re[sl], s=0.1, alpha=0.3,
                         color=CHIP_COLORS[ci], rasterized=True)
@@ -238,7 +238,7 @@ def fig_dc_before_after():
         ax.axhline(0, color=NEUTRAL_COLOR, lw=LW_LIGHT, ls="--")
     axes[0].set_ylabel(r"Re$(V)$ raw")
     axes[1].set_ylabel(r"Re$(V_{\rm dc})$")
-    axes[2].set_ylabel("Pedestal")
+    axes[2].set_ylabel("Diff")
     axes[-1].set_xlabel("Hour angle [deg]")
     fig.tight_layout()
     savefig(fig, "fig_dc_before_after.pdf")

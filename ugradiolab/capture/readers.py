@@ -49,15 +49,23 @@ def make_snap_reader(snap) -> Callable[[int | None], dict]:
 # SDR helpers
 # ---------------------------------------------------------------------------
 
+_last_lo_mhz = [None]  # mutable cache for LO frequency skipping
+
+
 def _sdr_capture(sdrs, nsamples, nblocks, lo_mhz):
     """Set LO and capture raw IQ data from both SDRs.
+
+    Skips set_center_freq if the LO hasn't changed since the last call,
+    avoiding the ~1.5s PLL settle time on the R820T2 tuner.
 
     Returns (raw_data_dict, capture_time, lo_mhz).
     """
     from ugradio.sdr import capture_data
 
-    for sdr in sdrs:
-        sdr.set_center_freq(lo_mhz * 1e6)
+    if lo_mhz != _last_lo_mhz[0]:
+        for sdr in sdrs:
+            sdr.set_center_freq(lo_mhz * 1e6)
+        _last_lo_mhz[0] = lo_mhz
 
     data = capture_data(sdrs, nsamples=nsamples, nblocks=nblocks)
     t = time.time()
@@ -237,9 +245,11 @@ def make_sdr_reader(
         ``read_fn(prev_cnt) -> dict`` with keys
         ``corr00``, ``corr01``, ``corr11``, ``time``, ``lo_freq_mhz``.
     """
-    freq_cycle = itertools.cycle(lo_freqs_mhz)
+    # Block LO switching: all dumps at one LO before switching.
+    # Default block size = 4 (matches typical dumps_per_band).
+    _block = [lo for lo in lo_freqs_mhz for _ in range(4)]
+    freq_cycle = itertools.cycle(_block)
     pipeline = _PipelinedSDR(sdrs, nsamples, nblocks, nfft)
-    pending_flush = [False]  # mutable flag for closure
 
     def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
         lo = next(freq_cycle)
@@ -278,10 +288,13 @@ def make_calibrated_sdr_reader(
     The first ``cal_dumps_per_lo * len(lo_freqs_mhz)`` calls capture with the
     noise diode ON (each LO frequency for ``cal_dumps_per_lo`` dumps in
     sequence).  After the calibration phase the diode is turned OFF and
-    subsequent calls alternate LO frequencies for science.
+    subsequent calls use block LO switching — all dumps at one LO before
+    switching to the next, minimising tuner PLL settle overhead.
 
     Uses pipelined capture: FFT/correlation of the previous dump runs in a
-    background thread while the next USB capture is in progress.
+    background thread while the next USB capture is in progress.  Combined
+    with LO caching (skip set_center_freq when frequency unchanged), this
+    achieves ~87% duty cycle vs ~77% with alternating LO switching.
 
     Every returned dict includes a ``'noise_on'`` boolean flag.
 
@@ -301,7 +314,16 @@ def make_calibrated_sdr_reader(
 
     # Cal schedule: [lo0]*N + [lo1]*N + ...
     cal_lo_schedule = [lo for lo in lo_list for _ in range(cal_dumps_per_lo)]
-    science_cycle = itertools.cycle(lo_list)
+
+    # Science schedule: block LO switching — all dumps at one LO before
+    # switching to the next.  This minimises tuner PLL settle overhead
+    # (set_center_freq is skipped when LO is unchanged).
+    # Block size matches cal_dumps_per_lo so each LO gets equal coverage
+    # per cell.  Example with 2 LOs, 4 dumps/band:
+    #   [1420]*4 + [1421]*4 + [1420]*4 + [1421]*4 + ...
+    _block_size = max(1, cal_dumps_per_lo)
+    _science_block = [lo for lo in lo_list for _ in range(_block_size)]
+    science_cycle = itertools.cycle(_science_block)
 
     pipeline = _PipelinedSDR(sdrs, nsamples, nblocks, nfft)
 

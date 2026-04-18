@@ -32,10 +32,31 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {
-        'name': 'Orion-Eridanus fill (rising)',
-        'l_min': 164, 'l_max': 220,
+    {   # Phase 1: Finish Orion-Eri (setting, 6-9:30 PM)
+        'name': 'Phase 1: Orion-Eridanus (setting)',
+        'l_min': 160, 'l_max': 220,
         'b_min': -20, 'b_max': -10,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+    {   # Phase 2: Plane l=130-180 (setting, 9:30 PM-1 AM)
+        'name': 'Phase 2: Gal. plane l=130-180 (setting)',
+        'l_min': 130, 'l_max': 180,
+        'b_min': -4, 'b_max': 4,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+    {   # Phase 3: Plane l=120-160 (rising, 1-6 AM) — includes canonical (120,0)
+        'name': 'Phase 3: Gal. plane l=120-160 (rising)',
+        'l_min': 120, 'l_max': 160,
+        'b_min': -4, 'b_max': 4,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+    {   # Phase 4: Plane l=60-120 (rising, 6-8 AM)
+        'name': 'Phase 4: Gal. plane l=60-120 (rising)',
+        'l_min': 60, 'l_max': 120,
+        'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
     },

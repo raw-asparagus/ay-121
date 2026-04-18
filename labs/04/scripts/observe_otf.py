@@ -46,7 +46,7 @@ SURVEY_PARTS = [
         'step': 2,
         'dumps_per_band': 4,
     },
-    {   # Phase 3: Plane l=120-160 (rising, 1-6 AM) — includes canonical (120,0)
+    {   # Phase 3: Plane l=120-160 (rising, 1-6 AM) --- includes canonical (120,0)
         'name': 'Phase 3: Gal. plane l=120-160 (rising)',
         'l_min': 120, 'l_max': 160,
         'b_min': -4, 'b_max': 4,
@@ -151,7 +151,7 @@ def filter_cells_by_manifest(cells):
     manifest_path = script_dir / MANIFEST_PATH
 
     if not manifest_path.exists():
-        print(f'  Manifest not found at {manifest_path} — skipping manifest filter')
+        print(f'  Manifest not found at {manifest_path} --- skipping manifest filter')
         return cells
 
     sys.path.insert(0, str(script_dir))
@@ -159,7 +159,7 @@ def filter_cells_by_manifest(cells):
 
     complete = get_complete_cells(manifest_path)
     if not complete:
-        print(f'  Manifest has no complete cells — keeping all')
+        print(f'  Manifest has no complete cells --- keeping all')
         return cells
 
     kept = [(r, c, l, b) for r, c, l, b in cells if (l, b) not in complete]
@@ -273,7 +273,7 @@ def main():
         cells = filter_cells_by_manifest(cells)
 
         if not cells:
-            print('  No remaining cells — skipping.')
+            print('  No remaining cells --- skipping.')
             continue
 
         dump_cadence = 20.0  # conservative estimate with pipelined reader (measured: 17s)

@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR4a + DR4b).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR5a + DR5b).
 
 Simple raster in galactic coordinates at 2° spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
 setting) to prevent the telescope from crossing the north gap.
+Below-horizon cells on the chosen side are included and retried as
+they rise into view during long runs.
 
 Two parts run sequentially:
-  Part 1 (DR4a): Galactic plane l=124–250, b=-4 to +4
-  Part 2 (DR4b): North Polar Spur l=210–380, b=0 to +30
+  Part 1 (DR5a): Galactic plane l=118–250, b=-4 to +4
+  Part 2 (DR5b): North Polar Spur l=210–380, b=0 to +30
 
 Usage:
     python observe_otf.py
 
 Output:
-    data/lab04/streaming/DR4a/scan_r<row>_c<col>/...npz
-    data/lab04/streaming/DR4b/scan_r<row>_c<col>/...npz
+    data/lab04/streaming/DR5a/scan_r<row>_c<col>/...npz
+    data/lab04/streaming/DR5b/scan_r<row>_c<col>/...npz
 """
 
 import threading
@@ -33,21 +35,22 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # DR4a: Plane l=124-250 rising
+    {   # DR5a: Plane l=118-250 rising (includes l=120 canonical)
         'name': 'Galactic plane (rising)',
-        'l_min': 124, 'l_max': 250,
+        'l_min': 118, 'l_max': 250,
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR4a',
+        'outdir': 'data/lab04/streaming/DR5a',
+        'max_hours': 2.0,
     },
-    {   # DR4b: North Polar Spur l=210-380 rising
+    {   # DR5b: North Polar Spur l=210-380 rising
         'name': 'North Polar Spur (rising)',
         'l_min': 210, 'l_max': 380,
         'b_min': 0, 'b_max': 30,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR4b',
+        'outdir': 'data/lab04/streaming/DR5b',
     },
 ]
 
@@ -67,7 +70,7 @@ AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
-OUTDIR       = 'data/lab04/streaming/DR4a'  # default; overridden per part
+OUTDIR       = 'data/lab04/streaming/DR5a'  # default; overridden per part
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 
@@ -98,8 +101,10 @@ def filter_cells_by_az_side(cells):
     """Filter cells to one side of the az exclusion zone.
 
     Computes current alt/az for each cell, classifies as rising (az 7-180)
-    or setting (az 180-348), and keeps only the side with more accessible
-    cells. Also removes cells outside alt limits.
+    or setting (az 180-348).  The side with more *currently accessible*
+    cells is chosen, but all cells on that side are kept — including those
+    currently below the horizon — so they can be retried later during a
+    long run.
     """
     classified = []
     for row, col, l, b in cells:
@@ -108,24 +113,30 @@ def filter_cells_by_az_side(cells):
             lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
         )
         in_limits = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
-        is_rising = AZ_MIN <= az <= 180
+        # Cells in the az exclusion zone (348-360, 0-7) are transiting
+        # near north and will enter the rising side next.
+        is_rising = (AZ_MIN <= az <= 180) or az > AZ_MAX or az < AZ_MIN
         is_setting = 180 < az <= AZ_MAX
         classified.append((row, col, l, b, alt, az, in_limits, is_rising, is_setting))
 
+    # Pick side based on cells *currently* in limits
     n_rising = sum(1 for c in classified if c[6] and c[7])
     n_setting = sum(1 for c in classified if c[6] and c[8])
 
+    # Keep ALL cells on the chosen side (including below-horizon ones)
     if n_rising >= n_setting:
         side = 'rising'
         kept = [(r, c, l, b) for r, c, l, b, alt, az, ok, rising, setting
-                in classified if ok and rising]
+                in classified if rising]
     else:
         side = 'setting'
         kept = [(r, c, l, b) for r, c, l, b, alt, az, ok, rising, setting
-                in classified if ok and setting]
+                in classified if setting]
 
+    n_now = n_rising if side == 'rising' else n_setting
     print(f'  Az filter: {side} ({n_rising} rising / {n_setting} setting)')
-    print(f'  {len(kept)} cells kept, {len(cells) - len(kept)} dropped')
+    print(f'  {len(kept)} cells kept ({n_now} currently accessible),'
+          f' {len(cells) - len(kept)} dropped')
 
     return kept
 
@@ -163,19 +174,34 @@ def filter_cells_by_manifest(cells):
 # ---------------------------------------------------------------------------
 
 def make_scan_target_selector(cells, dumps_per_cell):
-    """Create target selector, dump notifier, and done_event."""
-    total_cells = len(cells)
+    """Create target selector, dump notifier, and done_event.
+
+    Cells that are out of alt/az limits when reached are *skipped* (not
+    stalled on).  After one pass through all cells, any skipped cells
+    are retried so that cells rising into view during a long run still
+    get observed.
+    """
+    cell_list = list(cells)  # mutable working copy
     lock = threading.Lock()
     cell_dump_count = 0
     current_cell_idx = 0
     transitioning = False
     done_event = threading.Event()
+    skipped = []
 
-    _, _, cl, cb = cells[0]
-    print(f'  [scan] {total_cells} cells')
+    _, _, cl, cb = cell_list[0]
+    print(f'  [scan] {len(cell_list)} cells')
     print(f'  [scan] First: l={cl}, b={cb}')
-    _, _, cl, cb = cells[-1]
+    _, _, cl, cb = cell_list[-1]
     print(f'  [scan] Last:  l={cl}, b={cb}')
+
+    def _start_retry_pass():
+        """Swap skipped cells back into the work list for another pass."""
+        nonlocal current_cell_idx
+        cell_list[:] = list(skipped)
+        skipped.clear()
+        current_cell_idx = 0
+        print(f'  [scan] Retry pass: {len(cell_list)} cells')
 
     def dump_notifier():
         nonlocal cell_dump_count
@@ -185,9 +211,13 @@ def make_scan_target_selector(cells, dumps_per_cell):
     def target_selector():
         nonlocal current_cell_idx, cell_dump_count, transitioning
 
-        if current_cell_idx >= total_cells:
-            done_event.set()
-            return None
+        if current_cell_idx >= len(cell_list):
+            if skipped:
+                _start_retry_pass()
+            else:
+                print('  [scan] All cells complete.')
+                done_event.set()
+                return None
 
         with lock:
             count = cell_dump_count
@@ -198,24 +228,38 @@ def make_scan_target_selector(cells, dumps_per_cell):
                 transitioning = False
                 current_cell_idx += 1
                 cell_dump_count = 0
-                if current_cell_idx >= total_cells:
-                    print('  [scan] All cells complete.')
-                    done_event.set()
-                    return None
-                _, _, cl, cb = cells[current_cell_idx]
-                print(f'  [scan] Cell {current_cell_idx+1}/{total_cells}: '
+                if current_cell_idx >= len(cell_list):
+                    if skipped:
+                        _start_retry_pass()
+                    else:
+                        print('  [scan] All cells complete.')
+                        done_event.set()
+                        return None
+                _, _, cl, cb = cell_list[current_cell_idx]
+                print(f'  [scan] Cell {current_cell_idx+1}/{len(cell_list)}: '
                       f'l={cl}, b={cb}')
 
-        _, _, cell_l, cell_b = cells[current_cell_idx]
+        _, _, cell_l, cell_b = cell_list[current_cell_idx]
         alt, az, ra, dec, _ = compute_gal_pointing(
             cell_l, cell_b,
             lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
         )
 
         if alt < MIN_ALT_DEG or alt > MAX_ALT_DEG or az < AZ_MIN or az > AZ_MAX:
+            with lock:
+                skipped.append(cell_list[current_cell_idx])
+                current_cell_idx += 1
+                cell_dump_count = 0
+                if current_cell_idx >= len(cell_list):
+                    if skipped:
+                        _start_retry_pass()
+                    else:
+                        print('  [scan] All cells complete.')
+                        done_event.set()
+                        return None
             return None
 
-        row, col = cells[current_cell_idx][0], cells[current_cell_idx][1]
+        row, col = cell_list[current_cell_idx][0], cell_list[current_cell_idx][1]
         return f'scan_r{row}_c{col}', alt, az, ra, dec
 
     return target_selector, dump_notifier, done_event
@@ -237,7 +281,7 @@ def setup_hardware():
 
 
 def main():
-    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR4a + DR4b)')
+    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR5a + DR5b)')
     print('=' * 60)
 
     print('\nInitialising hardware ...')
@@ -298,7 +342,18 @@ def main():
             repoint_interval_sec=REPOINT_TRACK_SEC,
             on_save=on_save,
         )
+
+        max_hours = part.get('max_hours')
+        if max_hours:
+            timer = threading.Timer(max_hours * 3600, done_event.set)
+            timer.daemon = True
+            timer.start()
+            print(f'  Time limit: {max_hours:.1f} h')
+
         capture.run(done_event=done_event)
+
+        if max_hours:
+            timer.cancel()
 
         print(f'  {part["name"]} complete.')
 

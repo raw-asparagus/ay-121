@@ -615,7 +615,7 @@ We verify the extrema-based result by fitting the jinc function $A\,|2J_1(2\pi|u
 \begin{figure*}[t!]
 \centering
 \includegraphics[width=\textwidth]{figures/fig_jinc_fit.pdf}
-\caption{Jinc fit and Bessel extrema at a representative channel. The scatter shows the normalised $|V|$ versus hour angle; the green curve is the best-fit jinc model with $R$ free. Triangles mark identified maxima (orange) and minima (red). The fitted diameter annotation appears in the upper right.}
+\caption{Jinc fit and Bessel extrema at a representative channel. The scatter shows the normalised $|V|$ versus hour angle; the orange curve is the best-fit jinc model with $R$ free. Triangles mark identified maxima (orange) and minima (red); colored shaded regions denote the hour-angle ranges where extrema are expected for chromospheric diameters $D \sim 32$--$35'$. The fitted diameter annotation appears in the upper right.}
 \label{fig:jinc_fit}
 \end{figure*}
 
@@ -623,7 +623,11 @@ We verify the extrema-based result by fitting the jinc function $A\,|2J_1(2\pi|u
 \subsection{Limb-Brightened Disk + Sunspot Floor Model}
 \label{sec:lb_fit}
 
-We extend the uniform-disk model to a three-parameter fit: amplitude $A$, limb-brightening coefficient $\varepsilon$, and sunspot floor $f$, with $R$ fixed from the extrema prior. The limb-brightened visibility replaces the jinc with a quadratic radial profile $I(\rho) \propto 1 + \varepsilon(\rho/R)^2$ \citep{Dulk1985}, whose Hankel transform is computed via numerical quadrature. An unresolved active region adds a point-source floor $f$ in quadrature: $|V| = A\sqrt{V_{\mathrm{lb}}^2 + f^2}$.
+We extend the uniform-disk model to a three-parameter fit: amplitude $A$, limb-brightening coefficient $\varepsilon$, and sunspot floor $f$, with $R$ fixed from the extrema prior. The limb-brightened visibility assumes a quadratic radial profile $I(\rho) \propto 1 + \varepsilon(\rho/R)^2$ \citep{Dulk1985}. Its Hankel transform decomposes into a uniform-disk (jinc) term and a quadratic correction:
+\begin{equation}
+V_{\mathrm{lb}}(x) = \frac{1}{1 + \varepsilon/2}\left[\frac{2\,J_1(x)}{x} + 2\varepsilon\int_0^1 t^3\,J_0(x\,t)\,\mathrm{d}t\right],
+\end{equation}
+where $x = 2\pi\,|u|\,R$. The first term is the standard jinc; the integral is precomputed via numerical quadrature on a lookup table and interpolated with a cubic spline. An unresolved active region adds a point-source floor $f$ in quadrature: $|V| = A\sqrt{V_{\mathrm{lb}}^2 + f^2}$.
 
 Figure~\ref{fig:lb_fit} shows the three-parameter fit at the representative channel. The model captures both the smooth jinc modulation and the non-zero visibility at the Bessel nulls (the sunspot floor). A four-parameter extension, in which $R$ is also allowed to float within $\pm 3\sigma$ of the extrema prior, gives consistent results.
 

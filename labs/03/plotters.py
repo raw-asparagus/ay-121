@@ -888,9 +888,10 @@ def plot_jinc_extrema(
     extrema_ha_max: np.ndarray | None,
     extrema_val_max: np.ndarray | None,
     feature_windows: Sequence[tuple] | None = None,
+    residuals: np.ndarray | None = None,
     diameter_arcmin: float | None,
     title: str = "",
-) -> tuple[plt.Figure, plt.Axes]:
+) -> tuple[plt.Figure, plt.Axes | np.ndarray]:
     """Combined jinc fit + Bessel extrema vs hour angle.
 
     Parameters
@@ -909,6 +910,8 @@ def plot_jinc_extrema(
         HA and normalised value of identified maxima.
     feature_windows : list of (ha_lo, ha_hi, kind, root, label) or None
         HA search windows; shaded green for maxima, red for minima.
+    residuals : array or None
+        Fit residuals (same length as *ha_deg*). Adds a bottom panel.
     diameter_arcmin : float or None
         Fitted diameter for annotation.
     title : str
@@ -916,43 +919,58 @@ def plot_jinc_extrema(
 
     Returns
     -------
-    fig, ax
+    fig, ax_or_axes
     """
-    fig, ax = textwidth_figure(4)
+    if residuals is not None:
+        fig, _ax = textwidth_figure(6)
+        _ax.remove()
+        axes = subpanels(fig, 2, height_ratios=[3, 1])
+        ax_top, ax_bot = axes
+    else:
+        fig, ax_top = textwidth_figure(4)
 
     # Shade feature windows first (behind everything)
     if feature_windows is not None:
         for ha_lo, ha_hi, kind, _root, _label in feature_windows:
             color = "C2" if kind == "max" else "C3"
-            ax.axvspan(ha_lo, ha_hi, alpha=0.08, color=color, zorder=0)
+            ax_top.axvspan(ha_lo, ha_hi, alpha=0.08, color=color, zorder=0)
 
-    ax.scatter(ha_deg, envelope, s=0.3, alpha=ALPHA_EXTRA_LIGHT,
-               color="C0", rasterized=True, label="Data", zorder=2)
+    ax_top.scatter(ha_deg, envelope, s=0.3, alpha=ALPHA_EXTRA_LIGHT,
+                   color="C0", rasterized=True, label="Data", zorder=2)
 
     order = np.argsort(ha_model)
-    ax.plot(ha_model[order], model_curve[order], lw=LW_STANDARD,
-            color="C1", alpha=ALPHA_STANDARD, label="Jinc fit", zorder=3)
+    ax_top.plot(ha_model[order], model_curve[order], lw=LW_STANDARD,
+                color="C1", alpha=ALPHA_STANDARD, label="Jinc fit", zorder=3)
 
     if extrema_ha_min is not None and extrema_val_min is not None:
-        ax.scatter(extrema_ha_min, extrema_val_min, s=SS_FINE * 3,
-                   marker="v", color="C3", zorder=5, label="Minima")
+        ax_top.scatter(extrema_ha_min, extrema_val_min, s=SS_FINE * 3,
+                       marker="v", color="C3", zorder=5, label="Minima")
 
     if extrema_ha_max is not None and extrema_val_max is not None:
-        ax.scatter(extrema_ha_max, extrema_val_max, s=SS_FINE * 3,
-                   marker="^", color="C2", zorder=5, label="Maxima")
+        ax_top.scatter(extrema_ha_max, extrema_val_max, s=SS_FINE * 3,
+                       marker="^", color="C2", zorder=5, label="Maxima")
 
     if diameter_arcmin is not None:
-        ax.annotate(
+        ax_top.annotate(
             rf"$\varnothing = {diameter_arcmin:.2f}'$",
             xy=(0.98, 0.92), xycoords="axes fraction",
             ha="right", fontsize=TICK_SIZE, color="C2",
         )
 
-    ax.set_xlabel("Hour angle [deg]", fontsize=LABEL_SIZE)
-    ax.set_ylabel(r"$|V| / V_0$", fontsize=LABEL_SIZE)
-    ax.set_ylim(-0.05, 1.15)
-    ax.legend(fontsize=LEGEND_SIZE, loc="upper right")
-    return fig, ax
+    ax_top.set_ylabel(r"$|V| / V_0$", fontsize=LABEL_SIZE)
+    ax_top.set_ylim(-0.05, 1.15)
+    ax_top.legend(fontsize=LEGEND_SIZE, loc="upper right")
+
+    if residuals is not None:
+        ax_bot.scatter(ha_deg, residuals, s=0.3, alpha=ALPHA_EXTRA_LIGHT,
+                       color="C1", rasterized=True, zorder=2)
+        zero_line(ax_bot)
+        ax_bot.set_xlabel("Hour angle [deg]", fontsize=LABEL_SIZE)
+        ax_bot.set_ylabel("Residual", fontsize=LABEL_SIZE)
+        return fig, axes
+    else:
+        ax_top.set_xlabel("Hour angle [deg]", fontsize=LABEL_SIZE)
+        return fig, ax_top
 
 
 def plot_diameter_vs_freq(
@@ -1366,7 +1384,7 @@ def plot_brute_2d(
     -------
     fig, axes : (Figure, ndarray of 2 Axes)
     """
-    fig, _ax = textwidth_figure(8, subfigures=(1, 2, {"wspace": 0.14}))
+    fig, _ax = textwidth_figure(8, subfigures=(1, 2, {"wspace": 0.28}))
     _ax_placeholder = _ax  # subfigures array
 
     axes = np.empty(2, dtype=object)

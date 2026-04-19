@@ -1,6 +1,6 @@
 """Lab 4 – reusable plotting functions for 21 cm HI survey data.
 
-All functions use the style constants from ``plotting.py`` and return
+All functions use the style constants from ``ugradiolab.plotting`` and return
 axes for interactive use.  Notebooks import individual functions::
 
     from plotters import plot_hi_spectrum, plot_survey_mollweide
@@ -9,12 +9,13 @@ axes for interactive use.  Notebooks import individual functions::
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from plotting import (
+from ugradiolab.plotting import (
     TEXTWIDTH_IN,
     COLUMNWIDTH_IN,
     A4_USABLE_HEIGHT_IN,
@@ -22,6 +23,7 @@ from plotting import (
     TICK_SIZE,
     LEGEND_SIZE,
     EMPHASIS_SIZE,
+    LW_NONE,
     LW_FINE,
     LW_LIGHT,
     LW_STANDARD,
@@ -35,12 +37,14 @@ from plotting import (
     NEUTRAL_COLOR,
     GRID_STYLE,
     GUIDE_STYLE,
+    ERRORBAR_STYLE,
     FIT_STYLE,
     SCATTER_STYLE,
     FILL_STYLE,
     textwidth_figure,
     columnwidth_figure,
     landscapewidth_figure,
+    subpanels,
     zero_line,
 )
 
@@ -52,6 +56,16 @@ from plotting import (
 HI_REST_MHZ = 1420.405
 C_KMS = 299792.458
 
+_LAB04_DIR = Path(__file__).resolve().parent
+_FIGURES_DIR = _LAB04_DIR / "report" / "figures"
+
+
+def savefig(fig: plt.Figure, name: str) -> None:
+    """Save *fig* as a PDF in ``report/figures/``."""
+    _FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    fig.savefig(_FIGURES_DIR / name)
+    print(f"  {name}")
+
 
 # ---------------------------------------------------------------------------
 # Single HI spectrum
@@ -61,16 +75,16 @@ def plot_hi_spectrum(
     v_kms: np.ndarray,
     R: np.ndarray,
     *,
-    title: str | None = None,
-    ylabel: str = r"$R = (I_1 - I_2) / I_2$",
-    xlabel: str = r"Velocity [km\,s$^{-1}$]",
-    color: str = "C0",
-    ax: plt.Axes | None = None,
+    title: str | None,
+    ylabel: str,
+    xlabel: str,
+    color: str,
+    ax: plt.Axes | None,
 ) -> plt.Axes:
     """Plot a single frequency-switched HI profile."""
     if ax is None:
         _, ax = columnwidth_figure(4)
-    ax.plot(v_kms, R, lw=LW_FINE, color=color, alpha=ALPHA_STANDARD)
+    ax.plot(v_kms, R, lw=LW_FINE, color=color, alpha=ALPHA_STANDARD, zorder=2)
     zero_line(ax)
     ax.set_xlabel(xlabel, fontsize=LABEL_SIZE)
     ax.set_ylabel(ylabel, fontsize=LABEL_SIZE)
@@ -87,9 +101,9 @@ def plot_spectra_grid(
     v_kms: np.ndarray,
     spectra: dict,
     *,
-    ncols: int = 5,
-    title: str = "",
-    color: str = "C0",
+    ncols: int,
+    title: str,
+    color: str,
 ) -> plt.Figure:
     """Plot all spectra in a compact grid.
 
@@ -108,14 +122,12 @@ def plot_spectra_grid(
     -------
     fig : Figure
     """
-    from plotting import A4_USABLE_HEIGHT_IN as PAGE_H
-
     keys = sorted(spectra.keys(), key=lambda k: (k[1], k[0]))
     n = len(keys)
 
     # Scale: fit as many rows as possible per A4 page height
     ROW_HEIGHT_IN = 0.9
-    rows_per_page = max(1, int(PAGE_H / ROW_HEIGHT_IN))
+    rows_per_page = max(1, int(A4_USABLE_HEIGHT_IN / ROW_HEIGHT_IN))
     nrows_total = math.ceil(n / ncols)
 
     # Build list of figures (one per page)
@@ -137,9 +149,9 @@ def plot_spectra_grid(
             gl, gb = keys[i_global]
             ri, ci = divmod(i_in_page, ncols)
             ax = axes[ri, ci]
-            ax.plot(v_kms, spectra[(gl, gb)], lw=LW_FINE * 0.7, color=color,
-                    alpha=ALPHA_STANDARD)
-            ax.axhline(0, **{**GUIDE_STYLE, "lw": LW_FINE * 0.5})
+            ax.plot(v_kms, spectra[(gl, gb)], lw=LW_FINE, color=color,
+                    alpha=ALPHA_STANDARD, zorder=2)
+            ax.axhline(0, **GUIDE_STYLE, zorder=1)
             ax.set_title(
                 rf"$\ell$={gl} $b$={gb:+d}",
                 fontsize=TICK_SIZE - 3, pad=2,
@@ -167,7 +179,6 @@ def plot_spectra_grid(
             page_label = f"{title} ({page_num}/{total_pages})"
         if page_label:
             fig.suptitle(page_label, fontsize=EMPHASIS_SIZE)
-        fig.tight_layout()
         figs.append(fig)
 
     return figs[0] if len(figs) == 1 else figs
@@ -182,9 +193,9 @@ def plot_heatmap(
     gb: np.ndarray,
     vals: np.ndarray,
     *,
-    title: str = "",
-    cbar_label: str = r"$W = \Sigma R \cdot \Delta v$ [km\,s$^{-1}$]",
-    cmap: str = "inferno",
+    title: str,
+    cbar_label: str,
+    cmap: str,
 ) -> tuple[plt.Figure, plt.Axes]:
     """Plot a flat (l, b) heatmap from scattered data."""
     gl_int = np.round(gl).astype(int)
@@ -210,7 +221,6 @@ def plot_heatmap(
     if title:
         ax.set_title(title, fontsize=EMPHASIS_SIZE)
     plt.colorbar(im, ax=ax, label=cbar_label)
-    fig.tight_layout()
     return fig, ax
 
 
@@ -223,11 +233,11 @@ def plot_survey_mollweide(
     gb: np.ndarray,
     vals: np.ndarray,
     *,
-    center_l: float = 120.0,
-    title: str = "",
-    cbar_label: str = r"$W = \Sigma R \cdot \Delta v$ [km\,s$^{-1}$]",
-    cmap: str = "inferno",
-    marker_size: float = SS_FINE,
+    center_l: float,
+    title: str,
+    cbar_label: str,
+    cmap: str,
+    marker_size: float,
 ) -> tuple[plt.Figure, plt.Axes]:
     """Plot survey data on a Mollweide projection in galactic coords.
 
@@ -237,10 +247,8 @@ def plot_survey_mollweide(
     gl_shifted = np.where(gl_shifted > 180, gl_shifted - 360, gl_shifted)
     gl_shifted = np.where(gl_shifted < -180, gl_shifted + 360, gl_shifted)
 
-    # landscapewidth_figure(5) → width = A4_USABLE_HEIGHT_IN, height = 5/10 * width
-    fig, _ = landscapewidth_figure(5)
-    plt.close(fig)
-    fig = plt.figure(figsize=(A4_USABLE_HEIGHT_IN, A4_USABLE_HEIGHT_IN / 10 * 5))
+    fig, _ax = landscapewidth_figure(5)
+    _ax.remove()
     ax = fig.add_subplot(111, projection="mollweide")
     ax.grid(True, **{k: v for k, v in GRID_STYLE.items() if k != "color"},
             color=NEUTRAL_COLOR)
@@ -248,7 +256,7 @@ def plot_survey_mollweide(
     # Galactic plane
     l_line = np.linspace(-np.pi, np.pi, 500)
     ax.plot(l_line, np.zeros_like(l_line), lw=LW_FINE,
-            color="k", alpha=ALPHA_FAINT)
+            color="k", alpha=ALPHA_FAINT, zorder=1)
 
     sc = ax.scatter(
         np.deg2rad(gl_shifted), np.deg2rad(gb),
@@ -265,7 +273,6 @@ def plot_survey_mollweide(
 
     if title:
         ax.set_title(title, fontsize=EMPHASIS_SIZE)
-    fig.tight_layout()
     return fig, ax
 
 
@@ -278,10 +285,10 @@ def plot_altaz_mollweide(
     alt: np.ndarray,
     bad: np.ndarray,
     *,
-    min_alt: float = 17.0,
-    az_min: float = 7.0,
-    az_max: float = 348.0,
-    title: str = r"Alt/Az at observation time",
+    min_alt: float,
+    az_min: float,
+    az_max: float,
+    title: str,
 ) -> tuple[plt.Figure, plt.Axes]:
     """Plot telescope pointings on an alt/az Mollweide.
 
@@ -290,9 +297,8 @@ def plot_altaz_mollweide(
     az_moll = np.where(az > 180, az - 360, az)
     good = ~bad
 
-    fig, _ = textwidth_figure(8)
-    plt.close(fig)
-    fig = plt.figure(figsize=(TEXTWIDTH_IN, TEXTWIDTH_IN / 16 * 8))
+    fig, _ax = textwidth_figure(8)
+    _ax.remove()
     ax = fig.add_subplot(111, projection="mollweide")
     ax.grid(True, **{k: v for k, v in GRID_STYLE.items() if k != "color"},
             color=NEUTRAL_COLOR)
@@ -301,13 +307,13 @@ def plot_altaz_mollweide(
     az_line = np.linspace(-np.pi, np.pi, 500)
     ax.plot(az_line, np.full_like(az_line, np.deg2rad(min_alt)),
             lw=LW_LIGHT, ls="--", color="C3", alpha=ALPHA_LIGHT,
-            label=rf"min alt = {min_alt}$^\circ$")
+            label=rf"min alt = {min_alt}$^\circ$", zorder=1)
 
     # Az exclusion
     for az_lim in [az_min, az_max]:
         az_l = az_lim if az_lim <= 180 else az_lim - 360
         ax.axvline(np.deg2rad(az_l), lw=LW_LIGHT, ls="--",
-                   color="C1", alpha=ALPHA_LIGHT)
+                   color="C1", alpha=ALPHA_LIGHT, zorder=1)
 
     ax.scatter(np.deg2rad(az_moll[good]), np.deg2rad(alt[good]),
                **SCATTER_STYLE, color="C0", zorder=5, label="OK")
@@ -323,7 +329,6 @@ def plot_altaz_mollweide(
 
     ax.set_title(title, fontsize=EMPHASIS_SIZE)
     ax.legend(fontsize=LEGEND_SIZE, loc="lower left")
-    fig.tight_layout()
     return fig, ax
 
 
@@ -334,8 +339,8 @@ def plot_altaz_mollweide(
 def plot_scan_pattern(
     sim: list[dict],
     *,
-    hpbw_deg: float = 3.4,
-    title: str = "Scan pattern (galactic)",
+    hpbw_deg: float,
+    title: str,
 ) -> tuple[plt.Figure, plt.Axes]:
     """Plot planned scan pointings with beam circles.
 
@@ -351,16 +356,16 @@ def plot_scan_pattern(
             (s["l"], s["b"]), hpbw_deg / 2,
             fill=False, edgecolor=color,
             alpha=ALPHA_EXTRA_LIGHT, lw=LW_FINE,
+            zorder=1,
         )
         ax.add_patch(beam)
-        ax.plot(s["l"], s["b"], "o", color=color, ms=MS_MICRO)
+        ax.plot(s["l"], s["b"], "o", color=color, ms=MS_MICRO, zorder=2)
 
     ax.set_xlabel(r"$\ell$ [deg]", fontsize=LABEL_SIZE)
     ax.set_ylabel(r"$b$ [deg]", fontsize=LABEL_SIZE)
     ax.set_title(title, fontsize=EMPHASIS_SIZE)
     ax.set_aspect("equal")
     ax.grid(True, **GRID_STYLE)
-    fig.tight_layout()
     return fig, ax
 
 
@@ -371,40 +376,36 @@ def plot_scan_pattern(
 def plot_timeline(
     sim: list[dict],
     *,
-    min_alt: float = 17.0,
-    az_min: float = 7.0,
-    az_max: float = 348.0,
-    title: str = "Telescope pointing vs scan progress",
+    min_alt: float,
+    az_min: float,
+    az_max: float,
+    title: str,
 ) -> tuple[plt.Figure, tuple[plt.Axes, plt.Axes]]:
     """Plot alt and az vs cell index.
 
     Uses textwidth for inline display.
     """
-    from plotting import subpanels
-
     idxs = [s["idx"] for s in sim]
     alts = [s["alt"] for s in sim]
     azs = [s["az"] for s in sim]
 
-    fig, _ = textwidth_figure(6)
-    plt.close(fig)
-    fig = plt.figure(figsize=(TEXTWIDTH_IN, TEXTWIDTH_IN / 16 * 6))
-    ax1, ax2 = subpanels(fig, 2, height_ratios=(1, 1), hspace=0.1, sharex=True)
+    fig, _ax = textwidth_figure(6)
+    _ax.remove()
+    ax1, ax2 = subpanels(fig, 2, height_ratios=(1, 1), hspace=0.1)
 
-    ax1.plot(idxs, alts, "o-", ms=MS_MICRO, lw=LW_FINE, color="C0")
-    ax1.axhline(min_alt, lw=LW_LIGHT, ls="--", color="C3", alpha=ALPHA_LIGHT)
+    ax1.plot(idxs, alts, "o-", ms=MS_MICRO, lw=LW_FINE, color="C0", zorder=2)
+    ax1.axhline(min_alt, lw=LW_LIGHT, ls="--", color="C3", alpha=ALPHA_LIGHT, zorder=1)
     ax1.set_ylabel(r"Alt [deg]", fontsize=LABEL_SIZE)
     ax1.grid(True, **GRID_STYLE)
 
-    ax2.plot(idxs, azs, "o-", ms=MS_MICRO, lw=LW_FINE, color="C1")
-    ax2.axhline(az_min, lw=LW_LIGHT, ls="--", color="C1", alpha=ALPHA_LIGHT)
-    ax2.axhline(az_max, lw=LW_LIGHT, ls="--", color="C1", alpha=ALPHA_LIGHT)
+    ax2.plot(idxs, azs, "o-", ms=MS_MICRO, lw=LW_FINE, color="C1", zorder=2)
+    ax2.axhline(az_min, lw=LW_LIGHT, ls="--", color="C1", alpha=ALPHA_LIGHT, zorder=1)
+    ax2.axhline(az_max, lw=LW_LIGHT, ls="--", color="C1", alpha=ALPHA_LIGHT, zorder=1)
     ax2.set_ylabel(r"Az [deg]", fontsize=LABEL_SIZE)
     ax2.set_xlabel("Cell index", fontsize=LABEL_SIZE)
     ax2.grid(True, **GRID_STYLE)
 
     fig.suptitle(title, fontsize=EMPHASIS_SIZE)
-    fig.tight_layout()
     return fig, (ax1, ax2)
 
 
@@ -415,9 +416,9 @@ def plot_timeline(
 def plot_calibrated_profiles(
     profiles: list[dict],
     *,
-    v_lim: tuple[float, float] | None = None,
-    f_lim: tuple[float, float] | None = None,
-    title: str = "",
+    v_lim: tuple[float, float] | None,
+    f_lim: tuple[float, float] | None,
+    title: str,
 ) -> tuple[plt.Figure, plt.Axes]:
     """Plot calibrated T_A profiles for multiple chips.
 
@@ -427,10 +428,12 @@ def plot_calibrated_profiles(
     ----------
     profiles : list of dict
         Each dict has keys ``v_kms``, ``T_A``, ``label``, ``color``.
-    v_lim : tuple, optional
+    v_lim : tuple or None
         Velocity axis limits.
-    f_lim : tuple, optional
+    f_lim : tuple or None
         Frequency axis limits for top axis.
+    title : str
+        Figure title.
     """
     fig, ax = textwidth_figure(5)
 
@@ -438,7 +441,8 @@ def plot_calibrated_profiles(
         ax.plot(p["v_kms"], p["T_A"], lw=LW_FINE,
                 color=p.get("color", "C0"),
                 alpha=ALPHA_STANDARD,
-                label=p.get("label", ""))
+                label=p.get("label", ""),
+                zorder=2)
 
     zero_line(ax)
     ax.set_xlabel(r"Velocity [km\,s$^{-1}$]", fontsize=LABEL_SIZE)
@@ -456,5 +460,4 @@ def plot_calibrated_profiles(
         ax_freq.set_xlabel(r"Frequency [MHz]", fontsize=LABEL_SIZE)
         ax_freq.ticklabel_format(axis="x", useOffset=False)
 
-    fig.tight_layout()
     return fig, ax

@@ -25,7 +25,7 @@
 \author{Jun Rui Ting \\ \today\vspace{-2.5\baselineskip}}
 
 \begin{abstract}
-We present interferometric observations of the Sun at 10.45~GHz using the two-dish correlating interferometer at the New Campbell Hall (NCH) observatory, Berkeley. Five independent baseline-determination methods---including short-time Fourier transform (STFT) fringe-frequency fitting, delay-spectrum analysis, nonlinear least-squares (NLS) fringe fitting, and a two-dimensional brute-force grid search---are applied to horizon-to-horizon drift-scan data comprising 8226 visibility integrations across 285 spectral channels. The adopted baseline, $b_{\mathrm{ew}} = 15.1148 \pm 0.0000$~m (formal) and $b_{\mathrm{ns}} = 1.4746 \pm 0.0000$~m, is consistent with an independent iPhone LiDAR survey ($15.17 \pm 0.30$~m) at the $0.2\sigma$ level. The angular diameter of the Sun is measured from the Bessel-function (jinc) modulation of the fringe-amplitude envelope, yielding $D_\odot = 34.664 \pm 0.034'$ (statistical) $\pm\,0.66'$ (systematic), consistent with the 17~GHz radio reference of $32.55 \pm 0.05'$ \citep{Selhorst2004}. A non-zero sunspot floor $f \approx 0.033$ and a limb-brightening coefficient $\varepsilon \approx 2.0$ are detected, indicating an active region on the solar disk during the observation.
+We present interferometric observations of the Sun at 10.45~GHz using the two-dish correlating interferometer at the New Campbell Hall (NCH) observatory, Berkeley. Five independent baseline-determination methods---including short-time Fourier transform (STFT) fringe-frequency fitting, delay-spectrum analysis, nonlinear least-squares (NLS) fringe fitting, and a two-dimensional brute-force grid search---are applied to horizon-to-horizon drift-scan data comprising 8226 visibility integrations across 285 spectral channels. The adopted baseline, $b_{\mathrm{ew}} = 15.11 \pm 0.01$~m (formal) and $b_{\mathrm{ns}} = 1.49 \pm 0.05$~m, is consistent with an independent iPhone LiDAR measurement ($15.17 \pm 0.30$~m) at the $0.3\sigma$ level. The angular diameter of the Sun is measured from the Bessel-function (jinc) modulation of the fringe-amplitude envelope, yielding $D_\odot = 34.664 \pm 0.034'$ (statistical) $\pm\,0.66'$ (systematic), consistent with the 17~GHz radio reference of $32.55 \pm 0.05'$ \citep{Selhorst2004}. A non-zero sunspot floor $f \approx 0.033$ and a limb-brightening coefficient $\varepsilon \approx 2.0$ are detected, indicating an active region on the solar disk during the observation.
 
 \vspace{2.5\baselineskip}
 \end{abstract}
@@ -401,7 +401,7 @@ A cross-correlator implemented on a SNAP signal-processing board \citep{SNAP2024
 
 Figure~\ref{fig:signal_path} shows a summary block diagram of the signal path for one antenna; the full detailed diagram is available online\footnote{\url{https://github.com/AaronParsons/ugradio/blob/main/lab_interf/interf_signal_path.xcf}}.
 
-An independent baseline survey was performed using the LiDAR sensor of an iPhone~13~Pro, yielding $b_{\mathrm{ew}}^{\mathrm{lidar}} = 15.17 \pm 0.30$~m and $b_{\mathrm{ns}}^{\mathrm{lidar}} = 1.36 \pm 0.30$~m. The conservative 30~cm uncertainty encompasses the difficulty of identifying the true cardinal pointing of each baseline vector.
+An independent baseline survey was performed using the LiDAR sensor of an iPhone~13~Pro, yielding $b_{\mathrm{ew}}^{\mathrm{lidar}} = 15.2 \pm 0.3$~m and $b_{\mathrm{ns}}^{\mathrm{lidar}} = 1.4 \pm 0.3$~m. The conservative 30~cm uncertainty encompasses the difficulty of identifying the true cardinal pointing of each baseline vector.
 
 
 \subsection{Observations}
@@ -526,34 +526,34 @@ Following \citet{AY121FitNotes}, the residual surface near the minimum is approx
 \end{equation}
 where $\Delta\mathbf{Q} = (Q_{\mathrm{ew}} - Q_{\mathrm{ew}}^*,\; Q_{\mathrm{ns}} - Q_{\mathrm{ns}}^*)^{\!\mathsf{T}}$ and $[\alpha]$ is the $2\times 2$ curvature matrix whose elements are the numerical second derivatives $\tfrac{1}{2}\partial^2 \mathcal{S}^2/\partial Q_i\,\partial Q_j$ evaluated at the minimum. The covariance matrix is $[\epsilon] = [\alpha]^{-1}$, and the $1\sigma$ uncertainties are $\sigma_{Q_i} = \sqrt{\epsilon_{ii}} \cdot \sigma$, where $\sigma^2 = \mathcal{S}^2_{\min}/\mathrm{dof}$.
 
-The confidence contours are drawn at multiplicative levels $\{2.30,\, 6.17\} \times \chi^2_{\nu,\min}$, corresponding to the $\Delta\chi^2$ thresholds for 68.3\% and 95.4\% confidence levels with two parameters of interest \citep{Press2007}. Figure~\ref{fig:brute_2d} shows the 2-D $\chi^2$ surface with these contours.
+The confidence contours are drawn at the multiplicative level $2.30 \times \chi^2_{\nu,\min}$, corresponding to the $\Delta\chi^2$ threshold for 68.3\% confidence with two parameters of interest \citep{Press2007}; these contours are shown for illustration only, and the adopted grid-search uncertainties are instead taken from the analytical curvature matrix $[\epsilon]$. Figure~\ref{fig:brute_2d} shows the 2-D $\chi^2$ surface with these contours.
+
+
+\begin{figure*}[t!]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_brute_2d.pdf}
+\caption{2-D brute-force $\chi^2_\nu$ grid search in the $(b_{\mathrm{ew}}, b_{\mathrm{ns}})$ plane. \textit{Left:} Full-track search using all hour angles. \textit{Right:} Windowed search restricted to $|h| \leq 20^\circ$ around transit, suppressing Bessel-envelope bias. The $1\sigma$ confidence contour ($2.30\times$ the minimum $\chi^2_\nu$) is shown for illustration; adopted uncertainties come from the analytical curvature matrix. The windowed result ($b_{\mathrm{ew}} = 15.114$~m) is closer to the adopted baseline than the full-track grid ($b_{\mathrm{ew}} = 15.103$~m), consistent with a small systematic from the envelope modulation at large $|h|$.}
+\label{fig:brute_2d}
+\end{figure*}
 
 The brute-force model fits a point-source fringe (Equation~\ref{eq:fringe_boxed}) and does not account for the Bessel-function envelope that modulates the resolved solar visibility. At large $|h|$ the projected baseline $b_{\mathrm{proj}}$ changes rapidly, resulting in varying visibility ampltiudes; the envelope therefore imprints a slow amplitude modulation that biases the least-squares residuals to only minimize for large $|h|$. Restricting the fit to a symmetric window $|h| \leq 20^{\circ}$ around transit mitigates this since near transit the projected baseline varies slowly and the Bessel envelope is nearly flat. Hence, the point-source fringe model is a better approximation to the data. Accordingly, the windowed search yields $b_{\mathrm{ew}} = 15.114$~m, closer to the adopted baseline than the full-track result of $b_{\mathrm{ew}} = 15.103$~m (Figure~\ref{fig:brute_2d}).
 
 
-\begin{figure*}[t]
+\begin{figure}[t!]
 \centering
-\includegraphics[width=\textwidth]{figures/fig_brute_2d.pdf}
-\caption{2-D brute-force $\chi^2_\nu$ grid search in the $(b_{\mathrm{ew}}, b_{\mathrm{ns}})$ plane. \textit{Left:} Full-track search using all hour angles. \textit{Right:} Windowed search restricted to $|h| \leq 20^\circ$ around transit, suppressing Bessel-envelope bias. Solid and dashed contours mark $1\sigma$ confidence regions ($2.30\times$ and $6.17\times$ the minimum $\chi^2_\nu$). The windowed result ($b_{\mathrm{ew}} = 15.114$~m) is closer to the adopted baseline than the full-track grid ($b_{\mathrm{ew}} = 15.103$~m), consistent with a small systematic from the envelope modulation at large $|h|$.}
-\label{fig:brute_2d}
-\end{figure*}
-
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{figures/fig_fringe_fit.pdf}
-\caption{Recovered fringe pattern near transit ($|h| \leq 1.5^\circ$) from the windowed grid search. \textit{Top:} observed Re$(V)$ (scatter) and best-fit sinusoidal model (solid), illustrating the rapid fringe oscillation resolved by the interferometer. \textit{Bottom:} fit residuals with $\pm 3\sigma$ band. The close agreement validates the baseline solution and confirms that the point-source fringe model accurately describes the data at these hour angles.}
+\includegraphics[width=\columnwidth]{figures/fig_fringe_fit.pdf}
+\caption{Recovered fringe pattern near transit ($|h| \leq 1.5^\circ$) from the windowed grid search. \textit{Top:} observed Re$(V)$ (scatter) and best-fit sinusoidal model (solid), illustrating the rapid fringe oscillation resolved by the interferometer. \textit{Bottom:} fit residuals.}
 \label{fig:fringe_fit}
-\end{figure*}
+\end{figure}
 
-\subsection{Baseline Summary and Adopted Value}
+\subsection{Adopted Baseline Value}
 \label{sec:baseline_summary}
 
-Table~\ref{tab:baseline_comparison} compares all five methods. The adopted baseline is the mean of the three methods included in the adoption set (STFT, NLS-complex, and delay-spectrum), with errors added in quadrature, yielding $b_{\mathrm{ew}} = 15.1148$~m and $b_{\mathrm{ns}} = 1.4746$~m. The formal uncertainties are sub-millimetre, reflecting the high SNR of the fringe signal across 285 spectral channels and $>$8000 time samples.
+Table~\ref{tab:baseline_comparison} compares all five methods. The adopted baseline is the mean of the three methods included in the adoption set (STFT, NLS-complex, and delay-spectrum), with per-method errors added in quadrature and the inter-method spread (sample standard deviation) added in quadrature as a systematic, yielding $b_{\mathrm{ew}} = 15.11 \pm 0.01$~m and $b_{\mathrm{ns}} = 1.49 \pm 0.05$~m. The formal uncertainties are sub-centimetre, reflecting the high SNR of the fringe signal across 285 spectral channels and $>$8000 time samples.
 
 \begin{table*}[t]
 \centering
-\caption{Baseline comparison: all five methods. Columns show the east--west and north--south baseline components, their formal uncertainties, and the deviation from the adopted value in units of the formal error. The LiDAR survey is shown for reference.}
+\caption{Baseline comparison: all five methods. Columns show the east--west and north--south baseline components, their formal uncertainties, and the deviation from the adopted value in units of the formal error. The LiDAR measurement is shown for reference.}
 \label{tab:baseline_comparison}
 \begin{tabular}{lcccccc}
 \toprule
@@ -566,16 +566,16 @@ NLS (complex) & 15.1148 & 0.0000 & 1.4746 & 0.0000 & $-0.18$ & 0.38 \\
 Grid (full) & 15.1031 & 0.0002 & 1.5634 & 0.0005 & $-0.22$ & 0.68 \\
 Grid ($\pm 20^\circ$) & 15.1136 & 0.0001 & 1.4837 & 0.0023 & $-0.19$ & 0.41 \\
 \midrule
-\textbf{Adopted (mean)} & \textbf{15.1148} & \textbf{0.0000} & \textbf{1.4746} & \textbf{0.0000} & --- & --- \\
+\textbf{Adopted (mean)} & \textbf{15.11} & \textbf{0.01} & \textbf{1.49} & \textbf{0.05} & --- & --- \\
 \midrule
-LiDAR survey & 15.17 & 0.30 & 1.36 & 0.30 & $-0.18$ & 0.38 \\
+LiDAR measurement & 15.2 & 0.3 & 1.4 & 0.3 & $0.29$ & $-0.30$ \\
 \bottomrule
 \end{tabular}
 \end{table*}
 
-The adopted baseline agrees with the LiDAR survey at the $0.2\sigma$ level (where $\sigma = 0.30$~m is the LiDAR uncertainty). The phase-slope method (Method~2) is a $>1\sigma$ outlier, consistent with the known phase-unwrapping bias from Bessel nulls.
+The adopted baseline agrees with the LiDAR measurement at the $0.3\sigma$ level (where $\sigma = 0.3$~m is the LiDAR uncertainty). The phase-slope method (Method~2) is a $>1\sigma$ outlier, consistent with the known phase-unwrapping bias from Bessel nulls.
 
-As a direct validation, Figure~\ref{fig:fringe_fit} shows the recovered fringe pattern near transit from the windowed grid search minimum. The best-fit point-source sinusoid tracks the observed Re$(V)$ oscillations at the $\sim$26~s fringe period, with residuals consistent with radiometric noise. This confirms that the baseline solution correctly predicts the interferometric fringe rate and phase, and that the point-source model is an excellent description of the data in the near-transit regime where the Bessel envelope is flat.
+As a direct validation, Figure~\ref{fig:fringe_fit} shows the recovered fringe pattern near transit from the windowed grid search minimum. The best-fit point-source sinusoid tracks the observed Re$(V)$ oscillations at the $\sim$26~s fringe period, with residuals broadly in agreement with radiometric noise. This confirms that the baseline solution correctly predicts the interferometric fringe rate and phase, and that the point-source model is an excellent description of the data in the near-transit regime where the Bessel envelope is flat.
 
 
 \subsection{Effective Cable Delay}
@@ -583,40 +583,11 @@ As a direct validation, Figure~\ref{fig:fringe_fit} shows the recovered fringe p
 
 At transit ($h = 0$), the dominant east--west geometric delay vanishes ($\sin h = 0$), and the total measured delay reduces to
 \begin{equation}
-\tau_{\mathrm{tot}}(h=0) = \underbrace{\frac{b_{\mathrm{ns}}}{c}\sin L\,\cos\delta}_{3.02~\mathrm{ns}} + \tau'_c.
+\tau_{\mathrm{tot}}(h=0) = \underbrace{\frac{b_{\mathrm{ns}}}{c}\sin L\,\cos\delta}_{3.05~\mathrm{ns}} + \tau'_c.
 \end{equation}
-This provides a direct measurement of the effective cable delay $\tau'_c$, independent of $b_{\mathrm{ew}}$.
 
-We extract $\tau'_c$ two ways:
-\begin{enumerate}
-\item \textbf{Transit phase slope.} Fitting $\mathrm{d}\phi/\mathrm{d}\nu = 2\pi\,\tau_{\mathrm{tot}}$ across the 92 captures within $\pm 0.5^\circ$ of transit and subtracting the known NS geometric term gives $|\tau'_c| = 52.2 \pm 0.6$~ns.
-\item \textbf{Full-track delay-spectrum intercept.} The constant term from the Method~3 delay fit over the entire hour-angle range gives $\tau_{\mathrm{inst}} = 47.2$~ns.
-\end{enumerate}
-The two estimates differ by $\sim$5~ns in magnitude and have opposite signs, reflecting the delay sign convention (which antenna's signal arrives first). The magnitude difference likely arises from residual fringe structure at transit and the imperfect separation of the NS geometric term. The equivalent cable path-length difference is $|\tau'_c| \times c \approx 15.6$~m, consistent with the physical cable routing between the two antennas and the SNAP board.
-
-
-\subsection{Systematic Error Budget}
-\label{sec:baseline_systematics}
-
-The formal fit uncertainties are unrealistically small ($\sim$$10~\mu$m) because they reflect only the statistical noise on a high-SNR fringe track. The realistic error floor is set by the 30~cm LiDAR survey uncertainty, which dominates all other systematics. Table~\ref{tab:baseline_systematics} lists the identified systematic contributions.
-
-\begin{table}[H]
-\centering
-\caption{Systematic error budget for the baseline determination.}
-\label{tab:baseline_systematics}
-\begin{tabular}{lc}
-\toprule
-Source & Estimated magnitude \\
-\midrule
-LiDAR survey (phase-centre ID) & 30~cm (dominant) \\
-CHIPS-to-CHIPS gain step & 1--zcm \\
-Adaptive DC leakage & $<$1~cm \\
-Sidereal vs solar rate & $\sim$4~cm \\
-Bessel-envelope bias on phase & 1--5~cm \\
-Ionospheric TEC & $<$0.1~cm \\
-\bottomrule
-\end{tabular}
-\end{table}
+Next, we extract $\tau'_c$ two ways. First, fitting the phase slope $\mathrm{d}\phi/\mathrm{d}\nu = 2\pi\,\tau_{\mathrm{tot}}$ across the 92 captures within $\pm 0.5^\circ$ of transit and subtracting the known NS geometric term gives $|\tau'_c| = 52.2 \pm 0.6$~ns. Second, the constant term from the Method~3 delay fit over the entire hour-angle range gives $\tau_{\mathrm{inst}} = 47.2$~ns.
+The two estimates differ by $\sim$5~ns in magnitude and have opposite signs, reflecting the delay sign convention (which antenna's signal arrives first). The magnitude difference likely arises from residual fringe structure at transit or possible imperfect separation of the NS geometric term. The equivalent cable path-length difference is $|\tau'_c| \times c \approx 15.6$~m.
 
 
 %%% ---------------------------------------------------------------
@@ -624,51 +595,29 @@ Ionospheric TEC & $<$0.1~cm \\
 \label{sec:diameter}
 %%% ---------------------------------------------------------------
 
-\subsection{Bessel Envelope Extraction}
-\label{sec:envelope}
-
-The fringe-amplitude envelope $|V(h)|$ is extracted per channel by taking the absolute value of the DC-corrected complex visibility. We interpolate to a uniform hour-angle grid (2000 points), smooth with a 21-sample running mean, and normalise by the peak amplitude $V(0)$. The resulting curve oscillates with the Bessel-function modulation of the uniform-disk visibility, with nulls at the projected baselines where the fringe spacing matches the solar diameter.
-
-Six Bessel extrema are identified per channel using automatic peak/valley detection within pre-computed hour-angle windows: three maxima (at the $J_2$ zeros $j_{2,1}$, $j_{2,2}$, $j_{2,3}$) and three minima (at the $J_1$ zeros $j_{1,1}$, $j_{1,2}$, $j_{1,3}$). Figure~\ref{fig:bessel_extrema} shows the identified extrema overlaid on the raw $|V|$ scatter at the representative channel.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{figures/fig_bessel_extrema.pdf}
-\caption{Bessel envelope extrema at a representative channel. The scatter shows the raw $|V|$ versus hour angle; circles and triangles mark the identified maxima and minima, respectively. Six features are detected, including the prominent first Bessel null ($j_{1,1}$) nearest transit.}
-\label{fig:bessel_extrema}
-\end{figure}
-
-
 \subsection{Geometric Prior from Extrema Positions}
 \label{sec:extrema}
 
-We measure the solar radius from the \emph{positions} of the Bessel extrema rather than fitting the full envelope shape. This is more robust because the presence of sunspots prevents the Bessel nulls from reaching zero amplitude, biasing any least-squares fit to the jinc. By contrast, the \emph{locations} of the extrema in $|u|$-space depend only on $R$ through the Bessel zeros, independent of the sunspot floor or limb brightening.
+Six Bessel extrema are identified per channel directly from the DC-corrected visibility using automatic peak/valley detection within pre-computed hour-angle windows: three maxima (at the $J_2$ zeros $j_{2,1}$, $j_{2,2}$, $j_{2,3}$) and three minima (at the $J_1$ zeros $j_{1,1}$, $j_{1,2}$, $j_{1,3}$).
+
+We obtain a prior for the solar radius from the positions of these extrema rather than fitting the full envelope shape. This is more robust because the presence of sunspots prevents the Bessel nulls from reaching zero amplitude, biasing any least-squares fit to the jinc. By contrast, the locations of the extrema in $|u|$-space depend only on $R$ through the Bessel zeros (Equation~\ref{eq:diameter_from_null}), independent of the sunspot floor or limb brightening.
 
 Each identified extremum yields an independent solar radius estimate via $R_k = j_k/(2\pi\,|u_k|)$, where $|u_k|$ is the measured projected baseline at the extremum's hour angle. Per-channel radii are combined via an unweighted mean across all matched extrema, with errors added in quadrature:
 \[
 D_{\mathrm{mean}} = 34.664 \pm 0.034\;\mathrm{arcmin}\quad\text{(statistical)}.
 \]
-Figure~\ref{fig:diameter_vs_freq} shows the per-channel diameter distribution across the analysis band.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{figures/fig_diameter_vs_freq.pdf}
-\caption{Solar diameter from Bessel extrema, per channel. The horizontal dashed line shows the unweighted mean ($D_{\mathrm{mean}} = 34.664'$); the shaded band shows the $\pm 1\sigma$ statistical uncertainty. The diameter is consistent across the 70~MHz analysis band.}
-\label{fig:diameter_vs_freq}
-\end{figure}
-
 
 \subsection{Standard Jinc Fit}
 \label{sec:jinc_fit}
 
-We verify the extrema-based result by fitting the jinc function $A\,|2J_1(2\pi|u|R)/(2\pi|u|R)|$ to the band-averaged visibility envelope with $R$ as a free parameter, constrained to the $\pm 3\sigma$ range from the extrema prior (Figure~\ref{fig:jinc_fit}).
+We verify the extrema-based result by fitting the jinc function $A\,|2J_1(2\pi|u|R)/(2\pi|u|R)|$ to the band-averaged visibility envelope with $R$ as a free parameter, constrained to the $\pm 3\sigma$ range from the extrema prior. Figure~\ref{fig:jinc_fit} overlays the best-fit jinc model together with the identified Bessel extrema on the raw $|V|$ scatter.
 
-\begin{figure}[H]
+\begin{figure*}[t!]
 \centering
-\includegraphics[width=\columnwidth]{figures/fig_jinc_fit.pdf}
-\caption{Standard jinc fit to the band-averaged visibility envelope with $R$ free. The data (blue scatter) show $|V|$ versus projected baseline $|u|$; the red line is the best-fit jinc model.}
+\includegraphics[width=\textwidth]{figures/fig_jinc_fit.pdf}
+\caption{Jinc fit and Bessel extrema at a representative channel. The scatter shows the normalised $|V|$ versus hour angle; the green curve is the best-fit jinc model with $R$ free. Triangles mark identified maxima (orange) and minima (red). The fitted diameter annotation appears in the upper right.}
 \label{fig:jinc_fit}
-\end{figure}
+\end{figure*}
 
 
 \subsection{Limb-Brightened Disk + Sunspot Floor Model}
@@ -790,7 +739,7 @@ The five baseline methods span a range of sophistication and robustness:
 \item The \textbf{brute-force grid search} (Method~5) provides a valuable cross-check and the only method that directly visualises the $\chi^2$ surface, confirming that the global minimum is unique and well-separated from sidelobe aliases. The full-track grid gives $b_{\mathrm{ew}} = 15.103$~m, slightly below the adopted value, while the windowed grid ($|h| \leq 20^\circ$) gives $b_{\mathrm{ew}} = 15.114$~m, closer to the adopted value. This suggests a slight systematic from the Bessel-envelope bias at large hour angles.
 \end{itemize}
 
-The consistency of four out of five methods (all except the phase-slope outlier) at the sub-centimetre level demonstrates that a two-dish interferometer with $\sim$15~m baseline can determine its own geometry from the sky to far better precision than a hand-held LiDAR survey.
+The consistency of four out of five methods (all except the phase-slope outlier) at the sub-centimetre level demonstrates that a two-dish interferometer with $\sim$15~m baseline can determine its own geometry from the sky to far better precision than a hand-held LiDAR measurement.
 
 
 %%% ---------------------------------------------------------------
@@ -801,7 +750,7 @@ The consistency of four out of five methods (all except the phase-slope outlier)
 We have presented interferometric observations of the Sun at 10.45~GHz using the NCH two-dish correlating interferometer. From a single horizon-to-horizon drift scan comprising 8226 visibility integrations, we extract three principal results that fully characterise the interferometer and the source:
 
 \begin{enumerate}
-\item \textbf{Baseline.} Five independent baseline-determination methods---spanning STFT, phase-slope, delay-spectrum, nonlinear least-squares, and brute-force grid search---converge to an adopted value of $b_{\mathrm{ew}} = 15.1148$~m, $b_{\mathrm{ns}} = 1.4746$~m, consistent with an independent LiDAR survey ($15.17 \pm 0.30$~m) at the $0.2\sigma$ level. The fringe data determine the baseline with sub-millimetre formal precision, far exceeding the LiDAR survey's 30~cm accuracy. The brute-force grid search confirms the uniqueness of the global minimum and provides a direct visualisation of the $\chi^2$ surface and confidence contours.
+\item \textbf{Baseline.} Five independent baseline-determination methods---spanning STFT, phase-slope, delay-spectrum, nonlinear least-squares, and brute-force grid search---converge to an adopted value of $b_{\mathrm{ew}} = 15.1116 \pm 0.0118$~m, $b_{\mathrm{ns}} = 1.4904 \pm 0.0473$~m, consistent with an independent LiDAR measurement ($15.17 \pm 0.30$~m) at the $0.3\sigma$ level. The fringe data determine the baseline with sub-centimetre formal precision, far exceeding the LiDAR measurement's 30~cm accuracy. The brute-force grid search confirms the uniqueness of the global minimum and provides a direct visualisation of the $\chi^2$ surface and confidence contours.
 
 \item \textbf{Cable delay.} The effective cable delay $\tau'_c$ is measured by two independent methods: a transit phase-slope measurement ($|\tau'_c| = 52.2 \pm 0.6$~ns) and the full-track delay-spectrum intercept ($\tau_{\mathrm{inst}} = 47.2$~ns). The $\sim$5~ns magnitude difference reflects the imperfect separation of the small NS geometric term and residual fringe structure at transit. The equivalent cable path difference of $|\tau'_c| \times c \approx 15.6$~m is consistent with the physical cable routing. The transit measurement exploits the vanishing of the dominant EW geometric delay at $h = 0$, providing a clean, baseline-independent determination of the instrumental phase.
 

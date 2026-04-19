@@ -877,6 +877,84 @@ def plot_bessel_extrema(
     return fig, ax
 
 
+def plot_jinc_extrema(
+    ha_deg: np.ndarray,
+    envelope: np.ndarray,
+    ha_model: np.ndarray,
+    model_curve: np.ndarray,
+    *,
+    extrema_ha_min: np.ndarray | None,
+    extrema_val_min: np.ndarray | None,
+    extrema_ha_max: np.ndarray | None,
+    extrema_val_max: np.ndarray | None,
+    feature_windows: Sequence[tuple] | None = None,
+    diameter_arcmin: float | None,
+    title: str = "",
+) -> tuple[plt.Figure, plt.Axes]:
+    """Combined jinc fit + Bessel extrema vs hour angle.
+
+    Parameters
+    ----------
+    ha_deg : array
+        Hour angle of each data point (degrees).
+    envelope : array
+        Normalised observed envelope.
+    ha_model : array
+        Hour-angle grid for the model curve (degrees).
+    model_curve : array
+        Jinc model evaluated on *ha_model*.
+    extrema_ha_min, extrema_val_min : arrays or None
+        HA and normalised value of identified minima.
+    extrema_ha_max, extrema_val_max : arrays or None
+        HA and normalised value of identified maxima.
+    feature_windows : list of (ha_lo, ha_hi, kind, root, label) or None
+        HA search windows; shaded green for maxima, red for minima.
+    diameter_arcmin : float or None
+        Fitted diameter for annotation.
+    title : str
+        Axes title.
+
+    Returns
+    -------
+    fig, ax
+    """
+    fig, ax = textwidth_figure(4)
+
+    # Shade feature windows first (behind everything)
+    if feature_windows is not None:
+        for ha_lo, ha_hi, kind, _root, _label in feature_windows:
+            color = "C2" if kind == "max" else "C3"
+            ax.axvspan(ha_lo, ha_hi, alpha=0.08, color=color, zorder=0)
+
+    ax.scatter(ha_deg, envelope, s=0.3, alpha=ALPHA_EXTRA_LIGHT,
+               color="C0", rasterized=True, label="Data", zorder=2)
+
+    order = np.argsort(ha_model)
+    ax.plot(ha_model[order], model_curve[order], lw=LW_STANDARD,
+            color="C1", alpha=ALPHA_STANDARD, label="Jinc fit", zorder=3)
+
+    if extrema_ha_min is not None and extrema_val_min is not None:
+        ax.scatter(extrema_ha_min, extrema_val_min, s=SS_FINE * 3,
+                   marker="v", color="C3", zorder=5, label="Minima")
+
+    if extrema_ha_max is not None and extrema_val_max is not None:
+        ax.scatter(extrema_ha_max, extrema_val_max, s=SS_FINE * 3,
+                   marker="^", color="C2", zorder=5, label="Maxima")
+
+    if diameter_arcmin is not None:
+        ax.annotate(
+            rf"$\varnothing = {diameter_arcmin:.2f}'$",
+            xy=(0.98, 0.92), xycoords="axes fraction",
+            ha="right", fontsize=TICK_SIZE, color="C2",
+        )
+
+    ax.set_xlabel("Hour angle [deg]", fontsize=LABEL_SIZE)
+    ax.set_ylabel(r"$|V| / V_0$", fontsize=LABEL_SIZE)
+    ax.set_ylim(-0.05, 1.15)
+    ax.legend(fontsize=LEGEND_SIZE, loc="upper right")
+    return fig, ax
+
+
 def plot_diameter_vs_freq(
     freq_ghz: np.ndarray,
     diameter_arcmin: np.ndarray,

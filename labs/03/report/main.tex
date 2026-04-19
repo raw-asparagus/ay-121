@@ -280,7 +280,7 @@ The fringe phase $\phi(h) = 2\pi\nu\,\tau'_g(h)$ varies with hour angle. Differe
 f_f(h) = \omega_\oplus\left[\frac{b_{\mathrm{ew}}}{\lambda}\cos\delta\,\cos h
   - \frac{b_{\mathrm{ns}}}{\lambda}\sin L\,\cos\delta\,\sin h\right],
 \end{equation}
-where $\omega_\oplus = 7.2921 \times 10^{-5}$~rad~s$^{-1}$ is the sidereal rotation rate. For our baseline at $\delta \approx 0^\circ$, the fringe period at the meridian is $\sim$26~s. Since $f_f(h)$ varies slowly, a short-time Fourier transform (STFT) recovers it for every $h$ bin, and fitting the measured $f_f(h)$ curve to \eqref{eq:fringe_freq} yields a baseline estimate (Method~1, \S\ref{sec:baseline}).
+where $\omega_\oplus = 7.2921 \times 10^{-5}$~rad~s$^{-1}$ is the sidereal rotation rate. For our baseline at $\delta \approx 0^\circ$, the fringe period at the meridian is $\sim$26~s. Since $f_f(h)$ varies slowly, a short-time Fourier transform (STFT) recovers it for every $h$ bin, and fitting the measured $f_f(h)$ curve to equation \eqref{eq:fringe_freq} yields a baseline estimate (Method~1, \S\ref{sec:baseline}).
 
 For an extended source with brightness distribution $I(\Delta h)$, the interferometer response is the convolution of the point-source fringe with the source profile. For a symmetric source this factors as:
 \begin{equation}
@@ -426,6 +426,13 @@ CHIPS & Captures & HA range [deg] & Duration [hr] \\
 
 Channels at multiples of 256 (indices 0, 256, 512, 768) are contaminated by DC and FPGA pipeline harmonics and are excluded from all analysis. Residual ADC offsets in the SNAP board introduce a slowly varying DC pedestal on Re$(V)$ that must be removed before fringe analysis. Figure~\ref{fig:waterfall} shows the resulting visibility waterfall of the Sun across the analysis band at three hour-angle windows, displaying both the fringe amplitude and the phase slope across frequency that encodes the geometric delay.
 
+\begin{figure*}[t!]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_waterfall.pdf}
+\caption{Waterfall plot of the DC-corrected visibility across the analysis band at three hour-angle windows. \textit{Left columns:} Visibility amplitude $|V(\nu, h)|$. \textit{Right columns:} Visibility phase $\arg V(\nu, h)$. The fringe pattern is tightly packed far from transit (high $f_f$) and spreads out near transit (low $f_f$). The phase slope across frequency at any given time encodes the geometric delay $\tau_g(h)$.}
+\label{fig:waterfall}
+\end{figure*}
+
 
 \subsection{DC Correction}
 \label{sec:dc}
@@ -438,18 +445,11 @@ where $N_P = 3$ fringe periods. This ensures the window always spans the same nu
 
 Figure~\ref{fig:dc_before_after} compares the raw and DC-corrected Re$(V)$ at the representative channel. Figure~\ref{fig:waterfall} shows the DC-corrected visibility as a waterfall across the analysis band. The visibility phase at any given time varies linearly across frequency with slope $\mathrm{d}\phi/\mathrm{d}\nu = 2\pi\,\tau_g(h)$, encoding the geometric delay directly. At the Bessel nulls, the jinc function crosses zero and the visibility phase undergoes a $\pi$ shift; however, since the amplitude is near zero at these nulls, the SNR is too low to determine the phase reliably there, and any phase-based baseline method (such as Method~2, \S\ref{sec:method2}) could be corrupted by these jumps.
 
-\begin{figure*}[b!]
+\begin{figure*}[t!]
 \centering
 \includegraphics[width=\textwidth]{figures/fig_dc_before_after.pdf}
 \caption{DC correction at a representative channel. \textit{Top:} Raw Re$(V)$. \textit{Middle:} DC-corrected Re$(V_{\mathrm{dc}})$, now symmetric about zero. \textit{Bottom:} Difference (subtracted DC component). The amplitude drop near $h \approx 0^\circ$ is likely due to a strong wind gust momentarily blowing a dish off-pointing.}
 \label{fig:dc_before_after}
-\end{figure*}
-
-\begin{figure*}[t!]
-\centering
-\includegraphics[width=\textwidth]{figures/fig_waterfall.pdf}
-\caption{Waterfall plot of the DC-corrected visibility across the analysis band at three hour-angle windows. \textit{Left columns:} Visibility amplitude $|V(\nu, h)|$. \textit{Right columns:} Visibility phase $\arg V(\nu, h)$. The fringe pattern is tightly packed far from transit (high $f_f$) and spreads out near transit (low $f_f$). The phase slope across frequency at any given time encodes the geometric delay $\tau_g(h)$.}
-\label{fig:waterfall}
 \end{figure*}
 
 
@@ -465,7 +465,7 @@ We apply five independent methods to determine the baseline $(b_{\mathrm{ew}}, b
 \subsection{STFT Fringe-Frequency Fit (Method 1)}
 \label{sec:method1a}
 
-We slide windowed segments across the time series data, extract the local fringe frequency $\hat{f}_f(h)$ from the FFT peak in each segment, and fit the resulting $\hat{f}_f(h)$ curve to \eqref{eq:fringe_freq} via weighted least squares. This is performed per CHIPS (to avoid windowing across gaps) with SNR-weighted outlier rejection and prior-constrained peak search. The method recovers both $b_{\mathrm{ew}}$ and $b_{\mathrm{ns}}$ and provides the most intuitive visualisation of the fringe (Figure~\ref{fig:stft_fit}).
+We slide windowed segments across the time series data, extract the local fringe frequency $\hat{f}_f(h)$ from the FFT peak in each segment, and fit the resulting $\hat{f}_f(h)$ curve to equation \eqref{eq:fringe_freq} via least squares. This is performed per chip (to avoid windowing across gaps) with a prior-constrained peak search. The method recovers both $b_{\mathrm{ew}}$ and $b_{\mathrm{ns}}$ and provides the most intuitive visualisation of the fringe (Figure~\ref{fig:stft_fit}). This method is included in the adopted baseline.
 
 \begin{figure*}[t!]
 \centering
@@ -477,9 +477,9 @@ We slide windowed segments across the time series data, extract the local fringe
 \subsection{Phase Slope (Method 2)}
 \label{sec:method2}
 
-The phase of the complex visibility varies linearly across frequency with slope $\mathrm{d}\phi/\mathrm{d}\nu = 2\pi\,\tau_g(h)$ (Figure~\ref{fig:phase_slope}). The unwrapped phase is regressed against physical regressors $[\cos\delta\,\sin h,\;\sin L\,\cos\delta\,\cos h,\;1]$ to extract delay coefficients, from which $b_{\mathrm{ew}}$ and $b_{\mathrm{ns}}$ follow. This method is systematically biased for solar observations because the Bessel-function nulls introduce $\pi$ phase jumps that corrupt the unwrapping; we include it as a cross-check only.
+The phase of the complex visibility varies linearly across frequency with slope $\mathrm{d}\phi/\mathrm{d}\nu = 2\pi\,\tau_g(h)$ (Figure~\ref{fig:phase_slope}). The unwrapped phase is linearly regressed to extract delay coefficients, from which $b_{\mathrm{ew}}$ and $b_{\mathrm{ns}}$ can be obtained. This method is systematically biased for solar observations because the Bessel-function nulls introduce $\pi$ phase jumps that corrupt the unwrapping.
 
-\begin{figure*}[b!]
+\begin{figure*}[t!]
 \centering
 \includegraphics[width=\textwidth]{figures/fig_phase_slope.pdf}
 \caption{Phase slope across frequency at three hour angles. The linear slope encodes $\tau_g$ directly; fitted delays agree with predictions to within a few nanoseconds.}
@@ -490,11 +490,11 @@ The phase of the complex visibility varies linearly across frequency with slope 
 \subsection{Delay Spectrum (Method 3)}
 \label{sec:method3}
 
-The delay spectrum is the inverse FFT (IFFT) of the cross-correlation spectrum $V_{12}(\nu)$, transforming from the frequency domain to the delay domain. The peak of the delay spectrum at each capture directly yields the relative delay $\tau(h)$, with sub-bin refinement via parabolic interpolation. The delay curve is then fitted to the physical model $\tau(h) = (b_{\mathrm{ew}}/c)\cos\delta\,\sin h + (b_{\mathrm{ns}}/c)\sin L\,\cos\delta\,\cos h + \tau_{\mathrm{inst}}$. This broadband, frequency-independent estimator is robust against Bessel-null phase jumps (since it operates in the delay domain rather than the phase domain) and is included in the adopted baseline.
+The delay spectrum is the inverse FFT (IFFT) of the cross-correlation spectrum $V_{12}(\nu)$, transforming from the frequency domain to the delay domain. The peak of the delay spectrum at each capture directly yields the relative delay $\tau(h)$. The delay curve is then fitted to the physical model of Equation~\eqref{eq:delay_combined}. This broadband, frequency-independent estimator is robust against Bessel-null phase jumps (since it operates in the delay domain rather than the phase domain) and is included in the adopted baseline.
 
-Figure~\ref{fig:lag_delay} shows the measured delay versus hour angle with the best-fit model overlaid. The sinusoidal sweep of $\tau(h)$ directly encodes all three key interferometric quantities: the \emph{amplitude} of the sinusoidal variation gives $b_{\mathrm{ew}}$, the $\cos h$ modulation gives $b_{\mathrm{ns}}$, and the \emph{vertical offset} (the fit intercept $\tau_{\mathrm{inst}} = 47.2$~ns) gives the effective cable delay $\tau'_c$. At transit ($h = 0$), the dominant EW term vanishes and the measured delay reads off $\tau'_c$ directly (see \S\ref{sec:cable_delay}).
+Figure~\ref{fig:lag_delay} shows the measured delay versus hour angle with the best-fit model overlaid. The sinusoidal sweep of $\tau(h)$ directly encodes all three key interferometric quantities: the amplitude of the sinusoidal variation gives $b_{\mathrm{ew}}$, the $\cos h$ modulation gives $b_{\mathrm{ns}}$, and the vertical offset (the fit intercept at $h = 0$ $\tau_{\mathrm{inst}} = 47.2$~ns) gives the effective cable delay $\tau'_c$; at transit ($h = 0$), the dominant EW term vanishes and the measured delay reads off $\tau'_c$ directly (see \S\ref{sec:cable_delay}).
 
-\begin{figure*}[t]
+\begin{figure*}[t!]
 \centering
 \includegraphics[width=\textwidth]{figures/fig_lag_delay_vs_ha.pdf}
 \caption{Delay spectrum versus hour angle (Method~3). Each point is the delay extracted from the IFFT of the cross-correlation spectrum $V_{12}(\nu)$ at a single capture. The solid curve is the best-fit model $\tau(h) = (b_{\mathrm{ew}}/c)\cos\delta\,\sin h + (b_{\mathrm{ns}}/c)\sin L\,\cos\delta\,\cos h + \tau_{\mathrm{inst}}$. The sinusoidal amplitude encodes $b_{\mathrm{ew}}$; the vertical offset at $h = 0$ is the effective cable delay $\tau'_c$.}
@@ -505,51 +505,51 @@ Figure~\ref{fig:lag_delay} shows the measured delay versus hour angle with the b
 \subsection{Nonlinear Least-Squares Fringe Fit (Method 4)}
 \label{sec:nls}
 
-We fit the fringe equation \eqref{eq:fringe_boxed} directly to both the real and imaginary parts of the complex visibility using the Levenberg--Marquardt algorithm \citep{Virtanen2020}. The nonlinear parameters $(b_{\mathrm{ew}}, b_{\mathrm{ns}})$ are iterated, while the linear parameters $(A, B, C, D)$ in the model $V_i = (A + iC)\cos\psi_i + (B + iD)\sin\psi_i$ are solved analytically at each iteration via the variable-projection technique of \citet{Golub1973}. Fitting both quadratures simultaneously provides $2N$ data points and the smallest formal uncertainties of any method. This method is included in the adopted baseline.
+We fit the fringe equation \eqref{eq:fringe_boxed} directly to both the real and imaginary parts of the complex visibility via the model
+\begin{equation}
+\label{eq:nls_model}
+V_i = (A + iC)\cos\psi_i + (B + iD)\sin\psi_i,
+\end{equation}
+where $\psi_i = 2\pi\nu\,\tau'_g(h_i)$ is the geometric fringe phase at hour angle $h_i$, with $\tau'_g$ given by Equation~\eqref{eq:delay_combined}. The nonlinear parameters $(b_{\mathrm{ew}}, b_{\mathrm{ns}})$ are iterated, while the linear parameters $(A, B, C, D)$ are solved algebraically at each iteration. Fitting both real and imaginary components simultaneously provides $2N$ data points and the smallest formal uncertainties of any method. This method is included in the adopted baseline.
 
 
 \subsection{Brute-Force Grid Search (Method 5)}
 \label{sec:bruteforce}
 
-The lab-prescribed brute-force technique evaluates the sum-of-squared residuals $\mathcal{S}^2$ on a two-dimensional grid in $(Q_{\mathrm{ew}}, Q_{\mathrm{ns}})$, solving $(A, B, C, D)$ analytically at each grid point. The procedure follows \citet{Bevington2003}:
+Since for any trial baseline $(Q_{\mathrm{ew}}, Q_{\mathrm{ns}})$ the geometric delay $\tau'_g(h_i)$ is fixed, the linear coefficients $(A, B)$ can be solved numerically by ordinary least squares. Hence, by evaluating the sum-of-squared residuals $\mathcal{S}^2(Q_{\mathrm{ew}}, Q_{\mathrm{ns}})$ on a grid around some prior baselines, we can find the best-fit values by minimization.
 
-\begin{enumerate}
-\item \textbf{1-D sweep} (Figure~\ref{fig:brute_1d}): scan $Q_{\mathrm{ew}}$ with $Q_{\mathrm{ns}} = 0$. The $\mathcal{S}^2$ curve shows a sharp global minimum surrounded by sidelobe aliases.
-\item \textbf{2-D grid search}: coarse grid ($200 \times 200$) to locate the global minimum, then fine grid ($300 \times 300$) for refinement.
-\item \textbf{Curvature matrix}: the second derivatives of $\mathcal{S}^2$ at the minimum form the curvature matrix $[\alpha]$; the covariance matrix is $[\alpha]^{-1}$ scaled by $\sigma^2 = \mathcal{S}^2_{\min}/\mathrm{dof}$.
-\end{enumerate}
+Following \citet{AY121FitNotes}, the residual surface near the minimum is approximated by the second-order Taylor expansion
+\begin{equation}
+\Delta\mathcal{S}^2 \;\equiv\; \mathcal{S}^2 - \mathcal{S}^2_{\min}
+\;=\; \Delta\mathbf{Q}^{\!\mathsf{T}} \,[\alpha]\, \Delta\mathbf{Q},
+\label{eq:curvature}
+\end{equation}
+where $\Delta\mathbf{Q} = (Q_{\mathrm{ew}} - Q_{\mathrm{ew}}^*,\; Q_{\mathrm{ns}} - Q_{\mathrm{ns}}^*)^{\!\mathsf{T}}$ and $[\alpha]$ is the $2\times 2$ curvature matrix whose elements are the numerical second derivatives $\tfrac{1}{2}\partial^2 \mathcal{S}^2/\partial Q_i\,\partial Q_j$ evaluated at the minimum. The covariance matrix is $[\epsilon] = [\alpha]^{-1}$, and the $1\sigma$ uncertainties are $\sigma_{Q_i} = \sqrt{\epsilon_{ii}} \cdot \sigma$, where $\sigma^2 = \mathcal{S}^2_{\min}/\mathrm{dof}$.
 
 The confidence contours are drawn at multiplicative levels $\{2.30,\, 6.17\} \times \chi^2_{\nu,\min}$, corresponding to the $\Delta\chi^2$ thresholds for 68.3\% and 95.4\% confidence levels with two parameters of interest \citep{Press2007}. Figure~\ref{fig:brute_2d} shows the 2-D $\chi^2$ surface with these contours.
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{figures/fig_brute_1d.pdf}
-\caption{Brute-force 1-D sweep: $\mathcal{S}^2$ versus $b_{\mathrm{ew}}$ with $b_{\mathrm{ns}} = 0$, evaluated at a single representative channel. The sharp global minimum at $b_{\mathrm{ew}} \approx 15.10$~m is surrounded by sidelobe aliases spaced by $\Delta b_{\mathrm{ew}} = \lambda/\cos\delta$.}
-\label{fig:brute_1d}
-\end{figure}
+The brute-force model fits a point-source fringe (Equation~\ref{eq:fringe_boxed}) and does not account for the Bessel-function envelope that modulates the resolved solar visibility. At large $|h|$ the projected baseline $b_{\mathrm{proj}}$ changes rapidly, resulting in varying visibility ampltiudes; the envelope therefore imprints a slow amplitude modulation that biases the least-squares residuals to only minimize for large $|h|$. Restricting the fit to a symmetric window $|h| \leq 20^{\circ}$ around transit mitigates this since near transit the projected baseline varies slowly and the Bessel envelope is nearly flat. Hence, the point-source fringe model is a better approximation to the data. Accordingly, the windowed search yields $b_{\mathrm{ew}} = 15.114$~m, closer to the adopted baseline than the full-track result of $b_{\mathrm{ew}} = 15.103$~m (Figure~\ref{fig:brute_2d}).
+
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/fig_brute_2d.pdf}
-\caption{2-D brute-force grid search: $\chi^2_\nu$ surface in the $(b_{\mathrm{ew}}, b_{\mathrm{ns}})$ plane, evaluated at a representative channel. \textit{Left:} Coarse grid covering a wide range to identify the global minimum. \textit{Right:} Fine grid around the minimum, with $1\sigma$ (solid) and $2\sigma$ (dashed) confidence contours overlaid.}
+\caption{2-D brute-force $\chi^2_\nu$ grid search in the $(b_{\mathrm{ew}}, b_{\mathrm{ns}})$ plane. \textit{Left:} Full-track search using all hour angles. \textit{Right:} Windowed search restricted to $|h| \leq 20^\circ$ around transit, suppressing Bessel-envelope bias. Solid and dashed contours mark $1\sigma$ confidence regions ($2.30\times$ and $6.17\times$ the minimum $\chi^2_\nu$). The windowed result ($b_{\mathrm{ew}} = 15.114$~m) is closer to the adopted baseline than the full-track grid ($b_{\mathrm{ew}} = 15.103$~m), consistent with a small systematic from the envelope modulation at large $|h|$.}
 \label{fig:brute_2d}
 \end{figure*}
 
 
-A complementary windowed grid search restricted to $|h| \leq 20^\circ$ around transit reduces the influence of the Bessel-envelope bias at large hour angles. Figure~\ref{fig:brute_windowed} shows the resulting $\chi^2$ surface and a data-versus-model comparison near transit. The windowed result ($b_{\mathrm{ew}} = 15.114$~m) is closer to the adopted IVW baseline than the full-track grid ($b_{\mathrm{ew}} = 15.103$~m), consistent with a small systematic from the envelope modulation at large $|h|$.
-
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{figures/fig_brute_windowed.pdf}
-\caption{Windowed brute-force grid search ($|h| \leq 20^\circ$). \textit{Left panels:} Coarse and fine $\chi^2_\nu$ surfaces. \textit{Right panels:} Data versus best-fit model near transit, with residuals below. Restricting the hour-angle range suppresses the Bessel-envelope bias visible in the full-track grid (Figure~\ref{fig:brute_2d}).}
-\label{fig:brute_windowed}
+\includegraphics[width=\textwidth]{figures/fig_fringe_fit.pdf}
+\caption{Recovered fringe pattern near transit ($|h| \leq 1.5^\circ$) from the windowed grid search. \textit{Top:} observed Re$(V)$ (scatter) and best-fit sinusoidal model (solid), illustrating the rapid fringe oscillation resolved by the interferometer. \textit{Bottom:} fit residuals with $\pm 3\sigma$ band. The close agreement validates the baseline solution and confirms that the point-source fringe model accurately describes the data at these hour angles.}
+\label{fig:fringe_fit}
 \end{figure*}
-
 
 \subsection{Baseline Summary and Adopted Value}
 \label{sec:baseline_summary}
 
-Table~\ref{tab:baseline_comparison} compares all five methods. The adopted baseline is the inverse-variance weighted (IVW) mean of the three methods included in the adoption set (STFT, NLS-complex, and delay-spectrum), yielding $b_{\mathrm{ew}} = 15.1148$~m and $b_{\mathrm{ns}} = 1.4746$~m. The formal uncertainties are sub-millimetre, reflecting the high SNR of the fringe signal across 285 spectral channels and $>$8000 time samples.
+Table~\ref{tab:baseline_comparison} compares all five methods. The adopted baseline is the mean of the three methods included in the adoption set (STFT, NLS-complex, and delay-spectrum), with errors added in quadrature, yielding $b_{\mathrm{ew}} = 15.1148$~m and $b_{\mathrm{ns}} = 1.4746$~m. The formal uncertainties are sub-millimetre, reflecting the high SNR of the fringe signal across 285 spectral channels and $>$8000 time samples.
 
 \begin{table*}[t]
 \centering
@@ -566,7 +566,7 @@ NLS (complex) & 15.1148 & 0.0000 & 1.4746 & 0.0000 & $-0.18$ & 0.38 \\
 Grid (full) & 15.1031 & 0.0002 & 1.5634 & 0.0005 & $-0.22$ & 0.68 \\
 Grid ($\pm 20^\circ$) & 15.1136 & 0.0001 & 1.4837 & 0.0023 & $-0.19$ & 0.41 \\
 \midrule
-\textbf{Adopted (IVW)} & \textbf{15.1148} & \textbf{0.0000} & \textbf{1.4746} & \textbf{0.0000} & --- & --- \\
+\textbf{Adopted (mean)} & \textbf{15.1148} & \textbf{0.0000} & \textbf{1.4746} & \textbf{0.0000} & --- & --- \\
 \midrule
 LiDAR survey & 15.17 & 0.30 & 1.36 & 0.30 & $-0.18$ & 0.38 \\
 \bottomrule
@@ -574,6 +574,8 @@ LiDAR survey & 15.17 & 0.30 & 1.36 & 0.30 & $-0.18$ & 0.38 \\
 \end{table*}
 
 The adopted baseline agrees with the LiDAR survey at the $0.2\sigma$ level (where $\sigma = 0.30$~m is the LiDAR uncertainty). The phase-slope method (Method~2) is a $>1\sigma$ outlier, consistent with the known phase-unwrapping bias from Bessel nulls.
+
+As a direct validation, Figure~\ref{fig:fringe_fit} shows the recovered fringe pattern near transit from the windowed grid search minimum. The best-fit point-source sinusoid tracks the observed Re$(V)$ oscillations at the $\sim$26~s fringe period, with residuals consistent with radiometric noise. This confirms that the baseline solution correctly predicts the interferometric fringe rate and phase, and that the point-source model is an excellent description of the data in the near-transit regime where the Bessel envelope is flat.
 
 
 \subsection{Effective Cable Delay}
@@ -607,7 +609,7 @@ The formal fit uncertainties are unrealistically small ($\sim$$10~\mu$m) because
 Source & Estimated magnitude \\
 \midrule
 LiDAR survey (phase-centre ID) & 30~cm (dominant) \\
-CHIPS-to-CHIPS gain step & 1--2~cm \\
+CHIPS-to-CHIPS gain step & 1--zcm \\
 Adaptive DC leakage & $<$1~cm \\
 Sidereal vs solar rate & $\sim$4~cm \\
 Bessel-envelope bias on phase & 1--5~cm \\
@@ -642,16 +644,16 @@ Six Bessel extrema are identified per channel using automatic peak/valley detect
 
 We measure the solar radius from the \emph{positions} of the Bessel extrema rather than fitting the full envelope shape. This is more robust because the presence of sunspots prevents the Bessel nulls from reaching zero amplitude, biasing any least-squares fit to the jinc. By contrast, the \emph{locations} of the extrema in $|u|$-space depend only on $R$ through the Bessel zeros, independent of the sunspot floor or limb brightening.
 
-Each identified extremum yields an independent solar radius estimate via $R_k = j_k/(2\pi\,|u_k|)$, where $|u_k|$ is the measured projected baseline at the extremum's hour angle. Per-channel radii are combined via inverse-variance weighting across all matched extrema, and the cross-channel adopted value is the IVW mean:
+Each identified extremum yields an independent solar radius estimate via $R_k = j_k/(2\pi\,|u_k|)$, where $|u_k|$ is the measured projected baseline at the extremum's hour angle. Per-channel radii are combined via an unweighted mean across all matched extrema, with errors added in quadrature:
 \[
-D_{\mathrm{IVW}} = 34.664 \pm 0.034\;\mathrm{arcmin}\quad\text{(statistical)}.
+D_{\mathrm{mean}} = 34.664 \pm 0.034\;\mathrm{arcmin}\quad\text{(statistical)}.
 \]
 Figure~\ref{fig:diameter_vs_freq} shows the per-channel diameter distribution across the analysis band.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig_diameter_vs_freq.pdf}
-\caption{Solar diameter from Bessel extrema, per channel. The horizontal dashed line shows the IVW mean ($D_{\mathrm{IVW}} = 34.664'$); the shaded band shows the $\pm 1\sigma$ statistical uncertainty. The diameter is consistent across the 70~MHz analysis band.}
+\caption{Solar diameter from Bessel extrema, per channel. The horizontal dashed line shows the unweighted mean ($D_{\mathrm{mean}} = 34.664'$); the shaded band shows the $\pm 1\sigma$ statistical uncertainty. The diameter is consistent across the 70~MHz analysis band.}
 \label{fig:diameter_vs_freq}
 \end{figure}
 
@@ -706,7 +708,7 @@ Table~\ref{tab:diameter_comparison} compares the measured solar diameter with li
 \toprule
 Method / Reference & Diameter [arcmin] & Note \\
 \midrule
-Extrema IVW (this work) & $34.664 \pm 0.034$ & statistical only \\
+Extrema mean (this work) & $34.664 \pm 0.034$ & statistical only \\
 Jinc fit (this work) & consistent & $R$ constrained \\
 4-param LB fit (this work) & consistent & $R$ constrained \\
 \midrule
@@ -736,7 +738,7 @@ Table~\ref{tab:error_budget} presents the full diameter error budget. The statis
 \toprule
 Source & $\sigma_D$ [arcmin] \\
 \midrule
-Statistical (extrema IVW) & 0.034 \\
+Statistical (extrema mean) & 0.034 \\
 Baseline uncertainty & 0.60 \\
 CHIPS-gain residual & 0.17 \\
 Limb-brightening position shift & 0.17 \\

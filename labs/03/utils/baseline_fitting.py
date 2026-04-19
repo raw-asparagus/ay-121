@@ -279,11 +279,11 @@ def fft_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    ivw_ew, ivw_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    mean_ew, mean_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
 
     result = BaselineResult(
-        b_ew_m=ivw_ew,
-        b_ew_err_m=ivw_ew_err,
+        b_ew_m=mean_ew,
+        b_ew_err_m=mean_ew_err,
         method="fft_broadband",
         n_points=int(valid.sum()),
         metadata={
@@ -433,14 +433,14 @@ def phase_slope_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    ivw_ew, ivw_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
-    ivw_ns, ivw_ns_err, _ = _robust_mean(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
+    mean_ew, mean_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    mean_ns, mean_ns_err, _ = _robust_mean(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
 
     result = BaselineResult(
-        b_ew_m=ivw_ew,
-        b_ew_err_m=ivw_ew_err,
-        b_ns_m=ivw_ns,
-        b_ns_err_m=ivw_ns_err,
+        b_ew_m=mean_ew,
+        b_ew_err_m=mean_ew_err,
+        b_ns_m=mean_ns,
+        b_ns_err_m=mean_ns_err,
         method="phase_slope_broadband",
         n_points=int(valid.sum()),
     )
@@ -835,14 +835,14 @@ def nls_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    ivw_ew, ivw_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
-    ivw_ns, ivw_ns_err, _ = _robust_mean(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
+    mean_ew, mean_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    mean_ns, mean_ns_err, _ = _robust_mean(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
 
     result = BaselineResult(
-        b_ew_m=ivw_ew,
-        b_ew_err_m=ivw_ew_err,
-        b_ns_m=ivw_ns,
-        b_ns_err_m=ivw_ns_err,
+        b_ew_m=mean_ew,
+        b_ew_err_m=mean_ew_err,
+        b_ns_m=mean_ns,
+        b_ns_err_m=mean_ns_err,
         method="nls_broadband",
         n_points=int(valid.sum()),
     )
@@ -1956,14 +1956,14 @@ def nls_real_baseline_broadband(
     if not valid.any():
         return None, per_ch
 
-    ivw_ew, ivw_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
-    ivw_ns, ivw_ns_err, _ = _robust_mean(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
+    mean_ew, mean_ew_err, _ = _robust_mean(per_ch["b_ew_m"][valid], per_ch["b_ew_err_m"][valid])
+    mean_ns, mean_ns_err, _ = _robust_mean(per_ch["b_ns_m"][valid], per_ch["b_ns_err_m"][valid])
 
     result = BaselineResult(
-        b_ew_m=ivw_ew,
-        b_ew_err_m=ivw_ew_err,
-        b_ns_m=ivw_ns,
-        b_ns_err_m=ivw_ns_err,
+        b_ew_m=mean_ew,
+        b_ew_err_m=mean_ew_err,
+        b_ns_m=mean_ns,
+        b_ns_err_m=mean_ns_err,
         method="nls_real_broadband",
         n_points=int(valid.sum()),
     )

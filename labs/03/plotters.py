@@ -134,12 +134,12 @@ def plot_bessel_envelope_theory(
         ax.axvline(z, color="C3", ls="--", lw=LW_FINE, alpha=ALPHA_LIGHT,
                    zorder=1)
         ax.text(z, 0.85 - 0.15 * i, rf"$j_{{1,{i + 1}}}$",
-                fontsize=LEGEND_SIZE - 2, ha="center", color="C3")
+                fontsize=LEGEND_SIZE, ha="center", color="C3")
 
     zero_line(ax)
     ax.set_xlabel(r"$|u|\,R$", fontsize=LABEL_SIZE)
     ax.set_ylabel(r"$V/V(0)$", fontsize=LABEL_SIZE)
-    ax.legend(fontsize=LEGEND_SIZE - 2, loc="upper right")
+    ax.legend(fontsize=LEGEND_SIZE, loc="upper right")
     return fig, ax
 
 
@@ -190,13 +190,13 @@ def plot_raw_visibility_4panel(
                 label=f"chip {ci}" if ax is axes[0] else None,
             )
         ax.set_ylabel(lbl, fontsize=TICK_SIZE)
-        ax.tick_params(labelsize=TICK_SIZE - 1)
+        ax.tick_params(labelsize=TICK_SIZE)
         if "Re" in lbl or "Im" in lbl:
             ax.axhline(0, color=NEUTRAL_COLOR, lw=LW_LIGHT, ls="--",
                        zorder=1)
 
     axes[0].legend(
-        fontsize=TICK_SIZE - 1, markerscale=8,
+        fontsize=TICK_SIZE, markerscale=8,
         ncol=len(chip_slices), loc="upper right",
     )
     title_parts = ["Raw visibility vs hour angle"]
@@ -253,7 +253,7 @@ def plot_amplitude_spectrum(
 
     ax.set_xlabel("Sky frequency [GHz]", fontsize=LABEL_SIZE)
     ax.set_ylabel(r"$\langle|V|\rangle$", fontsize=LABEL_SIZE)
-    ax.legend(fontsize=LEGEND_SIZE - 2, ncol=4)
+    ax.legend(fontsize=LEGEND_SIZE, ncol=4)
     return fig, ax
 
 
@@ -309,7 +309,7 @@ def plot_observation_timeline(
                      label=f"chip {ci} ({n} cap)")
     axes[2].set_ylabel("Cumulative captures", fontsize=LABEL_SIZE)
     axes[2].set_xlabel("Hour angle [deg]", fontsize=LABEL_SIZE)
-    axes[2].legend(fontsize=TICK_SIZE - 1, ncol=len(chip_slices))
+    axes[2].legend(fontsize=TICK_SIZE, ncol=len(chip_slices))
 
     return fig, axes
 
@@ -424,13 +424,13 @@ def plot_dc_corrected_4panel(
                 label=f"chip {ci}" if ax is axes[0] else None,
             )
         ax.set_ylabel(lbl, fontsize=TICK_SIZE)
-        ax.tick_params(labelsize=TICK_SIZE - 1)
+        ax.tick_params(labelsize=TICK_SIZE)
         if "Re" in lbl or "Im" in lbl:
             ax.axhline(0, color=NEUTRAL_COLOR, lw=LW_LIGHT, ls="--",
                        zorder=1)
 
     axes[0].legend(
-        fontsize=TICK_SIZE - 1, markerscale=8,
+        fontsize=TICK_SIZE, markerscale=8,
         ncol=len(chip_slices), loc="upper right",
     )
     title_parts = ["DC-corrected visibility"]
@@ -674,7 +674,7 @@ def plot_fringe_frequency_stft(
     ax_stft.set_ylim(0, f_ylim)
     ax_stft.set_xlabel("Hour angle [deg]", fontsize=LABEL_SIZE)
     ax_stft.set_ylabel("Frequency [Hz]", fontsize=LABEL_SIZE)
-    ax_stft.legend(fontsize=LEGEND_SIZE - 2, loc="upper right")
+    ax_stft.legend(fontsize=LEGEND_SIZE, loc="upper right")
 
     ax_psd.semilogy(f_psd, psd, "C0", lw=LW_LIGHT * 0.8, zorder=2)
     if ff_range_hz is not None:
@@ -684,7 +684,7 @@ def plot_fringe_frequency_stft(
     ax_psd.set_xlabel("Frequency [Hz]", fontsize=LABEL_SIZE)
     ax_psd.set_ylabel("PSD", fontsize=LABEL_SIZE)
     ax_psd.set_xlim(0, f_ylim)
-    ax_psd.legend(fontsize=LEGEND_SIZE - 2)
+    ax_psd.legend(fontsize=LEGEND_SIZE)
 
     title_parts = ["Fringe-frequency sanity check"]
     if channel_idx is not None and freq_ghz is not None:
@@ -720,7 +720,7 @@ def plot_phase_slope(
     fig, axes : (Figure, ndarray of Axes)
     """
     n = len(phase_unwrapped)
-    fig, _ax = textwidth_figure(2)
+    fig, _ax = textwidth_figure(3)
     _ax.remove()
     axes = subpanels(fig, 1, n, sharex=False, sharey=True, wspace=0.07)
     if n == 1:
@@ -729,7 +729,7 @@ def plot_phase_slope(
     for ax, ph, coeffs, ha, tau in zip(
         axes.flat, phase_unwrapped, fit_coeffs, ha_actual_deg, tau_ns,
     ):
-        ax.scatter(freqs_ghz_band, ph, s=0.5, alpha=ALPHA_LIGHT,
+        ax.scatter(freqs_ghz_band, ph, s=1, alpha=ALPHA_LIGHT,
                    color="C0", rasterized=True, zorder=2)
         f_hz = freqs_ghz_band * 1e9
         ax.plot(freqs_ghz_band, np.polyval(coeffs, f_hz), "C1",
@@ -737,7 +737,7 @@ def plot_phase_slope(
                 label=rf"$\tau$ = {tau:.1f} ns")
         ax.set_xlabel("Freq [GHz]", fontsize=LABEL_SIZE)
         ax.set_title(rf"HA = {ha:.0f}$^\circ$", fontsize=TICK_SIZE)
-        ax.legend(fontsize=LEGEND_SIZE - 3)
+        ax.legend(fontsize=LEGEND_SIZE)
 
     axes.flat[0].set_ylabel("Unwrapped\nphase [rad]", fontsize=LABEL_SIZE)
     return fig, axes
@@ -950,13 +950,6 @@ def plot_jinc_extrema(
         ax_top.scatter(extrema_ha_max, extrema_val_max, s=SS_FINE * 3,
                        marker="^", color="C2", zorder=5, label="Maxima")
 
-    if diameter_arcmin is not None:
-        ax_top.annotate(
-            rf"$\varnothing = {diameter_arcmin:.2f}'$",
-            xy=(0.98, 0.92), xycoords="axes fraction",
-            ha="right", fontsize=TICK_SIZE, color="C2",
-        )
-
     ax_top.set_ylabel(r"$|V| / V_0$", fontsize=LABEL_SIZE)
     ax_top.set_ylim(-0.05, 1.15)
     ax_top.legend(fontsize=LEGEND_SIZE, loc="upper right")
@@ -1144,7 +1137,7 @@ def plot_lb_fit_vs_data(
     axes[0].plot(ha_deg_interp, fit_curve, lw=LW_STANDARD, color="C1",
                  label=fit_label, zorder=3)
     axes[0].set_ylabel(r"Normalised $|V|$", fontsize=LABEL_SIZE)
-    axes[0].legend(fontsize=TICK_SIZE - 2, loc="upper right")
+    axes[0].legend(fontsize=TICK_SIZE, loc="upper right")
     axes[0].set_ylim(ylim)
 
     axes[1].plot(ha_deg_interp, residual, lw=LW_FINE, color="C0",
@@ -1292,7 +1285,7 @@ def plot_fringe_fit(
     axes[0].plot(ha_deg, model_re, lw=LW_LIGHT, color="C1",
                  label=title, zorder=3)
     axes[0].set_ylabel(r"Re$(V)$", fontsize=LABEL_SIZE)
-    axes[0].legend(fontsize=TICK_SIZE - 1, loc="upper right")
+    axes[0].legend(fontsize=TICK_SIZE, loc="upper right")
 
     axes[1].scatter(ha_deg, residual, s=SS_FINE, alpha=ALPHA_EXTRA_LIGHT,
                     color="C0", rasterized=True, zorder=2)
@@ -1354,11 +1347,9 @@ def plot_brute_2d(
     chi2_nu_win: np.ndarray,
     chi2_nu_min_win: float,
     *,
-    title_left: str,
-    title_right: str,
     sigma_factors: dict[float, str],
 ) -> tuple[plt.Figure, np.ndarray]:
-    """Side-by-side reduced-χ² grid search: full track and windowed.
+    """Stacked reduced-χ² grid search: full track (top) and windowed (bottom).
 
     Parameters
     ----------
@@ -1374,8 +1365,6 @@ def plot_brute_2d(
         Reduced χ² surface for the windowed search.
     chi2_nu_min_win : float
         Minimum reduced χ² of the windowed search.
-    title_left, title_right : str
-        Panel titles.
     sigma_factors : dict
         Mapping ``{multiplicative_factor: label}`` for confidence
         contours, e.g. ``{2.30: r"1$\\sigma$", 6.17: r"2$\\sigma$"}``.
@@ -1384,15 +1373,14 @@ def plot_brute_2d(
     -------
     fig, axes : (Figure, ndarray of 2 Axes)
     """
-    fig, _ax = textwidth_figure(8, subfigures=(1, 2, {"wspace": 0.28}))
-    _ax_placeholder = _ax  # subfigures array
+    fig, subfigs = columnwidth_figure(19 / 2, subfigures=(2, 1))
+    subfigs = np.atleast_1d(subfigs)
 
     axes = np.empty(2, dtype=object)
-    subfigs = np.atleast_1d(_ax_placeholder)
 
-    for i, (sf, b_ew, b_ns, chi2, chi2_min, title) in enumerate([
-        (subfigs[0], b_ew_full, b_ns_full, chi2_nu_full, chi2_nu_min_full, title_left),
-        (subfigs[1], b_ew_win, b_ns_win, chi2_nu_win, chi2_nu_min_win, title_right),
+    for i, (sf, b_ew, b_ns, chi2, chi2_min) in enumerate([
+        (subfigs[0], b_ew_full, b_ns_full, chi2_nu_full, chi2_nu_min_full),
+        (subfigs[1], b_ew_win, b_ns_win, chi2_nu_win, chi2_nu_min_win),
     ]):
         ax = sf.subplots()
         axes[i] = ax
@@ -1425,15 +1413,14 @@ def plot_brute_2d(
             linestyles=["solid", "dashed"],
         )
         ax.clabel(cs, fmt=dict(zip(levels, sigma_factors.values())),
-                  fontsize=TICK_SIZE - 2)
+                  fontsize=TICK_SIZE)
 
-        ax.set_xlabel(r"$b_{\rm EW}$ [m]", fontsize=LABEL_SIZE)
-        if i == 0:
-            ax.set_ylabel(r"$b_{\rm NS}$ [m]", fontsize=LABEL_SIZE)
-        ax.set_title(title, fontsize=TICK_SIZE)
+        ax.set_ylabel(r"$b_{\rm NS}$ [m]", fontsize=LABEL_SIZE)
+        if i == 1:
+            ax.set_xlabel(r"$b_{\rm EW}$ [m]", fontsize=LABEL_SIZE)
 
-        sf.colorbar(im, ax=ax, orientation="horizontal",
-                    label=r"$\chi^2_\nu$", shrink=0.9, pad=0.15)
+        sf.colorbar(im, ax=ax, orientation="vertical",
+                    label=r"$\chi^2_\nu$", shrink=0.8, pad=0.03)
 
     return fig, axes
 
@@ -1501,7 +1488,7 @@ def plot_lag_delay_vs_ha(
     axes[0].plot(ha_deg, tau_model_ns, color="cyan", lw=LW_STANDARD,
                  label=title, zorder=3)
     axes[0].set_ylabel(r"Delay $\tau$ [ns]", fontsize=LABEL_SIZE)
-    axes[0].legend(fontsize=TICK_SIZE - 1, loc="upper right")
+    axes[0].legend(fontsize=TICK_SIZE, loc="upper right")
 
     # Colorbar above spectrogram
     fig.colorbar(pm, ax=axes[0], orientation="horizontal",
@@ -1519,7 +1506,7 @@ def plot_lag_delay_vs_ha(
     axes[1].axhline(0, color="k", lw=LW_LIGHT, ls="--", zorder=1)
     axes[1].set_xlabel("Hour angle [deg]", fontsize=LABEL_SIZE)
     axes[1].set_ylabel("Residual [ns]", fontsize=LABEL_SIZE)
-    axes[1].legend(fontsize=TICK_SIZE - 1, ncol=3)
+    axes[1].legend(fontsize=TICK_SIZE, ncol=3)
 
     ha_xlim = (ha_deg.min(), ha_deg.max())
     axes[0].set_xlim(ha_xlim)
@@ -1593,7 +1580,7 @@ def plot_stft_baseline_fit(
                  label=title, zorder=3)
     axes[0].set_ylim(0.0, f_ylim_mhz)
     axes[0].set_ylabel("Fringe frequency [mHz]", fontsize=LABEL_SIZE)
-    axes[0].legend(fontsize=TICK_SIZE - 1, loc="upper right")
+    axes[0].legend(fontsize=TICK_SIZE, loc="upper right")
 
     # Colorbar above spectrogram
     fig.colorbar(pm, ax=axes[0], orientation="horizontal",
@@ -1619,7 +1606,7 @@ def plot_stft_baseline_fit(
 
     axes[1].set_xlabel("Hour angle [deg]", fontsize=LABEL_SIZE)
     axes[1].set_ylabel("Residual [mHz]", fontsize=LABEL_SIZE)
-    axes[1].legend(fontsize=TICK_SIZE - 1, ncol=3)
+    axes[1].legend(fontsize=TICK_SIZE, ncol=3)
 
     ha_xlim = (ha_stft_deg.min(), ha_stft_deg.max())
     axes[0].set_xlim(ha_xlim)

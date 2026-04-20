@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR5a + DR5b).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR5a setting).
 
 Simple raster in galactic coordinates at 2° spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
@@ -7,16 +7,13 @@ setting) to prevent the telescope from crossing the north gap.
 Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
-Two parts run sequentially:
-  Part 1 (DR5a): Galactic plane l=118–250, b=-4 to +4
-  Part 2 (DR5b): North Polar Spur l=210–380, b=0 to +30
+DR5a: Galactic plane l=30–58, b=-4 to +4 (setting)
 
 Usage:
     python observe_otf.py
 
 Output:
     data/lab04/streaming/DR5a/scan_r<row>_c<col>/...npz
-    data/lab04/streaming/DR5b/scan_r<row>_c<col>/...npz
 """
 
 import threading
@@ -35,22 +32,13 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # DR5a: Plane l=118-250 rising (includes l=120 canonical)
-        'name': 'Galactic plane (rising)',
-        'l_min': 118, 'l_max': 250,
+    {   # DR5a: Plane l=30-58 setting (inner galaxy extension)
+        'name': 'Galactic plane (setting)',
+        'l_min': 30, 'l_max': 58,
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
         'outdir': 'data/lab04/streaming/DR5a',
-        'max_hours': 2.0,
-    },
-    {   # DR5b: North Polar Spur l=210-380 rising
-        'name': 'North Polar Spur (rising)',
-        'l_min': 210, 'l_max': 380,
-        'b_min': 0, 'b_max': 30,
-        'step': 2,
-        'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR5b',
     },
 ]
 
@@ -281,7 +269,7 @@ def setup_hardware():
 
 
 def main():
-    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR5a + DR5b)')
+    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR5a setting)')
     print('=' * 60)
 
     print('\nInitialising hardware ...')

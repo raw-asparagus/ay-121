@@ -31,6 +31,7 @@ from ugradiolab.plotting import (
     LW_STANDARD,
     MS_MICRO,
     MS_FINE,
+    MS_STANDARD,
     SS_FINE,
     ALPHA_EXTRA_LIGHT,
     ALPHA_FAINT,
@@ -1613,3 +1614,122 @@ def plot_stft_baseline_fit(
     axes[1].set_xlim(ha_xlim)
 
     return fig, axes
+
+
+# ===================================================================
+# Section 7: Literature comparison (notebook 05)
+# ===================================================================
+
+# Menezes et al. 2021, ApJ 910, 77, Table 1 — literature compilation
+# (frequency_GHz, radius_arcsec, radius_err_arcsec)
+_LITERATURE_TABLE = [
+    ( 3,   1070,  17),
+    ( 5,   1020,   9),
+    ( 9,    989,   2),
+    (11,    991,   5),
+    (13,    989,   2),
+    (16,    990,   4),
+    (17,  976.6, 1.5),
+    (22,  981.7, 0.8),
+    (25,    979,   4),
+    (30,    979,   4),
+    (35,    979,   3),
+    (37,    979,   5),
+    (44,  978.1, 1.3),
+    (48,  983.6, 1.9),
+    (48,  973.1, 2.9),
+    (70,    969,   5),
+    (74,    967,   4),
+    (94,    972,   5),
+    (100, 964.1, 4.5),
+    (100,   966,   1),
+    (100, 965.9, 3.2),
+    (115, 969.3, 1.6),
+    (212, 966.5, 2.8),
+    (230, 961.1, 2.5),
+    (230, 961.6, 2.1),
+    (231, 968.2, 1.0),
+    (405, 966.5, 2.7),
+]
+
+# Menezes+ 2021 own measurements (Table 2, equatorial mean)
+_MENEZES2021_TABLE = [
+    (100, 968,   3),
+    (212, 963,   4),
+    (230, 963.7, 1.8),
+    (405, 963,   5),
+]
+
+# Marongiu+ 2024 (18–26 GHz, approximate from their paper)
+_MARONGIU2024_TABLE = [
+    (18, 983, 3),
+    (26, 980, 3),
+]
+
+
+def _radii_to_diameters(table):
+    """Convert (freq, R_arcsec, err_arcsec) tuples to diameter in arcmin."""
+    f = np.array([e[0] for e in table], dtype=float)
+    d = np.array([2 * e[1] / 60 for e in table])
+    e = np.array([2 * e[2] / 60 for e in table])
+    return f, d, e
+
+
+def plot_diameter_vs_freq_literature(
+    this_work: Sequence[tuple[float, float, float, str]],
+    *,
+    optical_arcmin: float = 31.97,
+) -> tuple[plt.Figure, plt.Axes]:
+    """Solar diameter vs radio frequency with literature comparison.
+
+    Parameters
+    ----------
+    this_work : sequence of (freq_GHz, D_arcmin, D_err_arcmin, label)
+        Measurements from this work. Plotted with C0, C1, … in order.
+    optical_arcmin : float
+        Optical photospheric diameter reference line.
+
+    Returns
+    -------
+    fig, ax
+    """
+    lit_f, lit_d, lit_e = _radii_to_diameters(
+        _LITERATURE_TABLE + _MENEZES2021_TABLE + _MARONGIU2024_TABLE
+    )
+
+    fig, ax = columnwidth_figure(5)
+
+    # Literature
+    ax.errorbar(
+        lit_f, lit_d, yerr=lit_e,
+        fmt="x", color="k", ms=MS_FINE, lw=LW_FINE,
+        capsize=1.5, capthick=LW_FINE,
+        label="Literature", zorder=2,
+    )
+
+    # This work
+    colors = ["C0", "C1", "C2", "C3"]
+    for i, (freq, diam, err, label) in enumerate(this_work):
+        ax.errorbar(
+            freq, diam, yerr=err,
+            fmt="x", color=colors[i % len(colors)],
+            ms=MS_STANDARD, lw=LW_STANDARD,
+            capsize=2.5, capthick=LW_LIGHT,
+            label=label, zorder=4,
+        )
+
+    # Optical reference
+    ax.axhline(
+        optical_arcmin, color="C2", lw=LW_LIGHT, ls="--",
+        alpha=ALPHA_LIGHT,
+        label="Photosphere",
+        zorder=1,
+    )
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Frequency [GHz]", fontsize=LABEL_SIZE)
+    ax.set_ylabel(r"Solar diameter [$'$]", fontsize=LABEL_SIZE)
+    ax.legend(fontsize=LEGEND_SIZE, loc="upper right")
+    ax.set_xlim(2, 500)
+
+    return fig, ax

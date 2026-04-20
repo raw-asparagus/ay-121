@@ -84,7 +84,7 @@ Edit `labs/04/scripts/observe_otf.py`:
 - Update `SURVEY_PARTS` to match the plan notebook exactly (same order,
   same l/b ranges, same step and dumps_per_band)
 - The script reads `survey_manifest.json` and filters cells at runtime
-- Output goes to `data/lab04/streaming/DR3/` (or appropriate DR)
+- Output goes to `data/lab04/streaming/DR3b/` (or appropriate DR)
 - Update `OUTDIR` if starting a new DR
 
 ### 6. Verify before running
@@ -110,7 +110,7 @@ Edit `labs/04/scripts/observe_otf.py`:
 
 ### Data organization
 
-- Each observation campaign goes into a DR directory: `DR1/`, `DR2a/`, `DR2b/`, `DR3/`
+- Each observation campaign goes into a DR directory: `DR1/`, `DR2a/`, `DR2b/`, `DR3a/`, `DR3b/`, `DR4a/`, `DR4b/`, `DR5a/`, `DR5b/`
 - Within each DR: `scan_r{row}_c{col}/scan_r{row}_c{col}_dump_{timestamp}_{seq}.npz`
 - If a DR contains mixed data from different survey regions (e.g., anti-center +
   plane), split into sub-DRs (e.g., DR2a, DR2b) by galactic coordinate
@@ -128,10 +128,6 @@ Edit `labs/04/scripts/observe_otf.py`:
 - Sky frequency 1420.0 MHz + 2 bins below must be masked per LO
 - RFI flagging: rolling median (window=15) + 5-sigma MAD threshold
 
-### Bad cells
-
-`02_scan_load.ipynb` maintains a `BAD_CELLS` set of (l, b) tuples that are
-excluded from all analysis. Currently: `{(204, -20)}` (bad baseline + RFI).
 
 ## Key files
 
@@ -178,7 +174,7 @@ Measured SNR (actual, peak-to-noise in overlap region):
 - DR1 (plane, b~0): median SNR = 4.6 with 4 pairs
 - DR2a (b~28): median SNR = 11.6 with 16 pairs
 - DR2b (plane, b~0): median SNR = 12.9 with 4 pairs
-- DR3 (b~-18): median SNR = 18.1 with 4 pairs
+- DR3a (b~-18): median SNR = 18.1 with 4 pairs
 
 SNR per dump pair varies by region (~15 for bright plane, ~3 at |b|=20,
 ~1.5 at |b|=30).
@@ -201,7 +197,13 @@ From `src/ugradio/lab_dish/HI1.tex`:
 | DR1 | l=78-102, b=-4 to +4 | 1 deg | 4 | 46% | Complete |
 | DR2a | l=177-183, b=+28 to +29 | 1 deg | 16 | 43% | 13/14 complete |
 | DR2b | l=101-119, b=-4 to +1 | 1 deg | 4 | 44% | 94/95 complete |
-| DR3 | l=164-220, b=-20 to -10 | 2 deg | 4 | 77% | In progress |
+| DR3a | l=160-220, b=-20 to -10 | 2 deg | 4 | 77% | Complete |
+| DR3b | l=60-122, b=-4 to +4 | 2 deg | 4 | 78% | Complete |
+| DR4a | l=124-250, b=-4 to +4 | 2 deg | 4 | 80% | Complete |
+| DR4b | l=210-280, b=+6 to +28 | 2 deg | 4 | 80% | Complete |
+| DR5a | l=118-250, b=-4 to +4 | 2 deg | 4 | ~80% | Planned |
+| DR5b | l=210-380, b=0 to +30 | 2 deg | 4 | ~80% | Planned |
+| DR6a | l=105-160, b=15 to +50 | 2 deg | 4 | ~80% | Planned |
 
 ## M31 observation
 

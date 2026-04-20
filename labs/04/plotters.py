@@ -1,4 +1,4 @@
-"""Lab 4 – reusable plotting functions for 21 cm HI survey data.
+"""Lab 4 - reusable plotting functions for 21 cm HI survey data.
 
 All functions use the style constants from ``ugradiolab.plotting`` and return
 axes for interactive use.  Notebooks import individual functions::

@@ -136,7 +136,7 @@ def main():
     capture.run(done_event=done_event)
 
     print('\n' + '=' * 50)
-    print(f'  Done — {DUMPS_TO_COLLECT} dumps collected at (l={GAL_L}, b={GAL_B})')
+    print(f'  Done -- {DUMPS_TO_COLLECT} dumps collected at (l={GAL_L}, b={GAL_B})')
     print('=' * 50)
 
 

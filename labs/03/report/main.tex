@@ -606,32 +606,19 @@ Each identified extremum yields an independent solar radius estimate via $R_k = 
 \label{fig:jinc_fit}
 \end{figure*}
 
-\begin{table*}[t!]
+\begin{figure}[t!]
 \centering
-\caption{Solar diameter comparison. Literature radio diameters are converted from published radii ($D = 2R$); uncertainties are propagated accordingly.}
-\label{tab:diameter_comparison}
-\begin{tabular}{lccc}
-\toprule
-Method / Reference & Frequency & Diameter [arcmin] & Note \\
-\midrule
-Extrema mean (this work) & 10.45~GHz & $34.66 \pm 0.03$ & statistical only \\
-Jinc fit (this work) & 10.45~GHz & $34.46 \pm 0.01$ & $R$ bounded by $\pm3\sigma$ prior \\
-\midrule
-Optical photosphere & --- & $\sim$31.97 & \citet{BCD1998} \\
-Radio & 9~GHz & $32.97 \pm 0.07$ & \citet{MenezesValio2017} \\
-Radio & 11~GHz & $33.03 \pm 0.17$ & \citet{MenezesValio2017} \\
-Radio & 17~GHz & $32.55 \pm 0.05$ & \citet{Selhorst2004} \\
-Radio & 18--26~GHz & 32.6--32.8 & \citet{Marongiu2024} \\
-\bottomrule
-\end{tabular}
-\end{table*}
+\includegraphics[width=\columnwidth]{figures/fig_diameter_vs_freq.pdf}
+\caption{Solar diameter vs radio frequency. Black crosses show the literature compilation from \citet{Menezes2021} (Table~1), \citet{Marongiu2024}, and references therein; our two measurements at 10.45~GHz are shown in colour. The dashed line marks the optical photospheric diameter. Our values sit $\sim$5\% above the literature trend at comparable frequencies.}
+\label{fig:diameter_vs_freq}
+\end{figure}
 
 \subsection{Standard Jinc Fit}
 \label{sec:jinc_fit}
 
 We verify the extrema-based result by fitting the jinc function $A\,|2J_1(2\pi|u|R)/(2\pi|u|R)|$ to the band-averaged visibility envelope with $R$ as a free parameter, constrained to the $\pm 3\sigma$ range from the extrema prior. Figure~\ref{fig:jinc_fit} overlays the best-fit jinc model together with the identified Bessel extrema on the raw $|V|$ scatter.
 
-Table~\ref{tab:diameter_comparison} summarises the measured and literature solar diameters. The extrema-based mean gives $D = 34.66 \pm 0.03'$, while the Jinc fit with $R$ free returns $D = 34.46 \pm 0.01'$; the two estimates differ by $\sim$0.2', well within the systematic uncertainties discussed in \S\ref{sec:error_budget}. Both values are $\sim$5\% larger than the $\sim$33.0' expected at 10.5~GHz by interpolating the 9~GHz and 11~GHz single-dish measurements compiled by \citet{MenezesValio2017}, and $\sim$8\% larger than the optical photosphere \citep{BCD1998}. Because the literature references bracket our observing frequency, the frequency-dependent chromospheric limb height cannot account for the excess; the discrepancy is instead attributed to the systematics described in \S\ref{sec:error_budget}.
+Figure~\ref{fig:diameter_vs_freq} places our measurements in the context of published radio solar diameters spanning 3--405~GHz, compiled from \citet{Menezes2021} and \citet{Marongiu2024}. The extrema-based mean gives $D = 34.66 \pm 0.03'$, while the Jinc fit with $R$ free returns $D = 34.46 \pm 0.01'$; the two estimates differ by $\sim$0.2', well within the systematic uncertainties discussed in \S\ref{sec:error_budget}. Both values are $\sim$5\% larger than the $\sim$33.0' expected at 10.5~GHz by interpolating the 9~GHz and 11~GHz single-dish measurements compiled by \citet{MenezesValio2017}, and $\sim$8\% larger than the optical photosphere \citep{BCD1998}. Because the literature references bracket our observing frequency, the frequency-dependent chromospheric limb height cannot account for the excess; the discrepancy is instead attributed to the systematics described in \S\ref{sec:error_budget}.
 
 
 %%% ---------------------------------------------------------------
@@ -671,7 +658,7 @@ Five independent baseline methods yield an adopted baseline of $b_{\mathrm{ew}} 
 The solar diameter, derived from the Bessel-function modulation of the visibility envelope, is $D_\odot = 34.66 \pm 0.03'$ from the extrema-based method and $34.46 \pm 0.01'$ from a jinc fit. Both values exceed published radio diameters at comparable frequencies by $\sim$5\%; the excess is dominated by systematic baseline uncertainty rather than a chromospheric height effect. Non-zero visibility at the Bessel nulls is consistent with limb brightening and an unresolved active region, the latter confirmed by SDO/HMI imagery from the observation date.
 
 \section*{Acknowledgements}
-Special thanks to Mitchell and Wesley for fruitful discussions,
+Special thanks to Abdul, Mitchell and Wesley for fruitful discussions,
 and to Prof. Aaron Parsons and GSI Ben Jacobson-Bell for instructional support.
 I also acknowledge the use of Claude Code for assistance
 with vetting phrasing and checking the report writeup.

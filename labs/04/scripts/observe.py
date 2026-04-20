@@ -39,7 +39,7 @@ M31_DEC_DEG = 41.2687   # +41d 16' 07"
 # Configuration
 # ---------------------------------------------------------------------------
 
-LO_FREQS_MHZ = (1420.0, 1421.0, 1422.0, 1423.0)  # 4 LOs: MW + M31 (v ~ 0 to −550 km/s)
+LO_FREQS_MHZ = (1420.0, 1421.0, 1422.0, 1423.0)  # 4 LOs: MW + M31 (v ~ 0 to -550 km/s)
 SAMPLE_RATE  = 2.56e6    # Hz
 NSAMPLES     = 32768
 NBLOCKS      = 1025      # block 0 discarded -> 1024 valid

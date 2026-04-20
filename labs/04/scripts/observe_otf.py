@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Lab 4 - Leuschner 21 cm HI OTF raster scan (DR5a setting).
 
-Simple raster in galactic coordinates at 2° spacing.
+Simple raster in galactic coordinates at 2-deg spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
 setting) to prevent the telescope from crossing the north gap.
 Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
-DR5a: Galactic plane l=30–58, b=-4 to +4 (setting)
+DR5a: Galactic plane l=30-58, b=-4 to +4 (setting)
 
 Usage:
     python observe_otf.py
@@ -90,8 +90,8 @@ def filter_cells_by_az_side(cells):
 
     Computes current alt/az for each cell, classifies as rising (az 7-180)
     or setting (az 180-348).  The side with more *currently accessible*
-    cells is chosen, but all cells on that side are kept — including those
-    currently below the horizon — so they can be retried later during a
+    cells is chosen, but all cells on that side are kept -- including those
+    currently below the horizon -- so they can be retried later during a
     long run.
     """
     classified = []
@@ -285,7 +285,7 @@ def main():
 
         print(f'\n{"="*60}')
         print(f'  {part["name"]}')
-        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}°')
+        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}deg')
         print(f'{"="*60}')
 
         # Build grid, filter by az side, then skip complete cells

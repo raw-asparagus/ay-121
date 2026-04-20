@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR5a setting).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR6a rising).
 
 Simple raster in galactic coordinates at 2-deg spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
@@ -7,13 +7,13 @@ setting) to prevent the telescope from crossing the north gap.
 Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
-DR5a: Galactic plane l=30-58, b=-4 to +4 (setting)
+DR6a: NCP l=105-160, b=15-50 (rising)
 
 Usage:
     python observe_otf.py
 
 Output:
-    data/lab04/streaming/DR5a/scan_r<row>_c<col>/...npz
+    data/lab04/streaming/DR6a/scan_r<row>_c<col>/...npz
 """
 
 import threading
@@ -32,13 +32,13 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # DR5a: Plane l=30-58 setting (inner galaxy extension)
-        'name': 'Galactic plane (setting)',
-        'l_min': 30, 'l_max': 58,
-        'b_min': -4, 'b_max': 4,
+    {   # DR6a: NCP l=105-160, b=15-50 rising
+        'name': 'NCP (rising)',
+        'l_min': 105, 'l_max': 160,
+        'b_min': 15, 'b_max': 50,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR5a',
+        'outdir': 'data/lab04/streaming/DR6a',
     },
 ]
 
@@ -58,7 +58,7 @@ AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
-OUTDIR       = 'data/lab04/streaming/DR5a'  # default; overridden per part
+OUTDIR       = 'data/lab04/streaming/DR6a'  # default; overridden per part
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 
@@ -269,7 +269,7 @@ def setup_hardware():
 
 
 def main():
-    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR5a setting)')
+    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR6a rising)')
     print('=' * 60)
 
     print('\nInitialising hardware ...')
@@ -285,7 +285,7 @@ def main():
 
         print(f'\n{"="*60}')
         print(f'  {part["name"]}')
-        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}deg')
+        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}°')
         print(f'{"="*60}')
 
         # Build grid, filter by az side, then skip complete cells

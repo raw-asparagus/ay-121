@@ -5,12 +5,12 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-import pandas as pd
+from scipy.signal import medfilt
 
 
 def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
                       sigma_thresh: float = 5.0) -> int:
-    """Flag RFI channels in a single spectrum using rolling median + MAD.
+    """Flag RFI channels in a single spectrum using median filter + MAD.
 
     Outlier channels (both positive spikes and negative dropouts) are
     replaced with NaN **in-place**.
@@ -20,7 +20,7 @@ def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
     spectrum : 1-D float array
         The spectrum to flag (modified in-place).
     window : int
-        Rolling median window width.
+        Median filter kernel width (forced odd for scipy.signal.medfilt).
     sigma_thresh : float
         Number of MAD-based sigma for the flag threshold.
 
@@ -29,11 +29,10 @@ def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
     int
         Number of channels flagged.
     """
-    local_med = pd.Series(spectrum).rolling(
-        window, center=True, min_periods=1,
-    ).median().to_numpy()
+    kernel = window if window % 2 == 1 else window + 1
+    local_med = medfilt(spectrum, kernel_size=kernel)
     resid = spectrum - local_med
-    mad = np.nanmedian(np.abs(resid))
+    mad = np.median(np.abs(resid))
     sigma = mad / 0.6745
     bad = np.abs(resid) > sigma_thresh * sigma
     n_bad = int(np.sum(bad))

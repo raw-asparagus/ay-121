@@ -18,6 +18,11 @@ manifest.json ◄─────────────────────
   │                                      ├──→ │   Mollweide map
   │                                      │    └──→ spectra grids
   └──────────────── manifest update ◄────┘         pointing traces
+
+M31 stare (observe.py)        M31 analysis
+──────────────────────        ────────────
+5 LOs ──→ .npz ──→ 00_streaming_load ──→ freq-switched profiles
+                   03_m31_sensitivity ──→ SEFD / integration time
 ```
 
 ## 1. Observation planning (`notebooks/01_scan_plan.ipynb`)
@@ -76,7 +81,7 @@ manifest.json ◄─────────────────────
 ## 3. Data reduction (`notebooks/02_scan_load.ipynb`)
 
 ### 3a. Load (cell `load`)
-- Glob all `.npz` from `DR1/` through `DR5b/`
+- Glob all `.npz` from `DR1/` through `DR6a/`
 - Parse row/col from target name, store all metadata in `records` list
 
 ### 3b. fftshift + masking (cell `fft`)
@@ -142,16 +147,55 @@ Per DR, two plots:
 - `n_pairs = min(n_1420, n_1421)`, complete if `n_pairs ≥ target` (currently 4)
 - Write `survey_manifest.json` → feeds back to steps 1 and 2
 
+## 4. M31 stare reduction (`notebooks/00_streaming_load.ipynb`)
+
+**Input**: `.npz` dumps from `data/lab04/streaming/m31/` (5 LOs: 1420–1424 MHz)
+
+**Process**:
+1. Load all dumps, separate cal (noise diode on) from science
+2. fftshift, mask DC + leakage bins, Stokes I = corr00 + corr11
+3. RFI flagging (rolling median + 5σ MAD) and outlier dump filter
+4. Pair adjacent LO frequencies: R = (I₁ − I₂) / I₂
+5. LSR velocity correction, overlap trimming (256 kHz each edge)
+
+**Output**: Frequency-switched HI profiles per LO pair (chips 0–3),
+covering v_LSR ≈ −760 to +93 km/s. Milky Way HI dominates chip 0;
+M31 detection (marginal, SNR ~5–7) at v ≈ −319 km/s on chip 1.
+
+## 5. M31 sensitivity analysis (`notebooks/03_m31_sensitivity.ipynb`)
+
+**Input**: Survey data (all DRs), telescope parameters, M31 literature values
+
+**Process**:
+1. Compute telescope gain G = A_eff / 2k_B and SEFD from aperture
+2. Load all survey cells, compute per-dump-pair SNR in overlap region
+3. Back-calculate T_sys from measured SNR vs expected T_B by latitude
+4. Estimate M31 flux density via Rayleigh–Jeans + beam dilution
+5. Radiometer equation → required integration time for target SNR
+6. Cross-check against existing M31 observation
+
+**Output**: SEFD estimate, integration time tables, SNR vs smoothing
+resolution plots, observing budget.
+
+## 6. Anomaly analysis (`notebooks/anomaly_analysis.py`)
+
+Standalone script that replicates the 02_scan_load pipeline and computes
+per-cell quality metrics (SNR, baseline shape, RFI fraction) for
+identifying problematic pointings.
+
 ## Data products
 
-| Product | Frame | Scope | Cell |
-|---------|-------|-------|------|
-| W(l, b) heatmap per DR | topocentric | per-DR | `map` |
-| W(l, b) Mollweide all-sky | LSR | combined | `map` |
-| R(v) spectra grid per DR | topocentric | per-DR | `spectra` |
-| (l, b) beam coverage per DR | galactic | per-DR | `1fcc1c7f` |
-| (az, alt) pointing trace per DR | topographic | per-DR | `1fcc1c7f` |
-| `survey_manifest.json` | — | cumulative | `eab8d950` |
+| Product | Frame | Scope | Notebook |
+|---------|-------|-------|----------|
+| W(l, b) heatmap per DR | topocentric | per-DR | 02 `map` |
+| W(l, b) Mollweide all-sky | LSR | combined | 02 `map` |
+| R(v) spectra grid per DR | topocentric | per-DR | 02 `spectra` |
+| (l, b) beam coverage per DR | galactic | per-DR | 02 `1fcc1c7f` |
+| (az, alt) pointing trace per DR | topographic | per-DR | 02 `1fcc1c7f` |
+| `survey_manifest.json` | — | cumulative | 02 `eab8d950` |
+| M31 HI profiles per LO pair | LSR | M31 stare | 00 `plot` |
+| M31 SNR vs integration time | — | M31 stare | 03 `aabb1652` |
+| T_sys from survey SNR | — | all DRs | 03 `8f8dc6d9` |
 
 ## Shared utilities (`notebooks/utils/`)
 
@@ -174,8 +218,8 @@ Per DR, two plots:
 | Az limits | 7–348° (exclusion near north) |
 | Noise diode | T_cal = 79 K (pol 0), 58 K (pol 1), mean 68.5 K |
 | Integration per dump | 13.1 s (1025 × 32768 / 2.56 × 10⁶) |
-| Dump cadence | ~16.5 s (pipelined), ~29 s (sequential/old DRs) |
-| Duty cycle | ~80% (pipelined), ~44% (sequential) |
+| Dump cadence | ~17 s (pipelined), ~29 s (sequential/old DRs) |
+| Duty cycle | ~77% (pipelined), ~44% (sequential) |
 
 ## Velocity coverage
 

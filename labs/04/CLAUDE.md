@@ -126,7 +126,7 @@ Edit `labs/04/scripts/observe_otf.py`:
 - R = (I_LO1 - I_LO2) / I_LO2, averaged over dump pairs
 - The DC bin (channel 512 after fftshift) must be masked
 - Sky frequency 1420.0 MHz + 2 bins below must be masked per LO
-- RFI flagging: rolling median (window=15) + 5-sigma MAD threshold
+- RFI flagging: scipy.signal.medfilt (kernel=15) + 5-sigma MAD threshold
 
 
 ## Key files

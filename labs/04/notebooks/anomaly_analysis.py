@@ -31,7 +31,6 @@ SAMPLE_RATE_HZ = 2.56e6
 NFFT = 1024
 HI_REST_MHZ = 1420.405
 C_KMS = 299792.458
-DC_BIN = NFFT // 2
 RFI_WINDOW = 15
 RFI_SIGMA = 5.0
 SHAPE_DEV_THRESH = 0.10
@@ -90,19 +89,13 @@ for r in records:
 
 lo_unique = sorted(set(r['lo_mhz'] for r in records if not r['noise_on']))
 
-# -- 2. fftshift + DC mask + RFI ---------------------------------------
-print("\nPHASE 2: Preprocessing (fftshift, DC mask, RFI flagging)")
+# -- 2. fftshift + Stokes I + RFI -------------------------------------
+print("\nPHASE 2: Preprocessing (fftshift, Stokes I, medfilt RFI flagging)")
 f_bb_mhz = np.fft.fftshift(np.fft.fftfreq(NFFT, d=1.0/SAMPLE_RATE_HZ)) / 1e6
 
 for r in records:
     r['corr00'] = np.fft.fftshift(r['corr00'])
     r['corr11'] = np.fft.fftshift(r['corr11'])
-    r['corr00'][DC_BIN] = np.nan
-    r['corr11'][DC_BIN] = np.nan
-    if r['lo_mhz'] == 1420.0:
-        for ch in [DC_BIN - 2, DC_BIN - 1]:
-            r['corr00'][ch] = np.nan
-            r['corr11'][ch] = np.nan
     r['stokes_I'] = r['corr00'] + r['corr11']
 
 n_flagged = sum(flag_rfi_channels(r['stokes_I'], RFI_WINDOW, RFI_SIGMA) for r in records)

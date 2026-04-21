@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR6a rising).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR7 rising).
 
 Simple raster in galactic coordinates at 2-deg spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
@@ -7,13 +7,13 @@ setting) to prevent the telescope from crossing the north gap.
 Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
-DR6a: NCP l=105-160, b=15-50 (rising)
+DR7: North Polar Spur l=210-380, b=0-90 (rising)
 
 Usage:
     python observe_otf.py
 
 Output:
-    data/lab04/streaming/DR6a/scan_r<row>_c<col>/...npz
+    data/lab04/streaming/DR7/scan_r<row>_c<col>/...npz
 """
 
 import threading
@@ -32,13 +32,13 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # DR6a: NCP l=105-160, b=15-50 rising
-        'name': 'NCP (rising)',
-        'l_min': 105, 'l_max': 160,
-        'b_min': 15, 'b_max': 50,
+    {   # DR7: North Polar Spur l=210-380, b=0-90 rising
+        'name': 'North Polar Spur (rising)',
+        'l_min': 210, 'l_max': 380,
+        'b_min': 0, 'b_max': 90,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR6a',
+        'outdir': 'data/lab04/streaming/DR7',
     },
 ]
 
@@ -58,7 +58,7 @@ AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
-OUTDIR       = 'data/lab04/streaming/DR6a'  # default; overridden per part
+OUTDIR       = 'data/lab04/streaming/DR7'  # default; overridden per part
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 

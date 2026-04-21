@@ -222,7 +222,9 @@ def make_scan_target_selector(cells, dumps_per_cell):
     Cells that are out of alt/az limits when reached are *skipped* (not
     stalled on).  After one pass through all cells, any skipped cells
     are retried so that cells rising into view during a long run still
-    get observed.
+    get observed.  If a full retry pass completes with zero successful
+    observations, the remaining cells are abandoned (they never became
+    accessible) and the done_event is set.
     """
     cell_list = list(cells)  # mutable working copy
     lock = threading.Lock()
@@ -231,6 +233,7 @@ def make_scan_target_selector(cells, dumps_per_cell):
     transitioning = False
     done_event = threading.Event()
     skipped = []
+    cells_observed_this_pass = 0  # non-zero means progress was made
 
     _, _, cl, cb = cell_list[0]
     print(f'  [scan] {len(cell_list)} cells')
@@ -239,12 +242,22 @@ def make_scan_target_selector(cells, dumps_per_cell):
     print(f'  [scan] Last:  l={cl}, b={cb}')
 
     def _start_retry_pass():
-        """Swap skipped cells back into the work list for another pass."""
-        nonlocal current_cell_idx
+        """Swap skipped cells back into the work list for another pass.
+
+        Returns False if no progress was made last pass (all cells were
+        skipped), signalling that the remaining cells should be abandoned.
+        """
+        nonlocal current_cell_idx, cells_observed_this_pass
+        if cells_observed_this_pass == 0:
+            print(f'  [scan] No progress in last pass — abandoning '
+                  f'{len(skipped)} unreachable cell(s).')
+            return False
         cell_list[:] = list(skipped)
         skipped.clear()
         current_cell_idx = 0
+        cells_observed_this_pass = 0
         print(f'  [scan] Retry pass: {len(cell_list)} cells')
+        return True
 
     def dump_notifier():
         nonlocal cell_dump_count
@@ -252,11 +265,13 @@ def make_scan_target_selector(cells, dumps_per_cell):
             cell_dump_count += 1
 
     def target_selector():
-        nonlocal current_cell_idx, cell_dump_count, transitioning
+        nonlocal current_cell_idx, cell_dump_count, transitioning, cells_observed_this_pass
 
         if current_cell_idx >= len(cell_list):
             if skipped:
-                _start_retry_pass()
+                if not _start_retry_pass():
+                    done_event.set()
+                    return None
             else:
                 print('  [scan] All cells complete.')
                 done_event.set()
@@ -269,11 +284,14 @@ def make_scan_target_selector(cells, dumps_per_cell):
                 return None
             if transitioning:
                 transitioning = False
+                cells_observed_this_pass += 1
                 current_cell_idx += 1
                 cell_dump_count = 0
                 if current_cell_idx >= len(cell_list):
                     if skipped:
-                        _start_retry_pass()
+                        if not _start_retry_pass():
+                            done_event.set()
+                            return None
                     else:
                         print('  [scan] All cells complete.')
                         done_event.set()
@@ -295,7 +313,9 @@ def make_scan_target_selector(cells, dumps_per_cell):
                 cell_dump_count = 0
                 if current_cell_idx >= len(cell_list):
                     if skipped:
-                        _start_retry_pass()
+                        if not _start_retry_pass():
+                            done_event.set()
+                            return None
                     else:
                         print('  [scan] All cells complete.')
                         done_event.set()

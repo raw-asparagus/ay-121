@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR7).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR8a/DR8b).
 
 Simple raster in galactic coordinates at 2-deg spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
@@ -7,16 +7,20 @@ setting) to prevent the telescope from crossing the north gap.
 Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
-DR7 session 2026-04-20 night:
-  Part 1: Gal. plane + fills (setting) - catch low-alt cells before they set
-  Part 2: NCP (rising) - filler while inner galaxy rises
-  Part 3: Gal. plane (rising) - inner galaxy
+DR8a/DR8b session 2026-04-21:
+  Part 1 (DR8a, fills): Complete all incomplete even-grid plane cells
+          (|b|<=4, even l). Setting side catches l=76,98,112,117 now;
+          inner galaxy (l<60) and l=174,224,252 retried when they rise.
+  Part 2 (DR8b, odd grid): New interleaved grid l=129-197 odd,
+          b=-3,-1,+1,+3 (rising side, ~5.3h). Full range l=13-249
+          continues in future sessions.
 
 Usage:
     python observe_otf.py
 
 Output:
-    data/lab04/streaming/DR7/scan_r<row>_c<col>/...npz
+    data/lab04/streaming/DR8a/scan_r<row>_c<col>/...npz  (fills)
+    data/lab04/streaming/DR8b/scan_r<row>_c<col>/...npz  (odd grid)
 """
 
 import threading
@@ -35,21 +39,26 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # Part 1: Inner galactic plane (setting) - urgent, l=0-60 sets within ~4h
-        'name': 'Inner gal. plane (setting)',
-        'l_min': 0, 'l_max': 60,
+    {   # Part 1 (DR8a): Fill all incomplete even-grid plane cells (|b|<=4)
+        # Setting side: l=76,98,112,117 accessible now.
+        # Below-horizon inner galaxy (l<60) and l=174,224,252 retried as they rise.
+        'name': 'Plane fills — even grid (DR8a)',
+        'l_min': 12, 'l_max': 260,
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR8',
+        'fills_only': True,
+        'outdir': 'data/lab04/streaming/DR8a',
     },
-    {   # Part 2: NCP (setting) - 135 cells accessible, filler after plane sets
-        'name': 'NCP (setting)',
-        'l_min': 104, 'l_max': 160,
-        'b_min': 14, 'b_max': 50,
+    {   # Part 2 (DR8b): Interleaved odd-l / odd-b grid, rising side.
+        # Tonight: l=129-197 (139 cells, ~5.3h). Full range l=13-249 over multiple sessions.
+        # l_min=129 (odd) + step=2 → 129,131,...,197; b_min=-3 + step=2 → -3,-1,+1,+3
+        'name': 'Odd-grid plane — rising (DR8b)',
+        'l_min': 129, 'l_max': 197,
+        'b_min': -3, 'b_max': 3,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR8',
+        'outdir': 'data/lab04/streaming/DR8b',
     },
 ]
 
@@ -69,7 +78,7 @@ AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
-OUTDIR       = 'data/lab04/streaming/DR8'  # default; overridden per part
+OUTDIR       = 'data/lab04/streaming/DR8a'  # default; overridden per part
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 
@@ -325,7 +334,7 @@ def setup_hardware():
 
 
 def main():
-    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR7)')
+    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR8a/DR8b)')
     print('=' * 60)
 
     print('\nInitialising hardware ...')

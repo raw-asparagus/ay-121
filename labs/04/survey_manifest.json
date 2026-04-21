@@ -1,9 +1,9 @@
 {
   "meta": {
-    "updated": "2026-04-21T02:41:57.062121+00:00",
-    "total_pointings": 1137,
-    "complete": 1118,
-    "incomplete": 19
+    "updated": "2026-04-21T03:24:21.680695+00:00",
+    "total_pointings": 1144,
+    "complete": 1123,
+    "incomplete": 21
   },
   "pointings": {
     "48,-4": {
@@ -7510,6 +7510,13 @@
       "target": 4,
       "complete": true
     },
+    "250,8": {
+      "n_1420": 2,
+      "n_1421": 3,
+      "n_pairs": 2,
+      "target": 4,
+      "complete": false
+    },
     "250,18": {
       "n_1420": 4,
       "n_1421": 4,
@@ -7559,6 +7566,13 @@
       "target": 4,
       "complete": false
     },
+    "252,8": {
+      "n_1420": 4,
+      "n_1421": 4,
+      "n_pairs": 4,
+      "target": 4,
+      "complete": true
+    },
     "252,18": {
       "n_1420": 4,
       "n_1421": 4,
@@ -7601,6 +7615,20 @@
       "target": 4,
       "complete": true
     },
+    "254,6": {
+      "n_1420": 3,
+      "n_1421": 2,
+      "n_pairs": 2,
+      "target": 4,
+      "complete": false
+    },
+    "254,8": {
+      "n_1420": 4,
+      "n_1421": 4,
+      "n_pairs": 4,
+      "target": 4,
+      "complete": true
+    },
     "254,22": {
       "n_1420": 4,
       "n_1421": 4,
@@ -7623,6 +7651,20 @@
       "complete": true
     },
     "254,28": {
+      "n_1420": 4,
+      "n_1421": 4,
+      "n_pairs": 4,
+      "target": 4,
+      "complete": true
+    },
+    "256,6": {
+      "n_1420": 4,
+      "n_1421": 4,
+      "n_pairs": 4,
+      "target": 4,
+      "complete": true
+    },
+    "256,8": {
       "n_1420": 4,
       "n_1421": 4,
       "n_pairs": 4,
@@ -7652,6 +7694,13 @@
     },
     "256,28": {
       "n_1420": 4,
+      "n_1421": 4,
+      "n_pairs": 4,
+      "target": 4,
+      "complete": true
+    },
+    "258,8": {
+      "n_1420": 5,
       "n_1421": 4,
       "n_pairs": 4,
       "target": 4,

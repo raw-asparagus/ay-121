@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR7 rising).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR7).
 
 Simple raster in galactic coordinates at 2-deg spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
@@ -7,7 +7,10 @@ setting) to prevent the telescope from crossing the north gap.
 Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
-DR7: North Polar Spur l=210-380, b=0-90 (rising)
+DR7 session 2026-04-20 night:
+  Part 1: Gal. plane + fills (setting) — catch low-alt cells before they set
+  Part 2: NCP (rising) — filler while inner galaxy rises
+  Part 3: Gal. plane (rising) — inner galaxy
 
 Usage:
     python observe_otf.py
@@ -32,10 +35,28 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # DR7: North Polar Spur l=210-380, b=0-90 rising
-        'name': 'North Polar Spur (rising)',
-        'l_min': 210, 'l_max': 380,
-        'b_min': 0, 'b_max': 90,
+    {   # Part 1: Setting — plane cells + scattered fills above plane
+        # Broad b range so manifest-incomplete fills (210+6, 242+22, etc.)
+        # are included; manifest filter removes all complete cells.
+        'name': 'Gal. plane + fills (setting)',
+        'l_min': 120, 'l_max': 280,
+        'b_min': -10, 'b_max': 28,
+        'step': 2,
+        'dumps_per_band': 4,
+        'outdir': 'data/lab04/streaming/DR7',
+    },
+    {   # Part 2: NCP rising — filler while inner galaxy rises
+        'name': 'NCP (rising)',
+        'l_min': 104, 'l_max': 160,
+        'b_min': 14, 'b_max': 50,
+        'step': 2,
+        'dumps_per_band': 4,
+        'outdir': 'data/lab04/streaming/DR7',
+    },
+    {   # Part 3: Galactic plane rising — inner galaxy
+        'name': 'Gal. plane (rising)',
+        'l_min': 0, 'l_max': 250,
+        'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
         'outdir': 'data/lab04/streaming/DR7',
@@ -269,7 +290,7 @@ def setup_hardware():
 
 
 def main():
-    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR6a rising)')
+    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR7)')
     print('=' * 60)
 
     print('\nInitialising hardware ...')

@@ -1,9 +1,9 @@
 {
   "meta": {
-    "updated": "2026-04-21T04:40:25.310040+00:00",
-    "total_pointings": 1170,
-    "complete": 1147,
-    "incomplete": 23
+    "updated": "2026-04-21T05:12:34.936259+00:00",
+    "total_pointings": 1174,
+    "complete": 1149,
+    "incomplete": 25
   },
   "pointings": {
     "48,-4": {
@@ -8070,6 +8070,13 @@
       "target": 4,
       "complete": true
     },
+    "272,22": {
+      "n_1420": 3,
+      "n_1421": 2,
+      "n_pairs": 2,
+      "target": 4,
+      "complete": false
+    },
     "272,26": {
       "n_1420": 4,
       "n_1421": 4,
@@ -8084,6 +8091,13 @@
       "target": 4,
       "complete": true
     },
+    "274,22": {
+      "n_1420": 4,
+      "n_1421": 4,
+      "n_pairs": 4,
+      "target": 4,
+      "complete": true
+    },
     "274,26": {
       "n_1420": 4,
       "n_1421": 4,
@@ -8092,6 +8106,13 @@
       "complete": true
     },
     "274,28": {
+      "n_1420": 4,
+      "n_1421": 4,
+      "n_pairs": 4,
+      "target": 4,
+      "complete": true
+    },
+    "276,22": {
       "n_1420": 4,
       "n_1421": 4,
       "n_pairs": 4,
@@ -8125,6 +8146,13 @@
       "n_pairs": 4,
       "target": 4,
       "complete": true
+    },
+    "280,24": {
+      "n_1420": 3,
+      "n_1421": 2,
+      "n_pairs": 2,
+      "target": 4,
+      "complete": false
     },
     "280,26": {
       "n_1420": 4,

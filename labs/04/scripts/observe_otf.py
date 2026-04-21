@@ -35,14 +35,23 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # Part 1: Setting — plane cells + scattered fills above plane
-        # Broad b range so manifest-incomplete fills (210+6, 242+22, etc.)
-        # are included; manifest filter removes all complete cells.
-        'name': 'Gal. plane + fills (setting)',
+    {   # Part 1a: Setting — galactic plane narrow
+        'name': 'Gal. plane (setting)',
+        'l_min': 120, 'l_max': 280,
+        'b_min': -4, 'b_max': 4,
+        'step': 2,
+        'dumps_per_band': 4,
+        'outdir': 'data/lab04/streaming/DR7',
+    },
+    {   # Part 1b: Setting — manifest fills only (scattered positions)
+        # fills_only=True restricts to cells already in the manifest
+        # that are incomplete, so no new territory is created.
+        'name': 'Fills (setting)',
         'l_min': 120, 'l_max': 280,
         'b_min': -10, 'b_max': 28,
         'step': 2,
         'dumps_per_band': 4,
+        'fills_only': True,
         'outdir': 'data/lab04/streaming/DR7',
     },
     {   # Part 2: NCP rising — filler while inner galaxy rises
@@ -150,8 +159,13 @@ def filter_cells_by_az_side(cells):
     return kept
 
 
-def filter_cells_by_manifest(cells):
-    """Remove cells that are already marked complete in the survey manifest."""
+def filter_cells_by_manifest(cells, fills_only=False):
+    """Remove cells based on the survey manifest.
+
+    If fills_only is False (default): remove cells marked complete.
+    If fills_only is True: keep ONLY cells that are in the manifest
+    and incomplete (i.e., only fill gaps in existing data).
+    """
     import sys
     from pathlib import Path
 
@@ -164,16 +178,22 @@ def filter_cells_by_manifest(cells):
         return cells
 
     sys.path.insert(0, str(script_dir))
-    from manifest import get_complete_cells
+    from manifest import get_complete_cells, get_incomplete_cells
 
-    complete = get_complete_cells(manifest_path)
-    if not complete:
-        print(f'  Manifest has no complete cells --- keeping all')
-        return cells
-
-    kept = [(r, c, l, b) for r, c, l, b in cells if (l, b) not in complete]
-    n_skipped = len(cells) - len(kept)
-    print(f'  Manifest filter: {n_skipped} complete cells skipped, {len(kept)} remaining')
+    if fills_only:
+        incomplete = get_incomplete_cells(manifest_path)
+        kept = [(r, c, l, b) for r, c, l, b in cells if (l, b) in incomplete]
+        n_skipped = len(cells) - len(kept)
+        print(f'  Manifest filter (fills only): {len(kept)} incomplete cells kept, '
+              f'{n_skipped} skipped')
+    else:
+        complete = get_complete_cells(manifest_path)
+        if not complete:
+            print(f'  Manifest has no complete cells --- keeping all')
+            return cells
+        kept = [(r, c, l, b) for r, c, l, b in cells if (l, b) not in complete]
+        n_skipped = len(cells) - len(kept)
+        print(f'  Manifest filter: {n_skipped} complete cells skipped, {len(kept)} remaining')
 
     return kept
 
@@ -312,7 +332,7 @@ def main():
         # Build grid, filter by az side, then skip complete cells
         all_cells = build_raster_cells(l_min, l_max, b_min, b_max, step)
         cells = filter_cells_by_az_side(all_cells)
-        cells = filter_cells_by_manifest(cells)
+        cells = filter_cells_by_manifest(cells, fills_only=part.get('fills_only', False))
 
         if not cells:
             print('  No remaining cells --- skipping.')

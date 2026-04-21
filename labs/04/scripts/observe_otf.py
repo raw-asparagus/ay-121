@@ -8,9 +8,9 @@ Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
 DR7 session 2026-04-20 night:
-  Part 1: Gal. plane + fills (setting) — catch low-alt cells before they set
-  Part 2: NCP (rising) — filler while inner galaxy rises
-  Part 3: Gal. plane (rising) — inner galaxy
+  Part 1: Gal. plane + fills (setting) - catch low-alt cells before they set
+  Part 2: NCP (rising) - filler while inner galaxy rises
+  Part 3: Gal. plane (rising) - inner galaxy
 
 Usage:
     python observe_otf.py
@@ -35,40 +35,21 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # Part 1a: Setting — galactic plane narrow
-        'name': 'Gal. plane (setting)',
-        'l_min': 120, 'l_max': 280,
+    {   # Part 1: Inner galactic plane (setting) - urgent, l=0-60 sets within ~4h
+        'name': 'Inner gal. plane (setting)',
+        'l_min': 0, 'l_max': 60,
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR7',
+        'outdir': 'data/lab04/streaming/DR8',
     },
-    {   # Part 1b: Setting — manifest fills only (scattered positions)
-        # fills_only=True restricts to cells already in the manifest
-        # that are incomplete, so no new territory is created.
-        'name': 'Fills (setting)',
-        'l_min': 120, 'l_max': 280,
-        'b_min': -10, 'b_max': 28,
-        'step': 2,
-        'dumps_per_band': 4,
-        'fills_only': True,
-        'outdir': 'data/lab04/streaming/DR7',
-    },
-    {   # Part 2: NCP rising — filler while inner galaxy rises
-        'name': 'NCP (rising)',
+    {   # Part 2: NCP (setting) - 135 cells accessible, filler after plane sets
+        'name': 'NCP (setting)',
         'l_min': 104, 'l_max': 160,
         'b_min': 14, 'b_max': 50,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR7',
-    },
-    {   # Part 3: Galactic plane rising — inner galaxy
-        'name': 'Gal. plane (rising)',
-        'l_min': 0, 'l_max': 250,
-        'b_min': -4, 'b_max': 4,
-        'step': 2,
-        'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR7',
+        'outdir': 'data/lab04/streaming/DR8',
     },
 ]
 
@@ -88,7 +69,7 @@ AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
-OUTDIR       = 'data/lab04/streaming/DR7'  # default; overridden per part
+OUTDIR       = 'data/lab04/streaming/DR8'  # default; overridden per part
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 
@@ -249,7 +230,7 @@ def make_scan_target_selector(cells, dumps_per_cell):
         """
         nonlocal current_cell_idx, cells_observed_this_pass
         if cells_observed_this_pass == 0:
-            print(f'  [scan] No progress in last pass — abandoning '
+            print(f'  [scan] No progress in last pass - abandoning '
                   f'{len(skipped)} unreachable cell(s).')
             return False
         cell_list[:] = list(skipped)
@@ -360,7 +341,7 @@ def main():
 
         print(f'\n{"="*60}')
         print(f'  {part["name"]}')
-        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}°')
+        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}deg')
         print(f'{"="*60}')
 
         # Build grid, filter by az side, then skip complete cells

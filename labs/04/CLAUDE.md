@@ -1,5 +1,9 @@
 # Lab 4 — 21 cm HI Survey: Claude Instructions
 
+## Style Rules
+
+Use ASCII-only text in this lab unless a Unicode character is required by a quoted source or upstream data. Do not introduce special symbols such as degree signs, arrows, em dashes, en dashes, or other Unicode punctuation in code, comments, docstrings, or notebooks.
+
 ## Survey Planning Workflow
 
 When the user asks to plan, optimize, or start a new survey observation, follow
@@ -110,7 +114,7 @@ Edit `labs/04/scripts/observe_otf.py`:
 
 ### Data organization
 
-- Each observation campaign goes into a DR directory: `DR1/`, `DR2a/`, `DR2b/`, `DR3a/`, `DR3b/`, `DR4a/`, `DR4b/`, `DR5a/`, `DR5b/`
+- Each observation campaign goes into a DR directory: `DR1/`, `DR2a/`, `DR2b/`, `DR3a/`, `DR3b/`, `DR4a/`, `DR4b/`, `DR5a/`, `DR5b/`, `DR6a/`, `DR6b/`, `DR7a/`, `DR7b/`
 - Within each DR: `scan_r{row}_c{col}/scan_r{row}_c{col}_dump_{timestamp}_{seq}.npz`
 - If a DR contains mixed data from different survey regions (e.g., anti-center +
   plane), split into sub-DRs (e.g., DR2a, DR2b) by galactic coordinate
@@ -201,9 +205,14 @@ From `src/ugradio/lab_dish/HI1.tex`:
 | DR3b | l=60-122, b=-4 to +4 | 2 deg | 4 | 78% | Complete |
 | DR4a | l=124-250, b=-4 to +4 | 2 deg | 4 | 80% | Complete |
 | DR4b | l=210-280, b=+6 to +28 | 2 deg | 4 | 80% | Complete |
-| DR5a | l=118-250, b=-4 to +4 | 2 deg | 4 | ~80% | Planned |
-| DR5b | l=210-380, b=0 to +30 | 2 deg | 4 | ~80% | Planned |
-| DR6a | l=105-160, b=15 to +50 | 2 deg | 4 | ~80% | Planned |
+| DR5a | l=48-174, b=-4 to +4 (sparse fills) | 2 deg | 4 | ~80% | 49 cells; 5 incomplete |
+| DR5b | l=210-290, b=+6 to +28 | 2 deg | 4 | ~80% | 241 cells; 8 incomplete |
+| DR6a | l=117-159, b=+15 to +25 | 2 deg | 4 | ~80% | 77 cells; 3 incomplete |
+| DR6b | l=250-280, b=+6 to +24 | 2 deg | 4 | ~80% | 37 cells; 6 incomplete |
+| DR7a | l=12-58, b=-4 to +4 (inner plane) | 2 deg | 4 | ~80% | 81 cells; 3 incomplete |
+| DR7b | l=112-160, b=+14 to +16 (NCP fills) | 2 deg | 4 | ~80% | 5 cells |
+| DR8a | l=12-260, b=-4 to +4 (fills only) | 2 deg | 4 | ~80% | Planned — 12 incomplete cells |
+| DR8b | l=13-249 odd, b=-3,-1,+1,+3 | 2 deg | 4 | ~80% | Planned — 476 cells total, tonight l=129-197 |
 
 ## M31 observation
 

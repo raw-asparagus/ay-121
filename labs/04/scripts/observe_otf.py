@@ -42,7 +42,7 @@ SURVEY_PARTS = [
     {   # Part 1 (DR8a): Fill all incomplete even-grid plane cells (|b|<=4)
         # Setting side: l=76,98,112,117 accessible now.
         # Below-horizon inner galaxy (l<60) and l=174,224,252 retried as they rise.
-        'name': 'Plane fills — even grid (DR8a)',
+        'name': 'Plane fills - even grid (DR8a)',
         'l_min': 12, 'l_max': 260,
         'b_min': -4, 'b_max': 4,
         'step': 2,
@@ -52,8 +52,8 @@ SURVEY_PARTS = [
     },
     {   # Part 2 (DR8b): Interleaved odd-l / odd-b grid, rising side.
         # Tonight: l=129-197 (139 cells, ~5.3h). Full range l=13-249 over multiple sessions.
-        # l_min=129 (odd) + step=2 → 129,131,...,197; b_min=-3 + step=2 → -3,-1,+1,+3
-        'name': 'Odd-grid plane — rising (DR8b)',
+        # l_min=129 (odd) + step=2 -> 129,131,...,197; b_min=-3 + step=2 -> -3,-1,+1,+3
+        'name': 'Odd-grid plane - rising (DR8b)',
         'l_min': 129, 'l_max': 197,
         'b_min': -3, 'b_max': 3,
         'step': 2,

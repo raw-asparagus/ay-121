@@ -118,18 +118,28 @@ def build_raster_cells(l_min, l_max, b_min, b_max, step):
 def filter_cells_by_az_side(cells):
     """Filter cells to one side of the az exclusion zone.
 
-    Computes current alt/az for each cell, classifies as rising (az 7-180)
-    or setting (az 180-348).  The side with more *currently accessible*
-    cells is chosen, but all cells on that side are kept -- including those
-    currently below the horizon -- so they can be retried later during a
-    long run.
+    First removes permanently inaccessible cells: those whose upper transit
+    altitude (90 - |lat - dec|) is below MIN_ALT_DEG and can never be reached.
+
+    Then classifies remaining cells as rising (az 7-180) or setting (az 180-348).
+    The side with more *currently accessible* cells is chosen, but all cells on
+    that side are kept -- including those temporarily below the horizon -- so
+    they can be retried later during a long run.
     """
     classified = []
+    n_permanent = 0
     for row, col, l, b in cells:
         alt, az, ra, dec, _ = compute_gal_pointing(
             l, b,
             lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
         )
+        # Drop cells that never reach MIN_ALT_DEG from this latitude.
+        # Upper transit altitude = 90 - |lat - dec|.
+        max_alt = 90.0 - abs(LEO_LAT_DEG - dec)
+        if max_alt < MIN_ALT_DEG:
+            n_permanent += 1
+            continue
+
         in_limits = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
         # Cells in the az exclusion zone (348-360, 0-7) are transiting
         # near north and will enter the rising side next.
@@ -137,11 +147,15 @@ def filter_cells_by_az_side(cells):
         is_setting = 180 < az <= AZ_MAX
         classified.append((row, col, l, b, alt, az, in_limits, is_rising, is_setting))
 
+    if n_permanent:
+        print(f'  Permanent inaccessibility: {n_permanent} cells dropped '
+              f'(never reach {MIN_ALT_DEG}deg from lat={LEO_LAT_DEG}deg)')
+
     # Pick side based on cells *currently* in limits
     n_rising = sum(1 for c in classified if c[6] and c[7])
     n_setting = sum(1 for c in classified if c[6] and c[8])
 
-    # Keep ALL cells on the chosen side (including below-horizon ones)
+    # Keep ALL cells on the chosen side (including temporarily below-horizon ones)
     if n_rising >= n_setting:
         side = 'rising'
         kept = [(r, c, l, b) for r, c, l, b, alt, az, ok, rising, setting
@@ -154,7 +168,7 @@ def filter_cells_by_az_side(cells):
     n_now = n_rising if side == 'rising' else n_setting
     print(f'  Az filter: {side} ({n_rising} rising / {n_setting} setting)')
     print(f'  {len(kept)} cells kept ({n_now} currently accessible),'
-          f' {len(cells) - len(kept)} dropped')
+          f' {len(cells) - len(kept) - n_permanent} dropped (wrong az side)')
 
     return kept
 

@@ -9,14 +9,14 @@ they rise into view during long runs.
 
 DR9 8-phase survey (2026-04-22+):
 
-  Even-Even Plane Fills (DR9a) — 4 phases:
+  Even-Even Plane Fills (DR9a) - 4 phases:
     Phase 1: l=-10 to 120, rising (inner galaxy)
     Phase 2: l=-10 to 120, setting
     Phase 3: l=120 to 260, rising (outer galaxy)
     Phase 4: l=120 to 260, setting
     ~120 cells total, ~2h combined
 
-  Odd-Odd Galactic Plane (DR9b) — 4 phases:
+  Odd-Odd Galactic Plane (DR9b) - 4 phases:
     Phase 5: l=-9 to 119, rising (inner galaxy)
     Phase 6: l=-9 to 119, setting
     Phase 7: l=121 to 259, rising (outer galaxy)
@@ -48,7 +48,7 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 
 SURVEY_PARTS = [
     {   # Phase 1: Even-even inner rising
-        'name': 'Even-even plane fills — inner rising (DR9a-1)',
+        'name': 'Even-even plane fills - inner rising (DR9a-1)',
         'l_min': -10, 'l_max': 120,
         'b_min': -4, 'b_max': 4,
         'step': 2,
@@ -56,7 +56,7 @@ SURVEY_PARTS = [
         'outdir': 'data/lab04/streaming/DR9a',
     },
     # {   # Phase 2: Even-even inner setting
-    #     'name': 'Even-even plane fills — inner setting (DR9a-2)',
+    #     'name': 'Even-even plane fills - inner setting (DR9a-2)',
     #     'l_min': -10, 'l_max': 120,
     #     'b_min': -4, 'b_max': 4,
     #     'step': 2,
@@ -64,7 +64,7 @@ SURVEY_PARTS = [
     #     'outdir': 'data/lab04/streaming/DR9a',
     # },
     {   # Phase 3: Even-even outer rising
-        'name': 'Even-even plane fills — outer rising (DR9a-3)',
+        'name': 'Even-even plane fills - outer rising (DR9a-3)',
         'l_min': 120, 'l_max': 260,
         'b_min': -4, 'b_max': 4,
         'step': 2,
@@ -72,7 +72,7 @@ SURVEY_PARTS = [
         'outdir': 'data/lab04/streaming/DR9a',
     },
     # {   # Phase 4: Even-even outer setting
-    #     'name': 'Even-even plane fills — outer setting (DR9a-4)',
+    #     'name': 'Even-even plane fills - outer setting (DR9a-4)',
     #     'l_min': 120, 'l_max': 260,
     #     'b_min': -4, 'b_max': 4,
     #     'step': 2,
@@ -80,7 +80,7 @@ SURVEY_PARTS = [
     #     'outdir': 'data/lab04/streaming/DR9a',
     # },
     {   # Phase 5: Odd-odd inner rising
-        'name': 'Odd-odd galactic plane — inner rising (DR9b-1)',
+        'name': 'Odd-odd galactic plane - inner rising (DR9b-1)',
         'l_min': -9, 'l_max': 119,
         'b_min': -3, 'b_max': 3,
         'step': 2,
@@ -88,7 +88,7 @@ SURVEY_PARTS = [
         'outdir': 'data/lab04/streaming/DR9b',
     },
     # {   # Phase 6: Odd-odd inner setting
-    #     'name': 'Odd-odd galactic plane — inner setting (DR9b-2)',
+    #     'name': 'Odd-odd galactic plane - inner setting (DR9b-2)',
     #     'l_min': -9, 'l_max': 119,
     #     'b_min': -3, 'b_max': 3,
     #     'step': 2,
@@ -96,7 +96,7 @@ SURVEY_PARTS = [
     #     'outdir': 'data/lab04/streaming/DR9b',
     # },
     {   # Phase 7: Odd-odd outer rising
-        'name': 'Odd-odd galactic plane — outer rising (DR9b-3)',
+        'name': 'Odd-odd galactic plane - outer rising (DR9b-3)',
         'l_min': 121, 'l_max': 259,
         'b_min': -3, 'b_max': 3,
         'step': 2,
@@ -104,7 +104,7 @@ SURVEY_PARTS = [
         'outdir': 'data/lab04/streaming/DR9b',
     },
     # {   # Phase 8: Odd-odd outer setting
-    #     'name': 'Odd-odd galactic plane — outer setting (DR9b-4)',
+    #     'name': 'Odd-odd galactic plane - outer setting (DR9b-4)',
     #     'l_min': 121, 'l_max': 259,
     #     'b_min': -3, 'b_max': 3,
     #     'step': 2,

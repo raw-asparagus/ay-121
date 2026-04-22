@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BACKUP: GALACTIC PLANE SURVEY — RISING-SIDE ONLY (4 PHASES)
+"""BACKUP: GALACTIC PLANE SURVEY - RISING-SIDE ONLY (4 PHASES)
 Leuschner Observatory, April 26, 2026
 
 ========================================================================
@@ -9,9 +9,9 @@ This captures the same regions as the marathon rising phases.
 ========================================================================
 
 SCHEDULE (PDT):
-  22:00 Fri Apr 25 — 10:30 Sat Apr 26  (if April 25 abort)
+  22:00 Fri Apr 25 - 10:30 Sat Apr 26  (if April 25 abort)
   OR
-  20:00 Sat Apr 26 — 06:00 Sun Apr 27  (standalone evening/morning)
+  20:00 Sat Apr 26 - 06:00 Sun Apr 27  (standalone evening/morning)
 
 PHASES (4 rising-side only):
   22:00–23:30  Phase 1: Even-even INNER RISING (1.5 h, 38 cells)
@@ -322,7 +322,7 @@ def make_scan_target_selector(cells, dumps_per_cell, phase_num):
 
 def main():
     logger.log("="*70, 'INFO')
-    logger.log("GALACTIC PLANE SURVEY — BACKUP (RISING ONLY)", 'INFO')
+    logger.log("GALACTIC PLANE SURVEY - BACKUP (RISING ONLY)", 'INFO')
     logger.log("April 26, 2026", 'INFO')
     logger.log("="*70, 'INFO')
 

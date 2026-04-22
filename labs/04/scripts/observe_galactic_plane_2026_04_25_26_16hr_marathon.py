@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FULL GALACTIC PLANE SURVEY — 16-HOUR UNATTENDED MARATHON
+"""FULL GALACTIC PLANE SURVEY - 16-HOUR UNATTENDED MARATHON
 Leuschner Observatory, April 25/26, 2026
 
 ========================================================================
@@ -10,9 +10,9 @@ UNATTENDED OPERATION: Fully automatic phase transitions, error handling
 SCHEDULE (PDT):
   18:00–22:00 Fri Apr 25  Phase 1: Even-even INNER SETTING (5.0 h)
   19:30–22:00 Fri Apr 25  Phase 2: Even-even OUTER SETTING (2.5 h)
-  22:00 Fri—06:30 Sat Apr 26  [OVERNIGHT BREAK IF NEEDED: 0–6.5 h sleep]
-  22:00 Fri—23:30 Sat Apr 26  Phase 3: Even-even INNER RISING (1.5 h)
-  23:30 Fri—01:40 Sat Apr 26  Phase 4: Even-even OUTER RISING (2.2 h)
+  22:00 Fri-06:30 Sat Apr 26  [OVERNIGHT BREAK IF NEEDED: 0–6.5 h sleep]
+  22:00 Fri-23:30 Sat Apr 26  Phase 3: Even-even INNER RISING (1.5 h)
+  23:30 Fri-01:40 Sat Apr 26  Phase 4: Even-even OUTER RISING (2.2 h)
   01:40–06:20 Sat Apr 26  Phase 5: Odd-odd INNER RISING (4.7 h)
   06:20–10:30 Sat Apr 26  Phase 6: Odd-odd OUTER RISING (4.2 h)
 
@@ -422,7 +422,7 @@ def start_status_heartbeat():
 
 def main():
     logger.log("="*70, 'INFO')
-    logger.log("GALACTIC PLANE SURVEY — 8-PHASE FULL MARATHON", 'INFO')
+    logger.log("GALACTIC PLANE SURVEY - 8-PHASE FULL MARATHON", 'INFO')
     logger.log("April 25/26, 2026 (Unattended Operation)", 'INFO')
     logger.log("="*70, 'INFO')
 

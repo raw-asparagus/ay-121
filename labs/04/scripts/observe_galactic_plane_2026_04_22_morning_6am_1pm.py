@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GALACTIC PLANE DAYTIME SURVEY — MORNING WINDOW
+"""GALACTIC PLANE DAYTIME SURVEY - MORNING WINDOW
 Leuschner Observatory, April 22, 2026 (6 AM – 1 PM PDT)
 
 ========================================================================
@@ -77,7 +77,7 @@ signal.signal(signal.SIGINT, handle_abort)
 
 SURVEY_PARTS = [
     {
-        'name': 'INNER PLANE RISING — Extended Latitude',
+        'name': 'INNER PLANE RISING - Extended Latitude',
         'phase_num': 1,
         'l_min': 0, 'l_max': 120,
         'b_min': -20, 'b_max': 20,
@@ -90,7 +90,7 @@ SURVEY_PARTS = [
         'description': 'Galactic Center to Cygnus region (extended latitude)',
     },
     {
-        'name': 'OUTER PLANE RISING — Extended Latitude',
+        'name': 'OUTER PLANE RISING - Extended Latitude',
         'phase_num': 2,
         'l_min': 120, 'l_max': 260,
         'b_min': -20, 'b_max': 20,
@@ -103,7 +103,7 @@ SURVEY_PARTS = [
         'description': 'Vela to Anticentre region (extended latitude)',
     },
     {
-        'name': 'EXTENDED NORTH — Rising Side',
+        'name': 'EXTENDED NORTH - Rising Side',
         'phase_num': 3,
         'l_min': 270, 'l_max': 360,
         'b_min': -15, 'b_max': 15,
@@ -116,7 +116,7 @@ SURVEY_PARTS = [
         'description': 'Northern galactic plane (extended coverage)',
     },
     {
-        'name': 'ANTICENTRE REGION — High Altitude',
+        'name': 'ANTICENTRE REGION - High Altitude',
         'phase_num': 4,
         'l_min': 160, 'l_max': 200,
         'b_min': -15, 'b_max': 15,
@@ -312,8 +312,8 @@ def make_scan_target_selector(cells, dumps_per_cell, phase_num):
 
 def main():
     logger.log("="*70, 'INFO')
-    logger.log("GALACTIC PLANE DAYTIME SURVEY — MORNING WINDOW", 'INFO')
-    logger.log("April 22, 2026 (6 AM — 1 PM PDT)", 'INFO')
+    logger.log("GALACTIC PLANE DAYTIME SURVEY - MORNING WINDOW", 'INFO')
+    logger.log("April 22, 2026 (6 AM - 1 PM PDT)", 'INFO')
     logger.log("Extended Latitude Coverage: b ∈ [-20°, +20°]", 'INFO')
     logger.log("="*70, 'INFO')
 

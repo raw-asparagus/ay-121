@@ -387,7 +387,8 @@ def main():
 
             def on_save(path, dump, _notifier=dump_notifier):
                 _notifier()
-                logger.log(f"  [{dump['target_name']}] → {path.name}", 'DATA')
+                path_obj = Path(path) if isinstance(path, str) else path
+                logger.log(f"  [{dump['target_name']}] -> {path_obj.name}", 'DATA')
 
             capture = StreamingCapture(
                 telescope=telescope,

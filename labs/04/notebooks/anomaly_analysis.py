@@ -43,7 +43,7 @@ print("PHASE 1: Loading data")
 print("=" * 70)
 
 STREAMING_DIR = Path('../../../data/lab04/streaming')
-DATA_RELEASES = ['DR1', 'DR2a', 'DR2b', 'DR3a', 'DR3b', 'DR4a', 'DR4b', 'DR5a', 'DR5b']
+DATA_RELEASES = ['DR1', 'DR2a', 'DR2b', 'DR3a', 'DR3b', 'DR4', 'DR5a', 'DR5b']
 
 scan_dirs = []
 for dr in DATA_RELEASES:

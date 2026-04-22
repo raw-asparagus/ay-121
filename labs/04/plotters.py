@@ -18,7 +18,6 @@ import numpy as np
 from ugradiolab.plotting import (
     TEXTWIDTH_IN,
     COLUMNWIDTH_IN,
-    A4_USABLE_HEIGHT_IN,
     LABEL_SIZE,
     TICK_SIZE,
     LEGEND_SIZE,
@@ -105,7 +104,7 @@ def plot_spectra_grid(
     title: str,
     color: str,
 ) -> plt.Figure:
-    """Plot all spectra in a compact grid.
+    """Plot all spectra for one DR on a single page.
 
     Parameters
     ----------
@@ -125,63 +124,52 @@ def plot_spectra_grid(
     keys = sorted(spectra.keys(), key=lambda k: (k[1], k[0]))
     n = len(keys)
 
-    # Scale: fit as many rows as possible per A4 page height
+    if n == 0:
+        fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.0))
+        ax.set_axis_off()
+        if title:
+            fig.suptitle(title, fontsize=EMPHASIS_SIZE)
+        return fig
+
     ROW_HEIGHT_IN = 0.9
-    rows_per_page = max(1, int(A4_USABLE_HEIGHT_IN / ROW_HEIGHT_IN))
     nrows_total = math.ceil(n / ncols)
 
-    # Build list of figures (one per page)
-    figs = []
-    for page_start_row in range(0, nrows_total, rows_per_page):
-        page_end_row = min(page_start_row + rows_per_page, nrows_total)
-        page_nrows = page_end_row - page_start_row
-        page_start_idx = page_start_row * ncols
-        page_end_idx = min(page_end_row * ncols, n)
+    fig, axes = plt.subplots(
+        nrows_total, ncols,
+        figsize=(TEXTWIDTH_IN, ROW_HEIGHT_IN * nrows_total),
+        gridspec_kw={"hspace": 0.35, "wspace": 0.3},
+    )
+    axes = np.atleast_2d(axes)
 
-        fig, axes = plt.subplots(
-            page_nrows, ncols,
-            figsize=(TEXTWIDTH_IN, ROW_HEIGHT_IN * page_nrows),
-            gridspec_kw={"hspace": 0.35, "wspace": 0.3},
+    for i_global, (gl, gb) in enumerate(keys):
+        ri, ci = divmod(i_global, ncols)
+        ax = axes[ri, ci]
+        ax.plot(v_kms, spectra[(gl, gb)], lw=LW_FINE, color=color,
+                alpha=ALPHA_STANDARD, zorder=2)
+        ax.axhline(0, **GUIDE_STYLE, zorder=1)
+        ax.set_title(
+            rf"$\ell$={gl} $b$={gb:+d}",
+            fontsize=TICK_SIZE - 3, pad=2,
         )
-        axes = np.atleast_2d(axes)
+        ax.tick_params(labelsize=TICK_SIZE - 4)
+        if ri < nrows_total - 1:
+            ax.set_xticklabels([])
+        if ci == 0:
+            ax.set_ylabel(r"$R$", fontsize=TICK_SIZE - 3)
 
-        for i_in_page, i_global in enumerate(range(page_start_idx, page_end_idx)):
-            gl, gb = keys[i_global]
-            ri, ci = divmod(i_in_page, ncols)
-            ax = axes[ri, ci]
-            ax.plot(v_kms, spectra[(gl, gb)], lw=LW_FINE, color=color,
-                    alpha=ALPHA_STANDARD, zorder=2)
-            ax.axhline(0, **GUIDE_STYLE, zorder=1)
-            ax.set_title(
-                rf"$\ell$={gl} $b$={gb:+d}",
-                fontsize=TICK_SIZE - 3, pad=2,
-            )
-            ax.tick_params(labelsize=TICK_SIZE - 4)
-            if ri < page_nrows - 1:
-                ax.set_xticklabels([])
-            if ci == 0:
-                ax.set_ylabel(r"$R$", fontsize=TICK_SIZE - 3)
+    # Hide unused axes on the last row.
+    n_on_last_row = n % ncols or ncols
+    for ci in range(n_on_last_row, ncols):
+        axes[-1, ci].set_visible(False)
 
-        # Hide unused axes on last page
-        n_on_page = page_end_idx - page_start_idx
-        for i_in_page in range(n_on_page, page_nrows * ncols):
-            ri, ci = divmod(i_in_page, ncols)
-            axes[ri, ci].set_visible(False)
+    # Bottom labels.
+    for ci in range(n_on_last_row):
+        axes[-1, ci].set_xlabel(r"$v$ [km\,s$^{-1}$]", fontsize=TICK_SIZE - 3)
 
-        # Bottom labels
-        for ci in range(min(ncols, n_on_page)):
-            axes[-1, ci].set_xlabel(r"$v$ [km\,s$^{-1}$]", fontsize=TICK_SIZE - 3)
-
-        page_label = title
-        if nrows_total > rows_per_page:
-            page_num = page_start_row // rows_per_page + 1
-            total_pages = math.ceil(nrows_total / rows_per_page)
-            page_label = f"{title} ({page_num}/{total_pages})"
-        if page_label:
-            fig.suptitle(page_label, fontsize=EMPHASIS_SIZE)
-        figs.append(fig)
-
-    return figs[0] if len(figs) == 1 else figs
+    if title:
+        fig.suptitle(title, fontsize=EMPHASIS_SIZE)
+    fig.subplots_adjust(top=0.92)
+    return fig
 
 
 # ---------------------------------------------------------------------------

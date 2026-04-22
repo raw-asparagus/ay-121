@@ -30,11 +30,19 @@ def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
         Number of channels flagged.
     """
     kernel = window if window % 2 == 1 else window + 1
-    local_med = medfilt(spectrum, kernel_size=kernel)
+
+    # Interpolate over NaN (e.g. DC mask) so medfilt doesn't propagate them.
+    finite = np.isfinite(spectrum)
+    buf = spectrum.copy()
+    if not finite.all() and finite.sum() >= 2:
+        chans = np.arange(len(buf))
+        buf[~finite] = np.interp(chans[~finite], chans[finite], buf[finite])
+
+    local_med = medfilt(buf, kernel_size=kernel)
     resid = spectrum - local_med
-    mad = np.median(np.abs(resid))
+    mad = np.nanmedian(np.abs(resid))
     sigma = mad / 0.6745
-    bad = np.abs(resid) > sigma_thresh * sigma
+    bad = (np.abs(resid) > sigma_thresh * sigma) & finite
     n_bad = int(np.sum(bad))
     if n_bad > 0:
         spectrum[bad] = np.nan

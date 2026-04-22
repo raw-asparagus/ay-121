@@ -8,28 +8,28 @@ UNATTENDED OPERATION: Fully automatic phase transitions, error handling
 ========================================================================
 
 SCHEDULE (PDT):
-  18:00–22:00 Fri Apr 25  Phase 1: Even-even INNER SETTING (5.0 h)
-  19:30–22:00 Fri Apr 25  Phase 2: Even-even OUTER SETTING (2.5 h)
-  22:00 Fri-06:30 Sat Apr 26  [OVERNIGHT BREAK IF NEEDED: 0–6.5 h sleep]
-  22:00 Fri-23:30 Sat Apr 26  Phase 3: Even-even INNER RISING (1.5 h)
-  23:30 Fri-01:40 Sat Apr 26  Phase 4: Even-even OUTER RISING (2.2 h)
-  01:40–06:20 Sat Apr 26  Phase 5: Odd-odd INNER RISING (4.7 h)
-  06:20–10:30 Sat Apr 26  Phase 6: Odd-odd OUTER RISING (4.2 h)
+  18:00-22:00 Fri Apr 25  Phase 1: Even-even INNER SETTING (5.0 h)
+  19:30-22:00 Fri Apr 25  Phase 2: Even-even OUTER SETTING (2.5 h)
+  22:00 Fri to 06:30 Sat Apr 26  [OVERNIGHT BREAK IF NEEDED: 0-6.5 h sleep]
+  22:00 Fri to 23:30 Sat Apr 26  Phase 3: Even-even INNER RISING (1.5 h)
+  23:30 Fri to 01:40 Sat Apr 26  Phase 4: Even-even OUTER RISING (2.2 h)
+  01:40-06:20 Sat Apr 26  Phase 5: Odd-odd INNER RISING (4.7 h)
+  06:20-10:30 Sat Apr 26  Phase 6: Odd-odd OUTER RISING (4.2 h)
 
 TOTAL:  ~16.5 hours wall-clock  |  ~20+ hours if overnight break included
 CELLS:  ~600–700 total (450+ rising, 150+ setting)
 DATA:   ~600–700 MB
 
 ROBUST FEATURES FOR UNATTENDED OPERATION:
-  ✓ Full 8-phase sequence with automatic transitions
-  ✓ Comprehensive exception handling (won't crash on errors)
-  ✓ Intelligent cell retry (below-horizon cells caught as they rise)
-  ✓ Manifest auto-loading (skips complete, prioritizes incomplete)
-  ✓ Detailed logging to file + console
-  ✓ Phase progress tracking with estimated completion times
-  ✓ Hardware initialization safety checks
-  ✓ Graceful degradation (phase can fail without stopping others)
-  ✓ 30-second status heartbeat (proves script is still alive)
+  [OK] Full 8-phase sequence with automatic transitions
+  [OK] Comprehensive exception handling (won't crash on errors)
+  [OK] Intelligent cell retry (below-horizon cells caught as they rise)
+  [OK] Manifest auto-loading (skips complete, prioritizes incomplete)
+  [OK] Detailed logging to file + console
+  [OK] Phase progress tracking with estimated completion times
+  [OK] Hardware initialization safety checks
+  [OK] Graceful degradation (phase can fail without stopping others)
+  [OK] 30-second status heartbeat (proves script is still alive)
 
 USAGE:
     nohup python observe_galactic_plane_2026_04_25_26_16hr_marathon.py > obs_2026_04_25_26.log 2>&1 &

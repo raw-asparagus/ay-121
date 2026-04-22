@@ -3,25 +3,25 @@
 Leuschner Observatory, April 22, 2026 (1 PM – 8 PM PDT)
 
 ========================================================================
-EXTENDED LATITUDE COVERAGE: b ∈ [-20°, +20°] (wide galactic plane)
+EXTENDED LATITUDE COVERAGE: b in [-20°, +20°] (wide galactic plane)
 OPTIMIZED FOR AFTERNOON OBSERVABILITY (setting → rising)
 ========================================================================
 
 SCHEDULE (PDT):
-  13:00–15:00 PDT    Phase 1a: ANTICENTRE SETTING (l ∈ [160°, 200°])
-  15:00–17:00 PDT    Phase 1b: OUTER PLANE SETTING (l ∈ [120°, 260°])
-  17:00–19:00 PDT    Phase 2a: INNER PLANE SETTING (l ∈ [0°, 120°])
-  19:00–20:00 PDT    Phase 2b: EXTENDED SOUTH (l ∈ [270°, 360°])
+  13:00-15:00 PDT    Phase 1a: ANTICENTRE SETTING (l in [160°, 200°])
+  15:00-17:00 PDT    Phase 1b: OUTER PLANE SETTING (l in [120°, 260°])
+  17:00-19:00 PDT    Phase 2a: INNER PLANE SETTING (l in [0°, 120°])
+  19:00-20:00 PDT    Phase 2b: EXTENDED SOUTH (l in [270°, 360°])
 
 Total: 7 hours continuous observing
 Cells: ~400–500 (extended latitude coverage)
 Data: ~500–600 MB
 
 COVERAGE:
-  ✓ Extended galactic plane: b ∈ [-20°, +20°] (vs. ±4° standard)
-  ✓ Setting side: Good altitude (declining from high)
-  ✓ Multiple longitude ranges: Anticentre, outer, inner, south
-  ✓ Solar interference: Systematic (flagged, acceptable)
+  [OK] Extended galactic plane: b in [-20°, +20°] (vs. ±4° standard)
+  [OK] Setting side: Good altitude (declining from high)
+  [OK] Multiple longitude ranges: Anticentre, outer, inner, south
+  [OK] Solar interference: Systematic (flagged, acceptable)
 
 ========================================================================
 """
@@ -314,7 +314,7 @@ def main():
     logger.log("="*70, 'INFO')
     logger.log("GALACTIC PLANE DAYTIME SURVEY - AFTERNOON WINDOW", 'INFO')
     logger.log("April 22, 2026 (1 PM - 8 PM PDT)", 'INFO')
-    logger.log("Extended Latitude Coverage: b ∈ [-20°, +20°]", 'INFO')
+    logger.log("Extended Latitude Coverage: b in [-20°, +20°]", 'INFO')
     logger.log("="*70, 'INFO')
 
     logger.log("\nInitializing hardware...", 'INFO')
@@ -350,7 +350,7 @@ def main():
         logger.log("\n" + "="*70, 'INFO')
         logger.log(f"PHASE {phase_num}: {part['name']}", 'INFO')
         logger.log(f"  {part['description']}", 'INFO')
-        logger.log(f"  ℓ ∈ [{l_min}, {l_max}], b ∈ [{b_min}, {b_max}]", 'INFO')
+        logger.log(f"  l in [{l_min}, {l_max}], b in [{b_min}, {b_max}]", 'INFO')
         logger.log("="*70, 'INFO')
 
         try:

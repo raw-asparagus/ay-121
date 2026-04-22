@@ -9,9 +9,9 @@ This captures the same regions as the marathon rising phases.
 ========================================================================
 
 SCHEDULE (PDT):
-  22:00 Fri Apr 25 - 10:30 Sat Apr 26  (if April 25 abort)
+  22:00 Fri Apr 25 to 10:30 Sat Apr 26  (if April 25 abort)
   OR
-  20:00 Sat Apr 26 - 06:00 Sun Apr 27  (standalone evening/morning)
+  20:00 Sat Apr 26 to 06:00 Sun Apr 27  (standalone evening/morning)
 
 PHASES (4 rising-side only):
   22:00–23:30  Phase 1: Even-even INNER RISING (1.5 h, 38 cells)
@@ -22,11 +22,11 @@ PHASES (4 rising-side only):
 TOTAL:  10.5 hours  |  ~300 cells  |  ~300 MB
 
 COVERAGE:
-  ✓ Even-even l ∈ [-10°, 260°], b ∈ [-4°, 4°]
-  ✓ Odd-odd l ∈ [-9°, 259°], b ∈ [-3°, 3°]
-  ✓ Priority region l ∈ [10°, 240°] COMPLETE
-  ✓ Extension to l = 260° COMPLETE
-  ✗ Setting-side observations DEFERRED
+  [OK] Even-even l in [-10°, 260°], b in [-4°, 4°]
+  [OK] Odd-odd l in [-9°, 259°], b in [-3°, 3°]
+  [OK] Priority region l in [10°, 240°] COMPLETE
+  [OK] Extension to l = 260° COMPLETE
+  [NO] Setting-side observations DEFERRED
 
 MISSING (if you use this backup only):
   - Setting-side observations for same regions

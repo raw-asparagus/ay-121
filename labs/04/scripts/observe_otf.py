@@ -47,47 +47,70 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # Part 1 (DR9a-a): Fill remaining even-even plane cells, rising side.
-        # Auto-selects based on accessible cells at T_START. Observes rising-side fills.
-        'name': 'Even-even plane fills - rising (DR9a)',
-        'l_min': 12, 'l_max': 260,
+    {   # Phase 1: Even-even inner rising
+        'name': 'Even-even plane fills — inner rising (DR9a-1)',
+        'l_min': -10, 'l_max': 120,
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
-        'fills_only': True,
         'outdir': 'data/lab04/streaming/DR9a',
     },
-    {   # Part 2 (DR9a-b): Fill remaining even-even plane cells, setting side.
-        # Auto-selects based on accessible cells after Part 1 completes.
-        # As sky rotates, setting-side cells become more accessible.
-        'name': 'Even-even plane fills - setting (DR9a)',
-        'l_min': 12, 'l_max': 260,
+    # {   # Phase 2: Even-even inner setting
+    #     'name': 'Even-even plane fills — inner setting (DR9a-2)',
+    #     'l_min': -10, 'l_max': 120,
+    #     'b_min': -4, 'b_max': 4,
+    #     'step': 2,
+    #     'dumps_per_band': 4,
+    #     'outdir': 'data/lab04/streaming/DR9a',
+    # },
+    {   # Phase 3: Even-even outer rising
+        'name': 'Even-even plane fills — outer rising (DR9a-3)',
+        'l_min': 120, 'l_max': 260,
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
-        'fills_only': True,
         'outdir': 'data/lab04/streaming/DR9a',
     },
-    {   # Part 3 (DR9b-a): Complete odd-odd galactic plane grid, rising side.
-        # Prerequisite: ingest DR8b data and run 02_scan_load.ipynb Section 7
-        # to update manifest (skips l=129-197 already in DR8b).
-        # Auto-selects rising-accessible cells at scheduled time.
-        'name': 'Odd-odd galactic plane - rising (DR9b)',
-        'l_min': 13, 'l_max': 249,
+    # {   # Phase 4: Even-even outer setting
+    #     'name': 'Even-even plane fills — outer setting (DR9a-4)',
+    #     'l_min': 120, 'l_max': 260,
+    #     'b_min': -4, 'b_max': 4,
+    #     'step': 2,
+    #     'dumps_per_band': 4,
+    #     'outdir': 'data/lab04/streaming/DR9a',
+    # },
+    {   # Phase 5: Odd-odd inner rising
+        'name': 'Odd-odd galactic plane — inner rising (DR9b-1)',
+        'l_min': -9, 'l_max': 119,
         'b_min': -3, 'b_max': 3,
         'step': 2,
         'dumps_per_band': 4,
         'outdir': 'data/lab04/streaming/DR9b',
     },
-    {   # Part 4 (DR9b-b): Complete odd-odd galactic plane grid, setting side.
-        # Auto-selects setting-accessible cells after Part 3 completes.
-        'name': 'Odd-odd galactic plane - setting (DR9b)',
-        'l_min': 13, 'l_max': 249,
+    # {   # Phase 6: Odd-odd inner setting
+    #     'name': 'Odd-odd galactic plane — inner setting (DR9b-2)',
+    #     'l_min': -9, 'l_max': 119,
+    #     'b_min': -3, 'b_max': 3,
+    #     'step': 2,
+    #     'dumps_per_band': 4,
+    #     'outdir': 'data/lab04/streaming/DR9b',
+    # },
+    {   # Phase 7: Odd-odd outer rising
+        'name': 'Odd-odd galactic plane — outer rising (DR9b-3)',
+        'l_min': 121, 'l_max': 259,
         'b_min': -3, 'b_max': 3,
         'step': 2,
         'dumps_per_band': 4,
         'outdir': 'data/lab04/streaming/DR9b',
     },
+    # {   # Phase 8: Odd-odd outer setting
+    #     'name': 'Odd-odd galactic plane — outer setting (DR9b-4)',
+    #     'l_min': 121, 'l_max': 259,
+    #     'b_min': -3, 'b_max': 3,
+    #     'step': 2,
+    #     'dumps_per_band': 4,
+    #     'outdir': 'data/lab04/streaming/DR9b',
+    # },
 ]
 
 # ---------------------------------------------------------------------------

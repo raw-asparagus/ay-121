@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR9a/DR9b).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR9: 8-phase galactic plane).
 
 Simple raster in galactic coordinates at 2-deg spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
@@ -7,20 +7,28 @@ setting) to prevent the telescope from crossing the north gap.
 Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
-DR9a/DR9b sessions 2026-04-22+:
-  Part 1 (DR9a, even-even fills): Fill all remaining incomplete
-          even-grid plane cells (|b|<=4). Auto-select picks rising or
-          setting based on accessibility at run time. ~13 cells, <1h.
-  Part 2 (DR9b, odd-odd grid): Complete interleaved grid l=13-249 odd,
-          b=-3,-1,+1,+3. Prerequisite: ingest DR8b data and update
-          manifest to skip l=129-197 already observed. ~332 cells, ~15h.
+DR9 8-phase survey (2026-04-22+):
+
+  Even-Even Plane Fills (DR9a) — 4 phases:
+    Phase 1: l=-10 to 120, rising (inner galaxy)
+    Phase 2: l=-10 to 120, setting
+    Phase 3: l=120 to 260, rising (outer galaxy)
+    Phase 4: l=120 to 260, setting
+    ~120 cells total, ~2h combined
+
+  Odd-Odd Galactic Plane (DR9b) — 4 phases:
+    Phase 5: l=-9 to 119, rising (inner galaxy)
+    Phase 6: l=-9 to 119, setting
+    Phase 7: l=121 to 259, rising (outer galaxy)
+    Phase 8: l=121 to 259, setting
+    ~540 cells total, ~6h combined (after DR8b manifest update)
 
 Usage:
     python observe_otf.py
 
 Output:
-    data/lab04/streaming/DR9a/scan_r<row>_c<col>/...npz  (even-even fills)
-    data/lab04/streaming/DR9b/scan_r<row>_c<col>/...npz  (odd-odd grid)
+    data/lab04/streaming/DR9a/scan_r<row>_c<col>/...npz  (phases 1-4, even-even)
+    data/lab04/streaming/DR9b/scan_r<row>_c<col>/...npz  (phases 5-8, odd-odd)
 """
 
 import threading

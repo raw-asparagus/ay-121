@@ -47,22 +47,22 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 
 SURVEY_PARTS = [
-    {   # Phase 1: Even-even inner rising
-        'name': 'Even-even plane fills - inner rising (DR9a-1)',
-        'l_min': -10, 'l_max': 120,
-        'b_min': -4, 'b_max': 4,
-        'step': 2,
-        'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR9a',
-    },
-    # {   # Phase 2: Even-even inner setting
-    #     'name': 'Even-even plane fills - inner setting (DR9a-2)',
+    # {   # Phase 1: Even-even inner rising
+    #     'name': 'Even-even plane fills - inner rising (DR9a-1)',
     #     'l_min': -10, 'l_max': 120,
     #     'b_min': -4, 'b_max': 4,
     #     'step': 2,
     #     'dumps_per_band': 4,
     #     'outdir': 'data/lab04/streaming/DR9a',
     # },
+    {   # Phase 2: Even-even inner setting
+        'name': 'Even-even plane fills - inner setting (DR9a-2)',
+        'l_min': -10, 'l_max': 120,
+        'b_min': -4, 'b_max': 4,
+        'step': 2,
+        'dumps_per_band': 4,
+        'outdir': 'data/lab04/streaming/DR9a',
+    },
     {   # Phase 3: Even-even outer rising
         'name': 'Even-even plane fills - outer rising (DR9a-3)',
         'l_min': 120, 'l_max': 260,

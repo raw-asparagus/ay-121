@@ -1,7 +1,7 @@
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# IAU 1958 / Hipparcos rotation matrix  (equatorial ICRS → galactic)
+# IAU 1958 / Hipparcos rotation matrix  (equatorial ICRS -> galactic)
 # ---------------------------------------------------------------------------
 _EQ_TO_GAL = np.array([
     [-0.054875539726, -0.873437108010, -0.483834985808],

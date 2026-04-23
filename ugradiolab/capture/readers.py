@@ -258,7 +258,7 @@ def make_sdr_reader(
         if dump is not None:
             return dump
 
-        # First call returned None — capture again to get the first dump
+        # First call returned None -- capture again to get the first dump
         lo = next(freq_cycle)
         dump = pipeline.next_dump(lo)
         if dump is not None:
@@ -288,7 +288,7 @@ def make_calibrated_sdr_reader(
     The first ``cal_dumps_per_lo * len(lo_freqs_mhz)`` calls capture with the
     noise diode ON (each LO frequency for ``cal_dumps_per_lo`` dumps in
     sequence).  After the calibration phase the diode is turned OFF and
-    subsequent calls use block LO switching — all dumps at one LO before
+    subsequent calls use block LO switching -- all dumps at one LO before
     switching to the next, minimising tuner PLL settle overhead.
 
     Uses pipelined capture: FFT/correlation of the previous dump runs in a
@@ -315,7 +315,7 @@ def make_calibrated_sdr_reader(
     # Cal schedule: [lo0]*N + [lo1]*N + ...
     cal_lo_schedule = [lo for lo in lo_list for _ in range(cal_dumps_per_lo)]
 
-    # Science schedule: block LO switching — all dumps at one LO before
+    # Science schedule: block LO switching -- all dumps at one LO before
     # switching to the next.  This minimises tuner PLL settle overhead
     # (set_center_freq is skipped when LO is unchanged).
     # Block size matches cal_dumps_per_lo so each LO gets equal coverage
@@ -360,7 +360,7 @@ def make_calibrated_sdr_reader(
         submit_count += 1
 
         if dump is None:
-            # First call — no previous dump yet. Submit one more.
+            # First call -- no previous dump yet. Submit one more.
             if submit_count < total_cal_dumps:
                 lo2 = cal_lo_schedule[submit_count]
                 is_noise_on2 = True

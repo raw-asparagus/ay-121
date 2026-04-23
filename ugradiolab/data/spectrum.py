@@ -399,10 +399,10 @@ class Spectrum:
         method : {'gaussian', 'savgol', 'boxcar'}
             Smoothing algorithm to apply.
         **kwargs
-            gaussian : sigma (float, default 32) — kernel width in bins.
+            gaussian : sigma (float, default 32) -- kernel width in bins.
             savgol   : window_length (int, default 129),
                        polyorder (int, default 3).
-            boxcar   : M (int, default 64) — number of bins to average.
+            boxcar   : M (int, default 64) -- number of bins to average.
 
         Returns
         -------

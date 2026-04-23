@@ -73,7 +73,7 @@ The QA stage has two layers, applied in sequence before any plotting.
 
 ### 7a. Session-level spectral consistency (disabled)
 
-This check is implemented but currently commented out — visual inspection
+This check is implemented but currently commented out -- visual inspection
 showed that all multi-session cells are consistent and the flagging was
 producing false positives.  The code remains in both notebooks for future
 use if needed.

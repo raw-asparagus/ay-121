@@ -14,18 +14,18 @@ SCHEDULE (PDT):
   20:00 Sat Apr 26 to 06:00 Sun Apr 27  (standalone evening/morning)
 
 PHASES (4 rising-side only):
-  22:00–23:30  Phase 1: Even-even INNER RISING (1.5 h, 38 cells)
-  23:30–01:40  Phase 2: Even-even OUTER RISING (2.2 h, 40–50 cells)
-  01:40–06:20  Phase 3: Odd-odd INNER RISING (4.7 h, 115 cells)
-  06:20–10:30  Phase 4: Odd-odd OUTER RISING (4.2 h, 109 cells)
+  22:00--23:30  Phase 1: Even-even INNER RISING (1.5 h, 38 cells)
+  23:30--01:40  Phase 2: Even-even OUTER RISING (2.2 h, 40--50 cells)
+  01:40--06:20  Phase 3: Odd-odd INNER RISING (4.7 h, 115 cells)
+  06:20--10:30  Phase 4: Odd-odd OUTER RISING (4.2 h, 109 cells)
 
 TOTAL:  10.5 hours  |  ~300 cells  |  ~300 MB
 
 COVERAGE:
-  [OK] Even-even l in [-10°, 260°], b in [-4°, 4°]
-  [OK] Odd-odd l in [-9°, 259°], b in [-3°, 3°]
-  [OK] Priority region l in [10°, 240°] COMPLETE
-  [OK] Extension to l = 260° COMPLETE
+  [OK] Even-even l in [-10deg, 260deg], b in [-4deg, 4deg]
+  [OK] Odd-odd l in [-9deg, 259deg], b in [-3deg, 3deg]
+  [OK] Priority region l in [10deg, 240deg] COMPLETE
+  [OK] Extension to l = 260deg COMPLETE
   [NO] Setting-side observations DEFERRED
 
 MISSING (if you use this backup only):

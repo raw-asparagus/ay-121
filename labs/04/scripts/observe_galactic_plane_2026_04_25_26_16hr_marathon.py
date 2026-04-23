@@ -17,8 +17,8 @@ SCHEDULE (PDT):
   06:20-10:30 Sat Apr 26  Phase 6: Odd-odd OUTER RISING (4.2 h)
 
 TOTAL:  ~16.5 hours wall-clock  |  ~20+ hours if overnight break included
-CELLS:  ~600–700 total (450+ rising, 150+ setting)
-DATA:   ~600–700 MB
+CELLS:  ~600--700 total (450+ rising, 150+ setting)
+DATA:   ~600--700 MB
 
 ROBUST FEATURES FOR UNATTENDED OPERATION:
   [OK] Full 8-phase sequence with automatic transitions

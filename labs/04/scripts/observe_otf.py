@@ -266,6 +266,9 @@ def make_scan_target_selector(cells, dumps_per_cell):
     def target_selector():
         nonlocal current_cell_idx, cell_dump_count, transitioning, cells_observed_this_pass
 
+        if done_event.is_set():
+            return None
+
         if current_cell_idx >= len(cell_list):
             if skipped:
                 if not _start_retry_pass():

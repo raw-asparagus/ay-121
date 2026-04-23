@@ -71,31 +71,20 @@ The result is stored as `R_overlap`, which is the common spectrum used downstrea
 
 The QA stage has two layers, applied in sequence before any plotting.
 
-### 7a. Session-level spectral consistency
+### 7a. Session-level spectral consistency (disabled)
 
-For cells observed in two or more sessions, the pipeline compares each
-session's frequency-switched R spectrum to the channel-wise median across
-all sessions at that cell.  For each session it computes:
+This check is implemented but currently commented out — visual inspection
+showed that all multi-session cells are consistent and the flagging was
+producing false positives.  The code remains in both notebooks for future
+use if needed.
 
-- **Broadband z**: `|mean(residual)| / (noise_rms / sqrt(N_channels))` --
-  catches gain offsets that shift the entire spectrum up or down.
-- **Narrowband z**: `max(|residual|) / noise_rms` -- catches localized
-  spurious features (RFI residuals, baseline ripple, LO glitches).
-
-Both metrics are normalized by the noise RMS measured from off-signal channels
-(`v_LSR < -100 km/s`) of the median reference spectrum.  A session is dropped
-if `broadband_z > 4` or `narrowband_z > 5`.
-
-Dropped sessions are removed from the cell's combined R spectrum, which is
-recomputed from the surviving sessions.  If all sessions are flagged for a
-cell, the cell is removed entirely.
-
-This operates at the **session level** -- good sessions at the same cell are
-preserved while only the inconsistent session is discarded.
+When active, it compares each session's frequency-switched R spectrum to the
+channel-wise median across all sessions at that cell, using broadband and
+narrowband z-scores normalized by off-signal noise.
 
 ### 7b. Neighbor-based spatial QA
 
-After session consistency, the pipeline applies spatial QA to the combined
+The pipeline applies spatial QA to the combined
 LSR-aligned cell results.  From each cell's overlap spectrum it computes:
 
 - velocity-integrated intensity: $W = \sum R(v)\,\Delta v$
@@ -122,7 +111,7 @@ A cell is flagged if:
 
 ### Manifest integration
 
-The diagnostics notebook (`02a_scan_diagnostics.ipynb`) runs both QA layers
+The diagnostics notebook (`02a_scan_diagnostics.ipynb`) runs the neighbor QA
 and excludes flagged cells from the survey manifest, so they are re-observed
 in subsequent sessions.
 

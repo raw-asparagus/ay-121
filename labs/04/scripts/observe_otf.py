@@ -80,7 +80,7 @@ STREAMING_DIR = 'data/lab04/streaming'
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 
-NEXT_SESSION = 30  # set before each deployment; existing data is session_001-029
+NEXT_SESSION = 32  # set before each deployment; existing data is session_001-031
 
 
 def _next_session_dir(streaming_dir: str = STREAMING_DIR) -> str:

@@ -359,6 +359,10 @@ class StreamingCapture:
         # Wait for the first valid pointing before starting the reader.
         print('Waiting for target acquisition ...')
         while self._pointing.get_state() is None:
+            if done_event is not None and done_event.is_set():
+                print('No targets available — scan finished before acquisition.')
+                self._pointing.stop()
+                return
             time.sleep(0.5)
         state = self._pointing.get_state()
         print(f'Acquired target: {state.target_name}  '

@@ -19,15 +19,15 @@ def compute_R_for_dumps(
 ) -> dict | None:
     """Compute mean frequency-switched R from science dump records.
 
-    Pairs LO1 and LO2 dumps within each DR.  When *lsr_correct* is True,
-    each DR's R spectrum is interpolated onto a common LSR velocity grid
-    before averaging across DRs.
+    Pairs LO1 and LO2 dumps within each session.  When *lsr_correct* is
+    True, each session's R spectrum is interpolated onto a common LSR
+    velocity grid before averaging across sessions.
 
     Parameters
     ----------
     dump_list : list of dict
-        Science records with 'dr', 'lo_mhz', 'stokes_I', 'v_corr_lsr',
-        'ra', 'dec' keys.
+        Science records with 'session', 'lo_mhz', 'stokes_I',
+        'v_corr_lsr', 'ra', 'dec' keys.
     lo1, lo2 : float
         The two LO frequencies in MHz.
     overlap_mask : 1-D bool array
@@ -35,7 +35,7 @@ def compute_R_for_dumps(
     v_overlap : 1-D float array
         Topocentric velocity grid for the overlap channels.
     lsr_correct : bool
-        If True, shift each DR to *v_lsr_grid* before averaging.
+        If True, shift each session to *v_lsr_grid* before averaging.
     v_lsr_grid : 1-D float array or None
         Common LSR velocity grid (required when *lsr_correct* is True).
 
@@ -46,16 +46,18 @@ def compute_R_for_dumps(
         (LSR mode) or ``{'R_mean': ..., 'R_overlap': ..., ...}``
         (topocentric mode).  Returns None if no valid pairs.
     """
-    by_dr: dict[str, list[dict]] = defaultdict(list)
+    by_session: dict[str, list[dict]] = defaultdict(list)
     for r in dump_list:
-        by_dr[r['dr']].append(r)
+        by_session[r['session']].append(r)
 
     R_all: list[np.ndarray] = []
+    session_labels: list[str] = []
+    pairs_per_session: list[int] = []
     total_pairs = 0
 
-    for dr_dumps in by_dr.values():
-        d1 = [r for r in dr_dumps if r['lo_mhz'] == lo1]
-        d2 = [r for r in dr_dumps if r['lo_mhz'] == lo2]
+    for sess_label, sess_dumps in by_session.items():
+        d1 = [r for r in sess_dumps if r['lo_mhz'] == lo1]
+        d2 = [r for r in sess_dumps if r['lo_mhz'] == lo2]
         n_p = min(len(d1), len(d2))
         if n_p == 0:
             continue
@@ -65,17 +67,19 @@ def compute_R_for_dumps(
         R_pairs = (I1 - I2) / I2  # (n_p, 1024)
 
         if lsr_correct:
-            R_dr = np.nanmean(R_pairs, axis=0)
-            if np.ndim(R_dr) == 0:
+            R_sess = np.nanmean(R_pairs, axis=0)
+            if np.ndim(R_sess) == 0:
                 continue
             v_corr = np.mean([r['v_corr_lsr'] for r in d1[:n_p] + d2[:n_p]])
-            v_dr_lsr = v_overlap + v_corr
-            R_ov = R_dr[overlap_mask]
+            v_sess_lsr = v_overlap + v_corr
+            R_ov = R_sess[overlap_mask]
             R_interp = np.interp(
-                v_lsr_grid[::-1], v_dr_lsr[::-1], R_ov[::-1],
+                v_lsr_grid[::-1], v_sess_lsr[::-1], R_ov[::-1],
                 left=np.nan, right=np.nan,
             )[::-1]
             R_all.append(R_interp)
+            session_labels.append(str(sess_label))
+            pairs_per_session.append(n_p)
         else:
             R_all.append(R_pairs)
 
@@ -89,10 +93,15 @@ def compute_R_for_dumps(
 
     if lsr_correct:
         R_mean = np.nanmean(R_all, axis=0)
-        return {
+        result = {
             'R_overlap': R_mean,
             'n_pairs': total_pairs, 'ra': mean_ra, 'dec': mean_dec,
+            'n_sessions': len(R_all),
+            'R_per_session': R_all,
+            'session_labels': session_labels,
+            'pairs_per_session': pairs_per_session,
         }
+        return result
     else:
         R_cat = np.concatenate(R_all, axis=0)
         R_mean = np.nanmean(R_cat, axis=0)

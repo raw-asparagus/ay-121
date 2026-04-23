@@ -43,26 +43,21 @@ print("PHASE 1: Loading data")
 print("=" * 70)
 
 STREAMING_DIR = Path('../../../data/lab04/streaming')
-DATA_RELEASES = ['DR1', 'DR2a', 'DR2b', 'DR3a', 'DR3b', 'DR4', 'DR5a', 'DR5b']
 
 scan_dirs = []
-for dr in DATA_RELEASES:
-    dr_dir = STREAMING_DIR / dr
-    if not dr_dir.exists():
-        continue
-    found = sorted(dr_dir.glob('scan_r*_c*'))
-    print(f'  {dr}: {len(found)} cells')
+for session_dir in sorted(STREAMING_DIR.glob('session_*')):
+    found = sorted(session_dir.glob('obs_*'))
+    print(f'  {session_dir.name}: {len(found)} obs cells')
     scan_dirs.extend(found)
-print(f'  Total: {len(scan_dirs)} cells')
+print(f'  Total: {len(scan_dirs)} obs cells')
 
 records = []
 for d in scan_dirs:
-    dr_label = d.parent.name
     for p in sorted(d.glob('*.npz')):
         with np.load(p, allow_pickle=True) as f:
             records.append({
                 'path': p,
-                'dr': dr_label,
+                'session': d.parent.name,
                 'target': str(f['target_name']),
                 'corr00': f['corr00'].astype(float),
                 'corr11': f['corr11'].astype(float),
@@ -79,13 +74,13 @@ N = len(records)
 print(f'  {N} total dumps loaded')
 
 for r in records:
-    m = re.match(r'scan_r(\d+)_c(\d+)', r['target'])
+    m = re.match(r'(?:obs|cal)_(-?\d+)_(-?\d+)', r['target'])
     if m:
-        r['row'] = int(m.group(1))
-        r['col'] = int(m.group(2))
+        r['gl'] = int(m.group(1))
+        r['gb'] = int(m.group(2))
     else:
-        r['row'] = -1
-        r['col'] = -1
+        r['gl'] = None
+        r['gb'] = None
 
 lo_unique = sorted(set(r['lo_mhz'] for r in records if not r['noise_on']))
 
@@ -120,22 +115,13 @@ v_overlap = C_KMS * (1 - f_overlap / HI_REST_MHZ)
 print(f'  LO pair: ({lo1}, {lo2}) MHz')
 print(f'  Overlap channels: {overlap_mask.sum()}')
 
-# Assign galactic coords
-for r in records:
-    if r['row'] < 0:
-        r['gl'], r['gb'] = None, None
-        continue
-    c = ac.SkyCoord(ra=r['ra'] * u_ast.deg, dec=r['dec'] * u_ast.deg, frame='icrs')
-    r['gl'] = round(c.galactic.l.deg)
-    r['gb'] = round(c.galactic.b.deg)
-
 # LSR corrections
 cell_dr_groups = defaultdict(list)
 for r in records:
     if r.get('gl') is None or r['noise_on']:
         r['v_corr_lsr'] = 0.0
         continue
-    cell_dr_groups[(r['dr'], r['gl'], r['gb'])].append(r)
+    cell_dr_groups[(r['session'], r['gl'], r['gb'])].append(r)
 
 for key, group in cell_dr_groups.items():
     r0 = group[0]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (DR9: 8-phase galactic plane).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan (galactic plane survey).
 
 Simple raster in galactic coordinates at 2-deg spacing.
 Cells are filtered to one side of the az exclusion zone (rising or
@@ -7,30 +7,18 @@ setting) to prevent the telescope from crossing the north gap.
 Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
-DR9 8-phase survey (2026-04-22+):
-
-  Even-Even Plane Fills (DR9a) - 4 phases:
-    Phase 1: l=-10 to 120, rising (inner galaxy)
-    Phase 2: l=-10 to 120, setting
-    Phase 3: l=120 to 260, rising (outer galaxy)
-    Phase 4: l=120 to 260, setting
-    ~120 cells total, ~2h combined
-
-  Odd-Odd Galactic Plane (DR9b) - 4 phases:
-    Phase 5: l=-9 to 119, rising (inner galaxy)
-    Phase 6: l=-9 to 119, setting
-    Phase 7: l=121 to 259, rising (outer galaxy)
-    Phase 8: l=121 to 259, setting
-    ~540 cells total, ~6h combined (after DR8b manifest update)
+Each survey part runs as an independent session. Sessions are written to
+  data/lab04/streaming/session_{NNN}/
+with cells named obs_{l}_{b} (science) and cal_{l}_{b} (noise-on calibration).
 
 Usage:
-    python observe_otf.py
+    python main.py
 
 Output:
-    data/lab04/streaming/DR9a/scan_r<row>_c<col>/...npz  (phases 1-4, even-even)
-    data/lab04/streaming/DR9b/scan_r<row>_c<col>/...npz  (phases 5-8, odd-odd)
+    data/lab04/streaming/session_{NNN}/<obs|cal>_{l}_{b}/<obs|cal>_{l}_{b}_{timestamp}.npz
 """
 
+import glob
 import threading
 
 from ugradiolab.astronomy import (
@@ -53,7 +41,6 @@ SURVEY_PARTS = [
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR10a',
     },
     {
         'name': 'ANTICENTRE REGION - High Altitude Setting',
@@ -61,7 +48,6 @@ SURVEY_PARTS = [
         'b_min': -3, 'b_max': 3,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR10b',
     },
     {
         'name': 'INNER PLANE SETTING - Extended Latitude',
@@ -69,7 +55,6 @@ SURVEY_PARTS = [
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR10a',
     },
     {
         'name': 'EXTENDED SOUTH - Evening Rising',
@@ -77,7 +62,6 @@ SURVEY_PARTS = [
         'b_min': -3, 'b_max': 3,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR10b',
     },
 ]
 
@@ -97,8 +81,14 @@ AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
-OUTDIR       = 'data/lab04/streaming/DR9a'  # default; overridden per part
+STREAMING_DIR = 'data/lab04/streaming'
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
+
+
+def _next_session_dir(streaming_dir: str = STREAMING_DIR) -> str:
+    existing = sorted(glob.glob(f'{streaming_dir}/session_???'))
+    n = len(existing) + 1
+    return f'{streaming_dir}/session_{n:03d}'
 
 
 # ---------------------------------------------------------------------------
@@ -331,8 +321,7 @@ def make_scan_target_selector(cells, dumps_per_cell):
                         return None
             return None
 
-        row, col = cell_list[current_cell_idx][0], cell_list[current_cell_idx][1]
-        return f'scan_r{row}_c{col}', alt, az, ra, dec
+        return f'obs_{cell_l}_{cell_b}', alt, az, ra, dec
 
     return target_selector, dump_notifier, done_event
 
@@ -353,7 +342,7 @@ def setup_hardware():
 
 
 def main():
-    print('Lab 4 - Leuschner 21 cm HI OTF raster scan (DR8a/DR8b)')
+    print('Lab 4 - Leuschner 21 cm HI OTF raster scan')
     print('=' * 60)
 
     print('\nInitialising hardware ...')
@@ -399,12 +388,11 @@ def main():
 
         def on_save(path, dump, _notifier=dump_notifier):
             _notifier()
-            noise_tag = ' [CAL]' if dump.get('noise_on') else ''
             lo_tag = f'  LO={dump["lo_freq_mhz"]}' if 'lo_freq_mhz' in dump else ''
-            print(f'  [{dump["target_name"]}]  seq={dump["seq"]:05d}'
-                  f'{lo_tag}{noise_tag}  -> {path}')
+            print(f'  [{dump["target_name"]}]{lo_tag}  -> {path}')
 
-        part_outdir = part.get('outdir', OUTDIR)
+        part_outdir = _next_session_dir()
+        print(f'  Session dir: {part_outdir}')
         capture = StreamingCapture(
             telescope=telescope,
             read_fn=read_fn,

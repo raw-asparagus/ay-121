@@ -39,6 +39,7 @@ USAGE:
 ========================================================================
 """
 
+import glob
 import sys
 import threading
 import time
@@ -91,49 +92,45 @@ signal.signal(signal.SIGINT, handle_abort)
 
 SURVEY_PARTS = [
     {
-        'name': 'Even-even INNER RISING (DR9a-3)',
+        'name': 'Even-even INNER RISING',
         'phase_num': 1,
         'l_min': -10, 'l_max': 120,
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR9a',
         'side': 'rising',
         'expected_cells': 38,
         'expected_duration_h': 1.5,
     },
     {
-        'name': 'Even-even OUTER RISING (DR9a-4)',
+        'name': 'Even-even OUTER RISING',
         'phase_num': 2,
         'l_min': 120, 'l_max': 260,
         'b_min': -4, 'b_max': 4,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR9a',
         'side': 'rising',
         'expected_cells': 40,
         'expected_duration_h': 1.6,
     },
     {
-        'name': 'Odd-odd INNER RISING (DR9b-1)',
+        'name': 'Odd-odd INNER RISING',
         'phase_num': 3,
         'l_min': -9, 'l_max': 119,
         'b_min': -3, 'b_max': 3,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR9b',
         'side': 'rising',
         'expected_cells': 115,
         'expected_duration_h': 4.7,
     },
     {
-        'name': 'Odd-odd OUTER RISING (DR9b-2)',
+        'name': 'Odd-odd OUTER RISING',
         'phase_num': 4,
         'l_min': 121, 'l_max': 259,
         'b_min': -3, 'b_max': 3,
         'step': 2,
         'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DR9b',
         'side': 'rising',
         'expected_cells': 109,
         'expected_duration_h': 4.2,
@@ -152,7 +149,14 @@ NBLOCKS      = 1025
 NFFT         = 1024
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
+STREAMING_DIR = 'data/lab04/streaming'
 MANIFEST_PATH = 'survey_manifest.json'
+
+
+def _next_session_dir() -> str:
+    existing = sorted(glob.glob(f'{STREAMING_DIR}/session_???'))
+    n = len(existing) + 1
+    return f'{STREAMING_DIR}/session_{n:03d}'
 
 MIN_ALT_DEG  = 17.0
 MAX_ALT_DEG  = 83.0
@@ -311,7 +315,7 @@ def make_scan_target_selector(cells, dumps_per_cell, phase_num):
             return None
 
         row, col = cell_list[current_cell_idx][0], cell_list[current_cell_idx][1]
-        return f'scan_r{row}_c{col}', alt, az, ra, dec
+        return f'obs_{cell_l}_{cell_b}', alt, az, ra, dec
 
     return target_selector, dump_notifier, done_event
 
@@ -394,7 +398,7 @@ def main():
                 telescope=telescope,
                 read_fn=read_fn,
                 target_selector=target_selector,
-                outdir=part['outdir'],
+                outdir=_next_session_dir(),
                 n_writers=2,
                 repoint_interval_sec=REPOINT_TRACK_SEC,
                 on_save=on_save,

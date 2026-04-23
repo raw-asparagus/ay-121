@@ -26,6 +26,7 @@ COVERAGE:
 ========================================================================
 """
 
+import glob
 import sys
 import threading
 import time
@@ -89,7 +90,36 @@ NBLOCKS      = 1025
 NFFT         = 1024
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
+STREAMING_DIR = 'data/lab04/streaming'
 MANIFEST_PATH = 'survey_manifest.json'
+
+
+def _next_session_dir() -> str:
+    existing = sorted(glob.glob(f'{STREAMING_DIR}/session_???'))
+    n = len(existing) + 1
+    return f'{STREAMING_DIR}/session_{n:03d}'
+
+
+SURVEY_PARTS = [
+    {
+        'name': 'Extended Latitude Inner Setting',
+        'phase_num': 1,
+        'l_min': -10, 'l_max': 120,
+        'b_min': -4, 'b_max': 4,
+        'step': 2,
+        'dumps_per_band': 4,
+        'side': 'setting',
+    },
+    {
+        'name': 'Extended Latitude Outer Setting',
+        'phase_num': 2,
+        'l_min': 120, 'l_max': 260,
+        'b_min': -4, 'b_max': 4,
+        'step': 2,
+        'dumps_per_band': 4,
+        'side': 'setting',
+    },
+]
 
 MIN_ALT_DEG  = 17.0
 MAX_ALT_DEG  = 83.0
@@ -247,8 +277,7 @@ def make_scan_target_selector(cells, dumps_per_cell, phase_num):
                         return None
             return None
 
-        row, col = cell_list[current_cell_idx][0], cell_list[current_cell_idx][1]
-        return f'scan_r{row}_c{col}', alt, az, ra, dec
+        return f'obs_{cell_l}_{cell_b}', alt, az, ra, dec
 
     return target_selector, dump_notifier, done_event
 
@@ -331,7 +360,7 @@ def main():
                 telescope=telescope,
                 read_fn=read_fn,
                 target_selector=target_selector,
-                outdir=part['outdir'],
+                outdir=_next_session_dir(),
                 n_writers=2,
                 repoint_interval_sec=REPOINT_TRACK_SEC,
                 on_save=on_save,

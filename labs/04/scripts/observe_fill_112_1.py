@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Lab 4 - Fill missing dumps at (l=112, b=+1).
 
-Stare observation to complete DR2b galactic plane survey at this
-pointing. Collects 3 more dumps to reach 8 total (4 per band).
+Stare observation to complete coverage at this pointing.
+Collects 3 more dumps to reach 8 total (4 per band).
 
 Usage:
     python observe_fill_112_1.py
 
 Output:
-    data/lab04/streaming/DR2b/scan_r5_c9/scan_r5_c9_dump_<timestamp>_<seq>.npz
+    data/lab04/streaming/session_{NNN}/obs_112_1/obs_112_1_{timestamp}.npz
 """
 
 from ugradiolab.astronomy import (
@@ -40,9 +40,17 @@ MIN_ALT_DEG  = 17.0
 MAX_ALT_DEG  = 83.0
 AZ_MIN_DEG   =  7.0
 AZ_MAX_DEG   = 348.0
+import glob
+
 CAL_DUMPS    = 0
 DUMPS_TO_COLLECT = 3
-OUTDIR       = 'data/lab04/streaming/DR2b'
+STREAMING_DIR = 'data/lab04/streaming'
+
+
+def _next_session_dir() -> str:
+    existing = sorted(glob.glob(f'{STREAMING_DIR}/session_???'))
+    n = len(existing) + 1
+    return f'{STREAMING_DIR}/session_{n:03d}'
 
 # ---------------------------------------------------------------------------
 
@@ -85,7 +93,7 @@ def make_counting_target_selector(max_dumps):
         )
         if (MIN_ALT_DEG <= alt <= MAX_ALT_DEG and
                 AZ_MIN_DEG <= az <= AZ_MAX_DEG):
-            return 'scan_r5_c9', alt, az, ra, dec
+            return 'obs_112_1', alt, az, ra, dec
         return None
 
     return target_selector, dump_notifier, done_event
@@ -124,11 +132,13 @@ def main():
         cal_dumps_per_lo=CAL_DUMPS,
     )
 
+    outdir = _next_session_dir()
+    print(f'  Session dir: {outdir}')
     capture = StreamingCapture(
         telescope=telescope,
         read_fn=read_fn,
         target_selector=target_selector,
-        outdir=OUTDIR,
+        outdir=outdir,
         n_writers=2,
         repoint_interval_sec=60.0,
         on_save=lambda path, dump: on_save(path, dump, dump_notifier),

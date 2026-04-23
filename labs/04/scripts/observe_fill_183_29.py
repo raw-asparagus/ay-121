@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Lab 4 - Fill missing dumps at (l=183, b=+29).
 
-Stare observation at a single galactic pointing to complete the
-DR2a anti-center survey. Collects 17 more dumps (9 at 1420 MHz,
-8 at 1421 MHz) to reach the target of 32 total.
+Stare observation at a single galactic pointing.
+Collects 17 more dumps (9 at 1420 MHz, 8 at 1421 MHz) to reach the target of 32 total.
 
 Usage:
     python observe_fill_183_29.py
 
 Output:
-    data/lab04/streaming/DR2a/scan_r1_c6/scan_r1_c6_dump_<timestamp>_<seq>.npz
+    data/lab04/streaming/session_{NNN}/obs_183_29/obs_183_29_{timestamp}.npz
 """
 
 from ugradiolab.astronomy import (
@@ -41,9 +40,17 @@ MIN_ALT_DEG  = 17.0
 MAX_ALT_DEG  = 83.0
 AZ_MIN_DEG   =  7.0
 AZ_MAX_DEG   = 348.0
-CAL_DUMPS    = 0          # no cal needed, already have cal from DR2a
+import glob
+
+CAL_DUMPS    = 0          # no cal needed, already have cal from prior session
 DUMPS_TO_COLLECT = 17     # 9 at 1420 + 8 at 1421 to reach 32 total
-OUTDIR       = 'data/lab04/streaming/DR2a'
+STREAMING_DIR = 'data/lab04/streaming'
+
+
+def _next_session_dir() -> str:
+    existing = sorted(glob.glob(f'{STREAMING_DIR}/session_???'))
+    n = len(existing) + 1
+    return f'{STREAMING_DIR}/session_{n:03d}'
 
 # ---------------------------------------------------------------------------
 
@@ -85,7 +92,7 @@ def make_counting_target_selector(max_dumps):
         )
         if (MIN_ALT_DEG <= alt <= MAX_ALT_DEG and
                 AZ_MIN_DEG <= az <= AZ_MAX_DEG):
-            return 'scan_r1_c6', alt, az, ra, dec
+            return 'obs_183_29', alt, az, ra, dec
         return None
 
     return target_selector, dump_notifier, done_event
@@ -124,11 +131,13 @@ def main():
         cal_dumps_per_lo=CAL_DUMPS,
     )
 
+    outdir = _next_session_dir()
+    print(f'  Session dir: {outdir}')
     capture = StreamingCapture(
         telescope=telescope,
         read_fn=read_fn,
         target_selector=target_selector,
-        outdir=OUTDIR,
+        outdir=outdir,
         n_writers=2,
         repoint_interval_sec=60.0,
         on_save=lambda path, dump: on_save(path, dump, dump_notifier),

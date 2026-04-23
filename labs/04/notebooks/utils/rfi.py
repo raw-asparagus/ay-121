@@ -9,21 +9,11 @@ from scipy.signal import medfilt
 
 
 def _dump_coordinate_key(record: dict) -> tuple[int, int] | None:
-    """Return a coordinate key for a dump record.
-
-    Prefer galactic (l, b) if present, otherwise fall back to parsed scan
-    (row, col) coordinates.
-    """
+    """Return the galactic (l, b) coordinate key for a dump record."""
     gl = record.get('gl')
     gb = record.get('gb')
     if gl is not None and gb is not None and np.isfinite(gl) and np.isfinite(gb):
         return (int(round(float(gl))), int(round(float(gb))))
-
-    row = record.get('row')
-    col = record.get('col')
-    if row is not None and col is not None and row >= 0 and col >= 0:
-        return (int(row), int(col))
-
     return None
 
 
@@ -73,17 +63,15 @@ def flag_outlier_dumps(records: list[dict],
                        frac_thresh: float = 0.20) -> list[dict]:
     """Flag and remove dumps whose spectral shape deviates from group median.
 
-    Groups dumps by (DR, sky-coordinate pair, LO) and compares each dump's
-    Stokes I to the group median.  The preferred key is galactic (l, b) if
-    present; otherwise the function falls back to parsed scan (row, col)
-    coordinates.  Dumps with too many deviant channels are removed from
-    *records* (in-place) and returned separately.
+    Groups dumps by (session, galactic coordinate, LO) and compares each
+    dump's Stokes I to the group median.  Dumps with too many deviant
+    channels are removed from *records* (in-place) and returned separately.
 
     Parameters
     ----------
     records : list of dict
-        Dump records; each must have 'dr', 'lo_mhz', 'noise_on', and
-        'stokes_I' keys, plus either 'gl'/'gb' or 'row'/'col'.
+        Dump records; each must have 'session', 'lo_mhz', 'noise_on',
+        and 'stokes_I' keys, plus 'gl'/'gb'.
     dev_thresh : float
         Per-channel deviation threshold (fraction of median ratio).
     frac_thresh : float
@@ -98,12 +86,12 @@ def flag_outlier_dumps(records: list[dict],
 
     cell_groups: dict[tuple, list[dict]] = defaultdict(list)
     for r in records:
-        if r.get('row', -1) < 0 or r['noise_on']:
+        if r['noise_on']:
             continue
         coord_key = _dump_coordinate_key(r)
         if coord_key is None:
             continue
-        cell_groups[(r['dr'], coord_key, r['lo_mhz'])].append(r)
+        cell_groups[(r['session'], coord_key, r['lo_mhz'])].append(r)
 
     outlier_records: list[dict] = []
     for group in cell_groups.values():

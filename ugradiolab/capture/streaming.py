@@ -277,9 +277,13 @@ class WriterPool:
 
             try:
                 name = dump['target_name']
+                # Calibration dumps go into cal_* cell, obs dumps into obs_* cell
+                if dump.get('noise_on') and name.startswith('obs_'):
+                    name = 'cal_' + name[4:]
+                    dump = dict(dump)
+                    dump['target_name'] = name
                 ts = time.strftime('%Y%m%d_%H%M%S', time.gmtime(dump['time']))
-                seq = dump['seq']
-                filename = f'{name}_dump_{ts}_{seq:05d}.npz'
+                filename = f'{name}_{ts}.npz'
                 dest = os.path.join(self._outdir, name, filename)
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 np.savez(dest, **dump)

@@ -88,8 +88,8 @@ Edit `labs/04/scripts/observe_otf.py`:
 - Update `SURVEY_PARTS` to match the plan notebook exactly (same order,
   same l/b ranges, same step and dumps_per_band)
 - The script reads `survey_manifest.json` and filters cells at runtime
-- Output goes to `data/lab04/streaming/DR3b/` (or appropriate DR)
-- Update `OUTDIR` if starting a new DR
+- Each survey part auto-creates the next `session_{NNN}` directory under
+  `data/lab04/streaming/` — no manual DR naming needed
 
 ### 6. Verify before running
 
@@ -106,20 +106,22 @@ Edit `labs/04/scripts/observe_otf.py`:
 1. **Plan** — run `01_scan_plan.ipynb` (reads manifest, checks sky, simulates)
 2. **Sync** — update `observe_otf.py` to match the plan
 3. **Push manifest** — copy `survey_manifest.json` to the Pi
-4. **Observe** — run `observe_otf.py` on the Pi
-5. **Ingest** — transfer data from Pi to `data/lab04/streaming/DR*/`
+4. **Observe** — run `observe_otf.py` on the Pi; each part auto-creates `session_{NNN}/`
+5. **Ingest** — transfer data from Pi to `data/lab04/streaming/session_{NNN}/`
 6. **Analyze** — run `02_scan_load.ipynb`
 7. **Update manifest** — Section 7 writes `survey_manifest.json`
 8. **Repeat** from step 1
 
 ### Data organization
 
-- Each observation campaign goes into a DR directory: `DR1/`, `DR2a/`, `DR2b/`, `DR3a/`, `DR3b/`, `DR4a/`, `DR4b/`, `DR5a/`, `DR5b/`, `DR6a/`, `DR6b/`, `DR7a/`, `DR7b/`
-- Within each DR: `scan_r{row}_c{col}/scan_r{row}_c{col}_dump_{timestamp}_{seq}.npz`
-- If a DR contains mixed data from different survey regions (e.g., anti-center +
-  plane), split into sub-DRs (e.g., DR2a, DR2b) by galactic coordinate
-- The analysis notebook keys on (l, b), not (row, col) — cells from different
-  DRs at the same sky position are automatically merged
+- Each observation part creates a session: `session_{NNN}/` (sequential, timestamp-ordered)
+- Within each session: `obs_{l}_{b}/obs_{l}_{b}_{timestamp}.npz` (science dumps)
+  and `cal_{l}_{b}/cal_{l}_{b}_{timestamp}.npz` (noise-diode calibration dumps)
+- Galactic coordinates (l, b) are integer degrees; `obs_` vs `cal_` reflects `noise_on` state
+- Sessions are delimited by calibration blocks: a new session starts whenever a
+  `noise_on=True` dump follows a `noise_on=False` dump chronologically
+- The analysis notebook loads all `session_*/obs_*` cells and keys on (l, b)
+- m31 stare data lives in `m31/` (flat, legacy format) — not session-structured
 - Clean up Zone.Identifier files after data transfer from Windows
 
 ### Frequency switching
@@ -159,7 +161,7 @@ Edit `labs/04/scripts/observe_otf.py`:
 - Alt limits: 17 - 83 deg
 - Az limits: 7 - 348 deg (exclusion near north)
 - Noise diode: T_cal = 79 K (pol 0), 58 K (pol 1), average 68.5 K
-- Dump cadence: ~17 s (pipelined reader), ~29 s (sequential/old DRs)
+- Dump cadence: ~17 s (pipelined reader)
 - Integration per dump: 13.1 s (1025 * 32768 / 2.56e6)
 - Duty cycle: ~77% (pipelined), ~44% (sequential)
 
@@ -175,10 +177,8 @@ The bottleneck is now LO frequency switching (~2-3s per dump).
 Current standard: 4 pairs for all latitudes. Can be increased later if needed.
 
 Measured SNR (actual, peak-to-noise in overlap region):
-- DR1 (plane, b~0): median SNR = 4.6 with 4 pairs
-- DR2a (b~28): median SNR = 11.6 with 16 pairs
-- DR2b (plane, b~0): median SNR = 12.9 with 4 pairs
-- DR3a (b~-18): median SNR = 18.1 with 4 pairs
+- Plane (b~0): median SNR ~4.6-12.9 with 4 pairs
+- |b|~18-29: median SNR ~11-18 with 4 pairs
 
 SNR per dump pair varies by region (~15 for bright plane, ~3 at |b|=20,
 ~1.5 at |b|=30).
@@ -194,25 +194,13 @@ From `src/ugradio/lab_dish/HI1.tex`:
 - Manual spatial sampling: 2 deg spacing (Nyquist for 3.4 deg beam)
 - Foreshortening correction: at high |b|, use delta_l = 2/cos(b)
 
-## Data releases
+## Survey sessions
 
-| DR | Region | Grid | Pairs | Duty | Status |
-|----|--------|------|-------|------|--------|
-| DR1 | l=78-102, b=-4 to +4 | 1 deg | 4 | 46% | Complete |
-| DR2a | l=177-183, b=+28 to +29 | 1 deg | 16 | 43% | 13/14 complete |
-| DR2b | l=101-119, b=-4 to +1 | 1 deg | 4 | 44% | 94/95 complete |
-| DR3a | l=160-220, b=-20 to -10 | 2 deg | 4 | 77% | Complete |
-| DR3b | l=60-122, b=-4 to +4 | 2 deg | 4 | 78% | Complete |
-| DR4a | l=124-250, b=-4 to +4 | 2 deg | 4 | 80% | Complete |
-| DR4b | l=210-280, b=+6 to +28 | 2 deg | 4 | 80% | Complete |
-| DR5a | l=48-174, b=-4 to +4 (sparse fills) | 2 deg | 4 | ~80% | 49 cells; 5 incomplete |
-| DR5b | l=210-290, b=+6 to +28 | 2 deg | 4 | ~80% | 241 cells; 8 incomplete |
-| DR6a | l=117-159, b=+15 to +25 | 2 deg | 4 | ~80% | 77 cells; 3 incomplete |
-| DR6b | l=250-280, b=+6 to +24 | 2 deg | 4 | ~80% | 37 cells; 6 incomplete |
-| DR7a | l=12-58, b=-4 to +4 (inner plane) | 2 deg | 4 | ~80% | 81 cells; 3 incomplete |
-| DR7b | l=112-160, b=+14 to +16 (NCP fills) | 2 deg | 4 | ~80% | 5 cells |
-| DR8a | l=12-260, b=-4 to +4 (fills only) | 2 deg | 4 | ~80% | Planned — 12 incomplete cells |
-| DR8b | l=13-249 odd, b=-3,-1,+1,+3 | 2 deg | 4 | ~80% | Planned — 476 cells total, tonight l=129-197 |
+Historical data migrated to session_001 through session_027 (2026-04-16 to 2026-04-23).
+New observations start from session_028. Total: 12833 science+cal dumps across 27 sessions.
+
+Coverage spans galactic plane (b=-4 to +4), extended latitude (b up to +28),
+and scattered fills. Use `02_scan_load.ipynb` to see current cell-level completion.
 
 ## M31 observation
 

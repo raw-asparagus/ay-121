@@ -75,60 +75,7 @@ signal.signal(signal.SIGINT, handle_abort)
 # 4-PHASE AFTERNOON SURVEY (Extended Latitude)
 # =========================================================================
 
-SURVEY_PARTS = [
-    {
-        'name': 'ANTICENTRE REGION - High Altitude Setting',
-        'phase_num': 1,
-        'l_min': 160, 'l_max': 200,
-        'b_min': -15, 'b_max': 15,
-        'step': 2,
-        'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DAYTIME_22APR',
-        'side': 'setting',
-        'expected_cells': 50,
-        'expected_duration_h': 0.8,
-        'description': 'Galactic Anticentre region (high altitude start)',
-    },
-    {
-        'name': 'OUTER PLANE SETTING - Extended Latitude',
-        'phase_num': 2,
-        'l_min': 120, 'l_max': 260,
-        'b_min': -20, 'b_max': 20,
-        'step': 2,
-        'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DAYTIME_22APR',
-        'side': 'setting',
-        'expected_cells': 140,
-        'expected_duration_h': 2.2,
-        'description': 'Vela to Anticentre region (extended latitude)',
-    },
-    {
-        'name': 'INNER PLANE SETTING - Extended Latitude',
-        'phase_num': 3,
-        'l_min': 0, 'l_max': 120,
-        'b_min': -20, 'b_max': 20,
-        'step': 2,
-        'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DAYTIME_22APR',
-        'side': 'setting',
-        'expected_cells': 125,
-        'expected_duration_h': 2.0,
-        'description': 'Galactic Center to Cygnus region (extended latitude)',
-    },
-    {
-        'name': 'EXTENDED SOUTH - Evening Rising',
-        'phase_num': 4,
-        'l_min': 270, 'l_max': 360,
-        'b_min': -15, 'b_max': 15,
-        'step': 2,
-        'dumps_per_band': 4,
-        'outdir': 'data/lab04/streaming/DAYTIME_22APR',
-        'side': 'rising',
-        'expected_cells': 90,
-        'expected_duration_h': 1.4,
-        'description': 'Southern galactic plane (evening rising)',
-    },
-]
+
 
 # =========================================================================
 # HARDWARE & PARAMETERS

@@ -12,6 +12,9 @@ import math
 from pathlib import Path
 from typing import Sequence
 
+import astropy.coordinates as ac
+import astropy.units as u
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -55,6 +58,13 @@ from ugradiolab.plotting import (
 HI_REST_MHZ = 1420.405
 C_KMS = 299792.458
 
+MOLL_CENTER_L = 120.0
+LEO_LAT_DEG = 37.9183
+MIN_ALT_DEG = 17.0
+MAX_ALT_DEG = 83.0
+AZ_MIN_DEG = 7.0
+AZ_MAX_DEG = 348.0
+
 _LAB04_DIR = Path(__file__).resolve().parent
 _FIGURES_DIR = _LAB04_DIR / "report" / "figures"
 
@@ -90,6 +100,87 @@ def plot_hi_spectrum(
     if title:
         ax.set_title(title, fontsize=TICK_SIZE)
     return ax
+
+
+# ---------------------------------------------------------------------------
+# Mollweide accessibility overlay
+# ---------------------------------------------------------------------------
+
+def add_never_observable_overlay(
+    ax: plt.Axes,
+    *,
+    center_l: float = MOLL_CENTER_L,
+    latitude_deg: float = LEO_LAT_DEG,
+    min_alt_deg: float = MIN_ALT_DEG,
+    max_alt_deg: float = MAX_ALT_DEG,
+    az_min_deg: float = AZ_MIN_DEG,
+    az_max_deg: float = AZ_MAX_DEG,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Draw the never-observable galactic region on a Mollweide axis."""
+    l_dense = np.arange(-179.5, 180.5, 1.0)
+    b_dense = np.arange(-89.5, 90.5, 1.0)
+    L_dense, B_dense = np.meshgrid(l_dense, b_dense)
+
+    L_true = (L_dense + center_l) % 360
+    gc_grid = ac.SkyCoord(
+        l=L_true.ravel() * u.deg,
+        b=B_dense.ravel() * u.deg,
+        frame="galactic",
+    )
+    dec_rad = np.deg2rad(gc_grid.transform_to(ac.ICRS()).dec.deg).reshape(L_dense.shape)
+    lat_rad = np.deg2rad(latitude_deg)
+
+    ha_steps = np.deg2rad(np.arange(0.0, 360.0, 1.0))
+    alt_lo_r = np.deg2rad(min_alt_deg)
+    alt_hi_r = np.deg2rad(max_alt_deg)
+    az_lo_r = np.deg2rad(az_min_deg)
+    az_hi_r = np.deg2rad(az_max_deg)
+
+    observable = np.zeros(L_dense.shape, dtype=bool)
+    for ha in ha_steps:
+        sin_alt = (
+            np.sin(lat_rad) * np.sin(dec_rad)
+            + np.cos(lat_rad) * np.cos(dec_rad) * np.cos(ha)
+        )
+        alt = np.arcsin(np.clip(sin_alt, -1, 1))
+        cos_az_num = np.sin(dec_rad) - np.sin(lat_rad) * sin_alt
+        cos_az_den = np.cos(lat_rad) * np.cos(alt)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            cos_az = np.clip(cos_az_num / cos_az_den, -1, 1)
+        az = np.arccos(cos_az)
+        az = np.where(np.sin(ha) > 0, 2 * np.pi - az, az)
+        observable |= (
+            (alt >= alt_lo_r)
+            & (alt <= alt_hi_r)
+            & (az >= az_lo_r)
+            & (az <= az_hi_r)
+        )
+
+    inacc_mask = ~observable
+
+    with mpl.rc_context({"hatch.color": "red", "hatch.linewidth": 0.5}):
+        ax.contourf(
+            np.deg2rad(L_dense),
+            np.deg2rad(B_dense),
+            inacc_mask.astype(float),
+            levels=[0.5, 1.5],
+            colors=["red"],
+            alpha=0.08,
+            hatches=["///"],
+            zorder=0,
+        )
+        ax.contour(
+            np.deg2rad(L_dense),
+            np.deg2rad(B_dense),
+            inacc_mask.astype(float),
+            levels=[0.5],
+            colors=["red"],
+            linewidths=0.6,
+            alpha=0.4,
+            zorder=1,
+        )
+
+    return L_dense, B_dense, inacc_mask
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +321,7 @@ def plot_survey_mollweide(
     """Plot survey data on a Mollweide projection in galactic coords.
 
     Uses landscape width (A4 usable height) for maximum sky coverage.
+    Includes overlay showing never-observable regions.
     """
     gl_shifted = gl - center_l
     gl_shifted = np.where(gl_shifted > 180, gl_shifted - 360, gl_shifted)
@@ -245,6 +337,11 @@ def plot_survey_mollweide(
     l_line = np.linspace(-np.pi, np.pi, 500)
     ax.plot(l_line, np.zeros_like(l_line), lw=LW_FINE,
             color="k", alpha=ALPHA_FAINT, zorder=1)
+
+    # Never-observable overlay
+    add_never_observable_overlay(ax, center_l=center_l, latitude_deg=LEO_LAT_DEG,
+                                 min_alt_deg=MIN_ALT_DEG, max_alt_deg=MAX_ALT_DEG,
+                                 az_min_deg=AZ_MIN_DEG, az_max_deg=AZ_MAX_DEG)
 
     sc = ax.scatter(
         np.deg2rad(gl_shifted), np.deg2rad(gb),

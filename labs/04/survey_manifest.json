@@ -1,9 +1,9 @@
 {
   "meta": {
-    "updated": "2026-04-23T18:38:22.302141+00:00",
+    "updated": "2026-04-23T20:17:29.075013+00:00",
     "total_pointings": 1502,
-    "complete": 1478,
-    "incomplete": 24
+    "complete": 1479,
+    "incomplete": 23
   },
   "pointings": {
     "14,-4": {
@@ -6866,13 +6866,6 @@
       "target": 4,
       "complete": true
     },
-    "194,-10": {
-      "n_1420": 4,
-      "n_1421": 4,
-      "n_pairs": 4,
-      "target": 4,
-      "complete": true
-    },
     "194,-4": {
       "n_1420": 4,
       "n_1421": 4,
@@ -7329,11 +7322,11 @@
       "complete": true
     },
     "203,-3": {
-      "n_1420": 4,
-      "n_1421": 2,
-      "n_pairs": 2,
+      "n_1420": 8,
+      "n_1421": 6,
+      "n_pairs": 6,
       "target": 4,
-      "complete": false
+      "complete": true
     },
     "203,-1": {
       "n_1420": 4,
@@ -7430,6 +7423,13 @@
       "n_1420": 4,
       "n_1421": 4,
       "n_pairs": 4,
+      "target": 4,
+      "complete": true
+    },
+    "205,-3": {
+      "n_1420": 7,
+      "n_1421": 6,
+      "n_pairs": 6,
       "target": 4,
       "complete": true
     },

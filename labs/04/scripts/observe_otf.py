@@ -249,6 +249,7 @@ def make_scan_target_selector(cells, dumps_per_cell):
         if cells_observed_this_pass == 0:
             print(f'  [scan] No progress in last pass - abandoning '
                   f'{len(skipped)} unreachable cell(s).')
+            skipped.clear()
             return False
         cell_list[:] = list(skipped)
         skipped.clear()

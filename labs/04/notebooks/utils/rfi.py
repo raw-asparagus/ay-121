@@ -8,6 +8,25 @@ import numpy as np
 from scipy.signal import medfilt
 
 
+def _dump_coordinate_key(record: dict) -> tuple[int, int] | None:
+    """Return a coordinate key for a dump record.
+
+    Prefer galactic (l, b) if present, otherwise fall back to parsed scan
+    (row, col) coordinates.
+    """
+    gl = record.get('gl')
+    gb = record.get('gb')
+    if gl is not None and gb is not None and np.isfinite(gl) and np.isfinite(gb):
+        return (int(round(float(gl))), int(round(float(gb))))
+
+    row = record.get('row')
+    col = record.get('col')
+    if row is not None and col is not None and row >= 0 and col >= 0:
+        return (int(row), int(col))
+
+    return None
+
+
 def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
                       sigma_thresh: float = 5.0) -> int:
     """Flag RFI channels in a single spectrum using median filter + MAD.
@@ -54,15 +73,17 @@ def flag_outlier_dumps(records: list[dict],
                        frac_thresh: float = 0.20) -> list[dict]:
     """Flag and remove dumps whose spectral shape deviates from group median.
 
-    Groups dumps by (DR, target, LO) and compares each dump's Stokes I
-    to the group median.  Dumps with too many deviant channels are removed
-    from *records* (in-place) and returned separately.
+    Groups dumps by (DR, sky-coordinate pair, LO) and compares each dump's
+    Stokes I to the group median.  The preferred key is galactic (l, b) if
+    present; otherwise the function falls back to parsed scan (row, col)
+    coordinates.  Dumps with too many deviant channels are removed from
+    *records* (in-place) and returned separately.
 
     Parameters
     ----------
     records : list of dict
-        Dump records; each must have 'dr', 'target', 'lo_mhz', 'row',
-        'noise_on', and 'stokes_I' keys.
+        Dump records; each must have 'dr', 'lo_mhz', 'noise_on', and
+        'stokes_I' keys, plus either 'gl'/'gb' or 'row'/'col'.
     dev_thresh : float
         Per-channel deviation threshold (fraction of median ratio).
     frac_thresh : float
@@ -79,7 +100,10 @@ def flag_outlier_dumps(records: list[dict],
     for r in records:
         if r.get('row', -1) < 0 or r['noise_on']:
             continue
-        cell_groups[(r['dr'], r['target'], r['lo_mhz'])].append(r)
+        coord_key = _dump_coordinate_key(r)
+        if coord_key is None:
+            continue
+        cell_groups[(r['dr'], coord_key, r['lo_mhz'])].append(r)
 
     outlier_records: list[dict] = []
     for group in cell_groups.values():

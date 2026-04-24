@@ -50,11 +50,51 @@ SURVEY_PARTS = [
         'step': 2,
         'dumps_per_band': 4,
     },
-    # -- Session 2: Orion-Eridanus (even l, b+1 offset, above b=-48) --
-    {
-        'name': 'Orion-Eridanus (even l, b+1 offset)',
-        'l_min': 160, 'l_max': 220,
-        'b_min': -46, 'b_max': -10,
+    
+    # -- Session 2: Galactic plane fills (b=+-4, all remaining) --
+    {   # 2a: Even-even grid
+        'name': 'Galactic plane fills (even-even)',
+        'l_min': -10, 'l_max': 260,
+        'b_min': -4, 'b_max': 4,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+    {   # 2b: Odd-odd grid
+        'name': 'Galactic plane fills (odd-odd)',
+        'l_min': -9, 'l_max': 259,
+        'b_min': -3, 'b_max': 3,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+    
+    # -- Session 3: Galactic plane fills (b=+-4, all remaining) --
+    {   # 3a: Even-even grid
+        'name': 'Galactic plane fills (even-even)',
+        'l_min': -10, 'l_max': 260,
+        'b_min': -4, 'b_max': 4,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+    {   # 3b: Odd-odd grid
+        'name': 'Galactic plane fills (odd-odd)',
+        'l_min': -9, 'l_max': 259,
+        'b_min': -3, 'b_max': 3,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+    
+    # -- Session 4: Galactic plane fills (b=+-4, all remaining) --
+    {   # 4a: Even-even grid
+        'name': 'Galactic plane fills (even-even)',
+        'l_min': -10, 'l_max': 260,
+        'b_min': -4, 'b_max': 4,
+        'step': 2,
+        'dumps_per_band': 4,
+    },
+    {   # 4b: Odd-odd grid
+        'name': 'Galactic plane fills (odd-odd)',
+        'l_min': -9, 'l_max': 259,
+        'b_min': -3, 'b_max': 3,
         'step': 2,
         'dumps_per_band': 4,
     },
@@ -80,7 +120,7 @@ STREAMING_DIR = 'data/lab04/streaming'
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 
-NEXT_SESSION = 37  # set before each deployment; existing data is session_001-036
+NEXT_SESSION = 38  # set before each deployment; existing data is session_001-037
 
 
 def _next_session_dir(streaming_dir: str = STREAMING_DIR) -> str:

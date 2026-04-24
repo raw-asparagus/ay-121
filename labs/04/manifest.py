@@ -124,3 +124,120 @@ def get_incomplete_cells(path: str | Path) -> set:
     """Return set of (l, b) tuples that still need more data."""
     pointings = read_manifest(path)
     return {lb for lb, info in pointings.items() if not info.get("complete", False)}
+
+
+# ---------------------------------------------------------------------------
+# Truncation follow-up manifest
+# ---------------------------------------------------------------------------
+
+def write_truncation_manifest(
+    redwards: dict,
+    bluewards: dict,
+    threshold: float,
+    edge_channels: int,
+    path: str | Path,
+) -> None:
+    """Write a truncation follow-up manifest.
+
+    Parameters
+    ----------
+    redwards : dict
+        Mapping ``(l, b) -> {"edge_value": float}`` for red-truncated cells.
+    bluewards : dict
+        Mapping ``(l, b) -> {"edge_value": float}`` for blue-truncated cells.
+    threshold : float
+        The edge-value truncation threshold used.
+    edge_channels : int
+        Number of edge channels averaged.
+    path : str or Path
+        Output file path.
+    """
+    path = Path(path)
+    target = 4
+
+    def _build_regime(cells, lo_pair):
+        pointings = {}
+        for (l, b), info in sorted(cells.items()):
+            pointings[f"{l},{b}"] = {
+                "n_lo1": 0,
+                "n_lo2": 0,
+                "n_pairs": 0,
+                "target": target,
+                "complete": False,
+                "edge_value": round(info["edge_value"], 6),
+            }
+        return {
+            "lo_pair_mhz": lo_pair,
+            "total": len(pointings),
+            "complete": 0,
+            "incomplete": len(pointings),
+            "pointings": pointings,
+        }
+
+    manifest = {
+        "meta": {
+            "updated": datetime.now(timezone.utc).isoformat(),
+            "truncation_threshold": round(threshold, 6),
+            "edge_channels": edge_channels,
+        },
+        "redwards": _build_regime(redwards, [1419.0, 1420.0]),
+        "bluewards": _build_regime(bluewards, [1420.0, 1421.0]),
+    }
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+    print(f"Truncation manifest written: {path}")
+    print(f"  Redwards:  {manifest['redwards']['total']} cells (LO {manifest['redwards']['lo_pair_mhz']})")
+    print(f"  Bluewards: {manifest['bluewards']['total']} cells (LO {manifest['bluewards']['lo_pair_mhz']})")
+
+
+def read_truncation_manifest(path: str | Path, regime: str) -> dict:
+    """Read a truncation manifest and return pointings for one regime.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the truncation manifest JSON.
+    regime : str
+        Either ``'redwards'`` or ``'bluewards'``.
+
+    Returns
+    -------
+    dict
+        Mapping ``(l, b) -> {"n_pairs": int, "target": int, "complete": bool, ...}``.
+        Returns empty dict if file or regime does not exist.
+    """
+    path = Path(path)
+    if not path.exists():
+        return {}
+
+    with open(path) as f:
+        manifest = json.load(f)
+
+    regime_data = manifest.get(regime, {})
+    pointings = {}
+    for key, val in regime_data.get("pointings", {}).items():
+        l, b = map(int, key.split(","))
+        pointings[(l, b)] = val
+
+    return pointings
+
+
+def get_truncation_incomplete_cells(path: str | Path, regime: str) -> set:
+    """Return set of (l, b) tuples still incomplete in a truncation regime."""
+    pointings = read_truncation_manifest(path, regime)
+    return {lb for lb, info in pointings.items() if not info.get("complete", False)}
+
+
+def get_truncation_complete_cells(path: str | Path, regime: str) -> set:
+    """Return set of (l, b) tuples complete in a truncation regime."""
+    pointings = read_truncation_manifest(path, regime)
+    return {lb for lb, info in pointings.items() if info.get("complete", False)}
+
+
+def get_truncation_all_cells(path: str | Path, regime: str) -> list:
+    """Return list of (l, b) tuples in a truncation regime (all, regardless of status)."""
+    pointings = read_truncation_manifest(path, regime)
+    return sorted(pointings.keys())

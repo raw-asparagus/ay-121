@@ -143,15 +143,16 @@ Edit `labs/04/scripts/observe_otf.py`:
 | `notebooks/00_streaming_load.ipynb` | M31 stare observation analysis |
 | `notebooks/01_scan_plan.ipynb` | Survey planning, visualization, constraint checking |
 | `notebooks/02_scan_load.ipynb` | Data loading, reduction, QA, saves `reduced_survey.npz` |
-| `notebooks/02a_scan_diagnostics.ipynb` | QA visualization, coverage maps, manifest generation |
+| `notebooks/02a_scan_diagnostics.ipynb` | QA visualization, coverage maps, truncation flagging, manifest generation |
 | `notebooks/02b_survey_results.ipynb` | Science products: l-v diagrams, maps, reference spectrum |
 | `notebooks/03_m31_sensitivity.ipynb` | M31 SNR predictions and sensitivity analysis |
 | `notebooks/utils/qa.py` | Neighbor-based QA: cell metrics and local plane fits |
 | `scripts/observe_otf.py` | OTF raster survey (manifest-aware, az-filtered, pipelined) |
 | `scripts/observe.py` | M31 stare (4 LOs: 1420-1423, noise cal) |
 | `scripts/observe_m31_cal_off.py` | M31 cal-off at 1420.33/1419.66 MHz |
-| `scripts/main.py` | Telescope control entry point |
-| `manifest.py` | Manifest read/write, completeness thresholds |
+| `scripts/main.py` | Follow-up observations for truncated spectra (redwards/bluewards) |
+| `manifest.py` | Manifest read/write, completeness thresholds, truncation manifest |
+| `truncation_manifest.json` | Truncation follow-up completeness state (redwards/bluewards) |
 | `plotting.py` | Matplotlib style constants and figure factories |
 | `plotters.py` | Reusable plot functions |
 | `reduced_survey.npz` | Serialized reduced data (spectra, metrics, QA flags) |

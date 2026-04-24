@@ -54,7 +54,7 @@ SURVEY_PARTS = [
     {
         'name': 'Orion-Eridanus (even l, b+1 offset)',
         'l_min': 160, 'l_max': 220,
-        'b_min': -47, 'b_max': -11,
+        'b_min': -46, 'b_max': -10,
         'step': 2,
         'dumps_per_band': 4,
     },

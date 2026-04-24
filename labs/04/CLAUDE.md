@@ -96,7 +96,7 @@ Edit `labs/04/scripts/observe_otf.py`:
 - Check that the time estimate fits within the observing window
 - Verify all cells are on one side of the az exclusion
 - Confirm the manifest has been generated from the latest data
-  (run `02_scan_load.ipynb` Section 7 if needed)
+  (run `02a_scan_diagnostics.ipynb` Section 5 if needed)
 - Check for the canonical (l=120, b=0) spectrum — required by the lab manual
 
 ## Data Pipeline
@@ -108,9 +108,10 @@ Edit `labs/04/scripts/observe_otf.py`:
 3. **Push manifest** — copy `survey_manifest.json` to the Pi
 4. **Observe** — run `observe_otf.py` on the Pi; each part auto-creates `session_{NNN}/`
 5. **Ingest** — transfer data from Pi to `data/lab04/streaming/session_{NNN}/`
-6. **Analyze** — run `02_scan_load.ipynb`
-7. **Update manifest** — Section 7 writes `survey_manifest.json`
-8. **Repeat** from step 1
+6. **Reduce** — run `02_scan_load.ipynb` (saves `reduced_survey.npz`)
+7. **Diagnose + manifest** — run `02a_scan_diagnostics.ipynb` (QA plots, writes manifest)
+8. **Science products** — run `02b_survey_results.ipynb` (l-v diagrams, maps, spectra)
+9. **Repeat** from step 1
 
 ### Data organization
 
@@ -139,17 +140,21 @@ Edit `labs/04/scripts/observe_otf.py`:
 
 | File | Role |
 |------|------|
-| `notebooks/01_scan_plan.ipynb` | Survey planning, visualization, constraint checking |
-| `notebooks/02_scan_load.ipynb` | Data loading, analysis, manifest generation |
 | `notebooks/00_streaming_load.ipynb` | M31 stare observation analysis |
+| `notebooks/01_scan_plan.ipynb` | Survey planning, visualization, constraint checking |
+| `notebooks/02_scan_load.ipynb` | Data loading, reduction, QA, saves `reduced_survey.npz` |
+| `notebooks/02a_scan_diagnostics.ipynb` | QA visualization, coverage maps, manifest generation |
+| `notebooks/02b_survey_results.ipynb` | Science products: l-v diagrams, maps, reference spectrum |
+| `notebooks/03_m31_sensitivity.ipynb` | M31 SNR predictions and sensitivity analysis |
+| `notebooks/utils/qa.py` | Neighbor-based QA: cell metrics and local plane fits |
 | `scripts/observe_otf.py` | OTF raster survey (manifest-aware, az-filtered, pipelined) |
 | `scripts/observe.py` | M31 stare (4 LOs: 1420-1423, noise cal) |
 | `scripts/observe_m31_cal_off.py` | M31 cal-off at 1420.33/1419.66 MHz |
-| `scripts/observe_fill_112_1.py` | Fill missing dumps at l=112 b=+1 |
-| `scripts/observe_fill_183_29.py` | Fill missing dumps at l=183 b=+29 |
+| `scripts/main.py` | Telescope control entry point |
 | `manifest.py` | Manifest read/write, completeness thresholds |
 | `plotting.py` | Matplotlib style constants and figure factories |
 | `plotters.py` | Reusable plot functions |
+| `reduced_survey.npz` | Serialized reduced data (spectra, metrics, QA flags) |
 | `survey_manifest.json` | Current survey completeness state |
 
 ## Hardware parameters

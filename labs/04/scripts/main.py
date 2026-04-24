@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner 21 cm HI OTF raster scan (galactic plane survey).
+"""Lab 4 - Leuschner 21 cm HI OTF raster scan.
 
-Simple raster in galactic coordinates at 2-deg spacing.
+Raster in galactic coordinates with variable longitude spacing by
+latitude band (foreshortening correction: delta_l * cos(b) = const).
 Cells are filtered to one side of the az exclusion zone (rising or
 setting) to prevent the telescope from crossing the north gap.
 Below-horizon cells on the chosen side are included and retried as
@@ -18,7 +19,7 @@ Output:
     data/lab04/streaming/session_{NNN}/<obs|cal>_{l}_{b}/<obs|cal>_{l}_{b}_{timestamp}.npz
 """
 
-import glob
+import math
 import threading
 
 from ugradiolab.astronomy import (
@@ -33,36 +34,39 @@ from ugradiolab.capture.readers import make_calibrated_sdr_reader
 # ---------------------------------------------------------------------------
 # Survey parts (run sequentially)
 # ---------------------------------------------------------------------------
+# North Polar Spur, l=[210, 300], single pass (even b).
+# Longitude step increases with latitude to maintain constant on-sky
+# spacing: delta_l * cos(b) ~ 2 deg.
+
+_NPS_L_MIN, _NPS_L_MAX = 210, 300
+_NPS_BANDS = [
+    # (l_step, b_min, b_max)
+    (2, 0, 46),
+    (3, 48, 58),
+    (4, 60, 64),
+    (5, 66, 68),
+    (6, 70, 70),
+    (7, 72, 72),
+    (8, 74, 74),
+    (9, 76, 76),
+    (10, 78, 78),
+    (12, 80, 80),
+    (15, 82, 82),
+    (20, 84, 84),
+    (29, 86, 86),
+    (58, 88, 88),
+    (90, 90, 90),
+]
 
 SURVEY_PARTS = [
     {
-        'name': 'OUTER PLANE SETTING - Extended Latitude',
-        'l_min': 120, 'l_max': 260,
-        'b_min': -4, 'b_max': 4,
-        'step': 2,
+        'name': f'NPS dl={ls} b=[{blo},{bhi}]',
+        'l_min': _NPS_L_MIN, 'l_max': _NPS_L_MAX,
+        'b_min': blo, 'b_max': bhi,
+        'l_step': ls, 'b_step': 2,
         'dumps_per_band': 4,
-    },
-    {
-        'name': 'ANTICENTRE REGION - High Altitude Setting',
-        'l_min': 121, 'l_max': 259,
-        'b_min': -3, 'b_max': 3,
-        'step': 2,
-        'dumps_per_band': 4,
-    },
-    {
-        'name': 'INNER PLANE SETTING - Extended Latitude',
-        'l_min': 0, 'l_max': 120,
-        'b_min': -4, 'b_max': 4,
-        'step': 2,
-        'dumps_per_band': 4,
-    },
-    {
-        'name': 'EXTENDED SOUTH - Evening Rising',
-        'l_min': 270, 'l_max': 360,
-        'b_min': -3, 'b_max': 3,
-        'step': 2,
-        'dumps_per_band': 4,
-    },
+    }
+    for ls, blo, bhi in _NPS_BANDS
 ]
 
 # ---------------------------------------------------------------------------
@@ -85,24 +89,31 @@ STREAMING_DIR = 'data/lab04/streaming'
 MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
 
 
+NEXT_SESSION = 37  # set before each deployment; existing data is session_001-036
+                    # NPS bands will use session_037 onward (one per band)
+
+
 def _next_session_dir(streaming_dir: str = STREAMING_DIR) -> str:
-    existing = sorted(glob.glob(f'{streaming_dir}/session_???'))
-    n = len(existing) + 1
-    return f'{streaming_dir}/session_{n:03d}'
+    global NEXT_SESSION
+    path = f'{streaming_dir}/session_{NEXT_SESSION:03d}'
+    NEXT_SESSION += 1
+    return path
 
 
 # ---------------------------------------------------------------------------
 # Grid builder with az-side filtering
 # ---------------------------------------------------------------------------
 
-def build_raster_cells(l_min, l_max, b_min, b_max, step):
+def build_raster_cells(l_min, l_max, b_min, b_max, l_step=2, b_step=2):
     """Build a raster grid in galactic coordinates.
 
+    l values are snapped to multiples of l_step within [l_min, l_max].
     Boustrophedon ordering: even rows scan in decreasing l.
     Returns list of (row_idx, col_idx, l, b) tuples.
     """
-    b_vals = list(range(b_min, b_max + 1, step))
-    l_vals = list(range(l_min, l_max + 1, step))
+    b_vals = list(range(b_min, b_max + 1, b_step))
+    l_start = math.ceil(l_min / l_step) * l_step
+    l_vals = list(range(l_start, l_max + 1, l_step))
 
     cells = []
     for row_idx, b in enumerate(b_vals):
@@ -356,17 +367,19 @@ def main():
     for part_idx, part in enumerate(SURVEY_PARTS):
         l_min, l_max = part['l_min'], part['l_max']
         b_min, b_max = part['b_min'], part['b_max']
-        step = part['step']
+        l_step = part.get('l_step', part.get('step', 2))
+        b_step = part.get('b_step', part.get('step', 2))
         dumps_per_band = part['dumps_per_band']
         dumps_per_cell = dumps_per_band * 2
 
         print(f'\n{"="*60}')
         print(f'  {part["name"]}')
-        print(f'  l=[{l_min}, {l_max}], b=[{b_min}, {b_max}], step={step}deg')
+        print(f'  l=[{l_min}, {l_max}] dl={l_step}, b=[{b_min}, {b_max}] db={b_step}')
         print(f'{"="*60}')
 
         # Build grid, filter by az side, then skip complete cells
-        all_cells = build_raster_cells(l_min, l_max, b_min, b_max, step)
+        all_cells = build_raster_cells(l_min, l_max, b_min, b_max,
+                                       l_step=l_step, b_step=b_step)
         cells = filter_cells_by_az_side(all_cells)
         cells = filter_cells_by_manifest(cells, fills_only=part.get('fills_only', False))
 
@@ -395,7 +408,7 @@ def main():
             lo_tag = f'  LO={dump["lo_freq_mhz"]}' if 'lo_freq_mhz' in dump else ''
             print(f'  [{dump["target_name"]}]{lo_tag}  -> {path}')
 
-        part_outdir = _next_session_dir()
+        part_outdir = _next_session_dir(STREAMING_DIR)
         print(f'  Session dir: {part_outdir}')
         capture = StreamingCapture(
             telescope=telescope,

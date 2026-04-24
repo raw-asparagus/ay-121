@@ -304,6 +304,96 @@ def plot_heatmap(
 
 
 # ---------------------------------------------------------------------------
+# Candidate survey footprints
+# ---------------------------------------------------------------------------
+
+# (name, l_min, l_max, b_min, b_max, color)
+SURVEY_FOOTPRINTS = [
+    ("Gal. plane (narrow)",     -10, 250,   -4,   4, "C0"),
+    ("Gal. plane (wide)",         0, 360,  -20,  20, "C0"),
+    ("Great circle l=220/40",   218, 222,  -90,  90, "C1"),
+    ("Great circle l=40/220",    38,  42,  -90,  90, "C1"),
+    ("Great circle l=130/310",  128, 132,  -90,  90, "C2"),
+    ("Great circle l=310/130",  308, 312,  -90,  90, "C2"),
+    ("NCP",                     105, 160,   15,  50, "C3"),
+    ("Orion-Eridanus",          160, 220,  -70, -10, "C4"),
+    ("North Polar Spur",        210, 380,    0,  90, "C5"),
+    ("HVC",                      60, 180,   20,  60, "C6"),
+    ("Magellanic Stream",        60, 110,  -90, -30, "C7"),
+]
+
+
+def add_survey_footprints(
+    ax: plt.Axes,
+    *,
+    center_l: float = MOLL_CENTER_L,
+) -> None:
+    """Draw candidate survey region rectangles on a Mollweide axis."""
+    seam = (center_l + 180) % 360
+
+    def _normalize_l(l):
+        return l % 360
+
+    def _crosses_seam(l_min, l_max):
+        span = l_max - l_min
+        if span >= 360:
+            return True
+        ln = _normalize_l(l_min)
+        lx = _normalize_l(l_max)
+        if ln <= lx:
+            return ln < seam < lx
+        return seam > ln or seam < lx
+
+    def _wrap_l(l):
+        l = l - center_l
+        if l > 180:
+            l -= 360
+        if l < -180:
+            l += 360
+        return l
+
+    def _make_rect(l_min, l_max, b_min, b_max):
+        n = 50
+        wl_min, wl_max = _wrap_l(l_min), _wrap_l(l_max)
+        if wl_min > wl_max:
+            return None
+        l_bot = np.linspace(wl_min, wl_max, n)
+        l_top = np.linspace(wl_max, wl_min, n)
+        b_left = np.linspace(b_min, b_max, n)
+        b_right = np.linspace(b_max, b_min, n)
+        ls = np.concatenate([l_bot, np.full(n, wl_max), l_top, np.full(n, wl_min)])
+        bs = np.concatenate([np.full(n, b_min), b_left, np.full(n, b_max), b_right])
+        return np.column_stack([np.deg2rad(ls), np.deg2rad(bs)])
+
+    # Split footprints that cross the Mollweide seam
+    split = []
+    for name, l_min, l_max, b_min, b_max, color in SURVEY_FOOTPRINTS:
+        if l_max - l_min >= 360:
+            split.append((name, seam + 0.5, seam + 180, b_min, b_max, color))
+            split.append((name, seam + 180, seam + 359.5, b_min, b_max, color))
+        elif _crosses_seam(l_min, l_max):
+            split.append((name, l_min, seam - 0.5, b_min, b_max, color))
+            split.append((name, seam + 0.5, l_max, b_min, b_max, color))
+        else:
+            split.append((name, l_min, l_max, b_min, b_max, color))
+
+    plotted_labels: set[str] = set()
+    for name, l_min, l_max, b_min, b_max, color in split:
+        verts = _make_rect(l_min, l_max, b_min, b_max)
+        if verts is None:
+            continue
+        label = name if name not in plotted_labels else None
+        poly = plt.Polygon(
+            verts, alpha=ALPHA_EXTRA_LIGHT,
+            facecolor=color, edgecolor=color,
+            lw=LW_FINE, linestyle="--", label=label,
+        )
+        ax.add_patch(poly)
+        if label:
+            plotted_labels.add(name)
+
+
+# ---------------------------------------------------------------------------
 # Mollweide all-sky map
 # ---------------------------------------------------------------------------
 

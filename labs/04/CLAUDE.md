@@ -153,7 +153,7 @@ Edit `labs/04/scripts/observe_otf.py`:
 | `scripts/main.py` | Follow-up observations for truncated spectra (redwards/bluewards) |
 | `manifest.py` | Manifest read/write, completeness thresholds, truncation manifest |
 | `truncation_manifest.json` | Truncation follow-up completeness state (redwards/bluewards) |
-| `plotting.py` | Matplotlib style constants and figure factories |
+| `ugradiolab/plotting.py` | Matplotlib style constants and figure factories |
 | `plotters.py` | Reusable plot functions |
 | `reduced_survey.npz` | Serialized reduced data (spectra, metrics, QA flags) |
 | `survey_manifest.json` | Current survey completeness state |

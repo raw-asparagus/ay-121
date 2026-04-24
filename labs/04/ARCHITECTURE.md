@@ -256,7 +256,7 @@ integration time tables, SNR vs smoothing plots
 | File | Purpose |
 |------|---------|
 | `manifest.py` | `read_manifest`, `write_manifest`, `get_complete_cells`, `get_incomplete_cells`, `pairs_target`; JSON I/O for per-(l, b) completeness tracking |
-| `plotting.py` | Matplotlib rcParams, page dimensions, line weights, marker sizes, alpha levels, figure factories |
+| `ugradiolab/plotting.py` | Matplotlib rcParams, page dimensions, line weights, marker sizes, alpha levels, figure factories |
 | `plotters.py` | Reusable plot functions: `plot_hi_spectrum`, `plot_spectra_grid`, `plot_heatmap`, `plot_survey_mollweide`, etc. |
 
 ## Other scripts (`scripts/`)

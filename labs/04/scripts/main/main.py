@@ -52,7 +52,7 @@ MIN_ALT_DEG  = 17.0
 MAX_ALT_DEG  = 83.0
 AZ_MIN       =  7.0
 AZ_MAX       = 348.0
-REPOINT_INTERVAL_SEC = 60.0
+REPOINT_INTERVAL_SEC = 10.0
 OUTPUT_DIR   = 'data'  # relative to script directory
 
 # Grid bounds (galactic plane)
@@ -68,7 +68,7 @@ OBS_DUMPS_PER_LO = 3    # 3 obs dumps per LO = 6 obs total
 N_LOS = 2
 DUMPS_PER_CELL = (CAL_DUMPS_PER_LO + OBS_DUMPS_PER_LO) * N_LOS
 
-NEXT_SESSION = 3
+NEXT_SESSION = 5
 
 
 def _next_session_dir() -> str:

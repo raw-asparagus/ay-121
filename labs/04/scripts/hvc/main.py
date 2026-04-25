@@ -277,15 +277,19 @@ def make_scan_target_selector(cells):
             return None
 
         # Reader signalled that the cell schedule is complete.
+        # Advance, set cell_event for reader, return None so pointing
+        # thread sets state=None during slew.
         if cell_done_event.is_set():
             cell_done_event.clear()
             cells_observed_this_pass += 1
             current_cell_idx += 1
+            cell_event.set()
             if _check_end_of_list():
                 return None
             _, _, cl, cb = cell_list[current_cell_idx]
             print(f'  [scan] Cell {current_cell_idx+1}/{len(cell_list)}: '
                   f'l={cl}, b={cb}')
+            return None
 
         _, _, cell_l, cell_b = cell_list[current_cell_idx]
         alt, az, ra, dec, _ = compute_gal_pointing(

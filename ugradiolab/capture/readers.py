@@ -392,19 +392,22 @@ def make_calibrated_sdr_reader(
                 if cell_event.wait(timeout=0.5):
                     return True
 
-        def _start_new_cell():
-            """Reset schedule, prime pipeline for the new cell."""
-            nonlocal schedule_idx, flushed, submit_count
+        def _reset_schedule():
+            """Flush stale pipeline data and reset schedule for a new cell.
+
+            Does NOT prime the pipeline — returns {} so ReaderThread
+            re-checks pointing state before the next capture.  This
+            ensures the first capture of the new cell happens only
+            after the dish has settled on the new target.
+            """
+            nonlocal schedule_idx, flushed, call_count
             cell_event.clear()
+            stale = pipeline.flush()
+            if stale is not None:
+                call_count += 1  # skip the discarded dump's noise flag
             flushed = False
             schedule_idx = 0
-            lo0, noise0 = cell_schedule[0]
-            _set_noise(noise0)
-            # Prime pipeline: submits first capture, returns None
-            pipeline.next_dump(lo0)
-            noise_on_flags.append(noise0)
-            submit_count += 1
-            schedule_idx = 1
+            _set_noise(cell_schedule[0][1])  # pre-set noise for cal phase
 
         def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
             nonlocal schedule_idx, call_count, submit_count, flushed
@@ -425,11 +428,15 @@ def make_calibrated_sdr_reader(
                 # Pipeline already flushed — block until next cell
                 if not _wait_for_new_cell():
                     return {}  # stop_event fired
-                _start_new_cell()
+                _reset_schedule()
+                # Return empty so ReaderThread re-checks pointing state
+                # before the first capture of the new cell.
+                return {}
 
             # --- Cell transition signalled externally (e.g. skip) ---
             if cell_event.is_set():
-                _start_new_cell()
+                _reset_schedule()
+                return {}
 
             # --- Normal schedule entry ---
             idx = min(schedule_idx, schedule_len - 1)
@@ -442,7 +449,7 @@ def make_calibrated_sdr_reader(
             schedule_idx += 1
 
             if dump is None:
-                # First call — pipeline priming, submit one more
+                # First call or after reset — pipeline priming, capture once more
                 idx2 = min(schedule_idx, schedule_len - 1)
                 lo2, is_cal2 = cell_schedule[idx2]
                 _set_noise(is_cal2)

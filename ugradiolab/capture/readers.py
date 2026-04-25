@@ -282,19 +282,33 @@ def make_calibrated_sdr_reader(
     nfft: int = 1024,
     lo_freqs_mhz: Sequence[float] = (1420.0, 1421.0),
     cal_dumps_per_lo: int = 32,
+    cell_event: 'threading.Event | None' = None,
+    obs_dumps_per_lo: int | None = None,
 ) -> Callable[[int | None], dict]:
-    """SDR reader that runs a noise-diode calibration phase, then science.
+    """SDR reader with noise-diode calibration and block LO switching.
 
-    The first ``cal_dumps_per_lo * len(lo_freqs_mhz)`` calls capture with the
-    noise diode ON (each LO frequency for ``cal_dumps_per_lo`` dumps in
-    sequence).  After the calibration phase the diode is turned OFF and
-    subsequent calls use block LO switching -- all dumps at one LO before
-    switching to the next, minimising tuner PLL settle overhead.
+    Supports two modes:
 
-    Uses pipelined capture: FFT/correlation of the previous dump runs in a
-    background thread while the next USB capture is in progress.  Combined
-    with LO caching (skip set_center_freq when frequency unchanged), this
-    achieves ~87% duty cycle vs ~77% with alternating LO switching.
+    **Per-session mode** (default, ``cell_event=None``):
+    The first ``cal_dumps_per_lo * len(lo_freqs_mhz)`` calls capture with
+    the noise diode ON, then all subsequent calls run with the diode OFF
+    using block LO switching.
+
+    **Per-cell mode** (``cell_event`` provided):
+    Each cell gets its own calibration phase followed by science dumps.
+    The schedule resets whenever ``cell_event`` is set (by the target
+    selector advancing to a new cell).  The per-cell schedule groups
+    noise and LO states to minimise transitions::
+
+        CAL: LO1*N, LO2*N          (noise ON, 1 LO switch)
+        OBS: LO2*M, LO1*M          (noise OFF, 0 + 1 LO switches)
+
+    Obs starts at the last cal LO to avoid a PLL settle at the
+    cal-to-obs boundary.  Total overhead per cell: 2 LO switches +
+    1 noise toggle.
+
+    Uses pipelined capture: FFT/correlation of the previous dump runs
+    in a background thread while the next USB capture is in progress.
 
     Every returned dict includes a ``'noise_on'`` boolean flag.
 
@@ -308,8 +322,91 @@ def make_calibrated_sdr_reader(
         Forwarded to the SDR capture core.
     cal_dumps_per_lo : int
         Number of calibration dumps per LO frequency.
+    cell_event : threading.Event, optional
+        When provided, enables per-cell calibration.  The schedule resets
+        to the cal phase each time this event is set.
+    obs_dumps_per_lo : int, optional
+        Number of science dumps per LO per cell.  Required when
+        ``cell_event`` is not None.
     """
     lo_list = list(lo_freqs_mhz)
+    pipeline = _PipelinedSDR(sdrs, nsamples, nblocks, nfft)
+
+    noise_on_flags = []  # tracks noise_on state for each submitted capture
+    call_count = 0
+    submit_count = 0
+    current_noise_state = None
+
+    def _set_noise(on):
+        nonlocal current_noise_state
+        if on != current_noise_state:
+            if on:
+                noise.on()
+            else:
+                noise.off()
+            current_noise_state = on
+
+    # ----- Per-cell mode -----
+    if cell_event is not None:
+        if obs_dumps_per_lo is None:
+            raise ValueError('obs_dumps_per_lo is required with cell_event')
+
+        # Build per-cell schedule.
+        # Cal: [LO1]*N + [LO2]*N  (noise ON throughout)
+        # Obs: [LO2]*M + [LO1]*M  (noise OFF, start at last cal LO)
+        cell_schedule = []
+        for lo in lo_list:
+            cell_schedule.extend([(lo, True)] * cal_dumps_per_lo)
+        for lo in reversed(lo_list):
+            cell_schedule.extend([(lo, False)] * obs_dumps_per_lo)
+
+        schedule_idx = 0
+
+        def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
+            nonlocal schedule_idx, call_count, submit_count
+
+            # Reset schedule on cell transition; drain stale pipeline dump
+            if cell_event.is_set():
+                cell_event.clear()
+                schedule_idx = 0
+                lo0, noise0 = cell_schedule[0]
+                _set_noise(noise0)
+                stale = pipeline.next_dump(lo0)
+                if stale is not None:
+                    call_count += 1  # skip stale noise_on_flags entry
+                noise_on_flags.append(noise0)
+                submit_count += 1
+                schedule_idx = 1
+
+            # Cap at last entry (obs, noise OFF) to prevent wrapping to cal
+            idx = min(schedule_idx, len(cell_schedule) - 1)
+            lo, is_cal = cell_schedule[idx]
+            _set_noise(is_cal)
+
+            dump = pipeline.next_dump(lo)
+            noise_on_flags.append(is_cal)
+            submit_count += 1
+            schedule_idx += 1
+
+            if dump is None:
+                # First call -- pipeline priming, submit one more
+                idx2 = min(schedule_idx, len(cell_schedule) - 1)
+                lo2, is_cal2 = cell_schedule[idx2]
+                _set_noise(is_cal2)
+                dump = pipeline.next_dump(lo2)
+                noise_on_flags.append(is_cal2)
+                submit_count += 1
+                schedule_idx += 1
+
+            if dump is not None:
+                dump['noise_on'] = noise_on_flags[call_count]
+                call_count += 1
+
+            return dump
+
+        return read
+
+    # ----- Per-session mode (original behavior) -----
     total_cal_dumps = cal_dumps_per_lo * len(lo_list)
 
     # Cal schedule: [lo0]*N + [lo1]*N + ...
@@ -325,14 +422,7 @@ def make_calibrated_sdr_reader(
     _science_block = [lo for lo in lo_list for _ in range(_block_size)]
     science_cycle = itertools.cycle(_science_block)
 
-    pipeline = _PipelinedSDR(sdrs, nsamples, nblocks, nfft)
-
-    call_count = 0
     cal_started = False
-    # Buffer for dumps produced by the pipeline (previous dump comes back
-    # when we submit the next capture).
-    noise_on_flags = []  # tracks the noise_on state for each submitted capture
-    submit_count = 0
 
     def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
         nonlocal call_count, cal_started, submit_count

@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
-"""Lab 4 - Leuschner Sky Survey (LSS).
+"""Lab 4 - Leuschner Sky Survey (LSS) -- HVC region.
 
-Galactic plane survey with per-pointing noise-diode calibration and
-interleaved frequency switching.  Uses the StreamingCapture framework
-for continuous three-thread operation (pointing, reading, writing).
+High-velocity cloud survey with per-pointing noise-diode calibration
+and interleaved frequency switching.  Uses the StreamingCapture
+framework for continuous three-thread operation (pointing, reading,
+writing).
 
-Grid: b=[-4, +4], l=[-10, 250] in 2-deg steps on a checkerboard
-      ((even,even) + (odd,odd) coordinates).
+Grid: b=[+20, +60], l~[60, 180] in 2-deg latitude steps.
+      Longitude uses non-integer tessellation centered at l=120:
+      Delta_l = 2/cos(b) exactly, expanded outward from center.
+      This keeps physical angular spacing at exactly 2 degrees.
 
 Per pointing the LO sequence is:
-    cal-f1, cal-f2, obs-f1, obs-f2, obs-f1, obs-f2, obs-f1, obs-f2
+    cal-f1, cal-f2, then 16x alternating obs-f1/obs-f2
 where f1=1419.86 MHz, f2=1421.14 MHz.
 
 Usage:
     python lss.py
 
 Output:
-    data/lab04/galacticplane/session_{NNN}/<obs|cal>_{l}_{b}/<...>_{timestamp}.npz
+    data/session_{NNN}/<obs|cal>_{l}_{b}/<...>_{timestamp}.npz
+
+Run from this directory:
+    PYTHONPATH=../../.. python3 main.py
 """
 
 import threading
@@ -48,16 +54,18 @@ MAX_ALT_DEG  = 83.0
 AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 REPOINT_INTERVAL_SEC = 10.0
-OUTPUT_DIR   = 'data/lab04/galacticplane'
+OUTPUT_DIR   = 'data'  # relative to script directory
 
-# Grid bounds
-L_MIN, L_MAX = -10, 250
-B_MIN, B_MAX = -4, 4
-STEP         = 2
+# Grid bounds (HVC region)
+L_CENTER     = 120.0
+L_MIN, L_MAX = 60.0, 180.0
+B_MIN, B_MAX = 20, 60
+B_STEP       = 2
+PHYSICAL_SPACING_DEG = 2.0  # exact physical angular spacing in longitude
 
-# Per-pointing dump schedule
-CAL_DUMPS  = 2   # cal-f1, cal-f2
-OBS_DUMPS  = 8   # (obs-f1, obs-f2) x 4
+# Per-pointing dump schedule (HVC is faint: T_B ~ 1-5 K, need more dumps)
+CAL_DUMPS  = 2    # cal-f1, cal-f2
+OBS_DUMPS  = 32   # (obs-f1, obs-f2) x 16
 DUMPS_PER_CELL = CAL_DUMPS + OBS_DUMPS
 
 NEXT_SESSION = 1
@@ -74,22 +82,54 @@ def _next_session_dir() -> str:
 # Grid builder
 # ---------------------------------------------------------------------------
 
-def build_checkerboard_grid():
-    """Checkerboard raster: (even,even) + (odd,odd), boustrophedon order."""
+def _build_l_row(b_deg):
+    """Build non-integer longitude grid at latitude b, centered at L_CENTER.
+
+    Exact spacing: Delta_l = PHYSICAL_SPACING_DEG / cos(b).
+    Expands outward from L_CENTER until L_MIN and L_MAX are exceeded.
+    Returns sorted list of l values (floats, rounded to 2 decimal places).
+    """
+    import math
+    cos_b = math.cos(math.radians(b_deg))
+    if cos_b <= 0:
+        return [L_CENTER]
+    dl = PHYSICAL_SPACING_DEG / cos_b
+
+    l_vals = [L_CENTER]
+    # Expand rightward
+    l = L_CENTER + dl
+    while l <= L_MAX:
+        l_vals.append(round(l, 2))
+        l += dl
+    # Expand leftward
+    l = L_CENTER - dl
+    while l >= L_MIN:
+        l_vals.append(round(l, 2))
+        l -= dl
+
+    return sorted(l_vals)
+
+
+def build_hvc_grid():
+    """Build non-integer tessellation for HVC region, boustrophedon order.
+
+    Returns list of (row_idx, col_idx, l, b) tuples.
+    l values are floats (non-integer degrees).
+    """
     cells = []
-    b_vals = list(range(B_MIN, B_MAX + 1, STEP))
+    b_vals = list(range(B_MIN, B_MAX + 1, B_STEP))
 
     for row_idx, b in enumerate(b_vals):
-        if b % 2 == 0:
-            l_start = L_MIN if L_MIN % 2 == 0 else L_MIN + 1
-        else:
-            l_start = L_MIN if L_MIN % 2 != 0 else L_MIN + 1
-        l_vals = list(range(l_start, L_MAX + 1, STEP))
+        l_vals = _build_l_row(b)
 
         row = [(row_idx, j, l_vals[j], b) for j in range(len(l_vals))]
         if row_idx % 2 == 0:
             row = list(reversed(row))
         cells.extend(row)
+
+        dl = PHYSICAL_SPACING_DEG / np.cos(np.radians(b))
+        print(f'  b={b:+3d}: Delta_l={dl:.2f} deg, {len(l_vals)} cells, '
+              f'l=[{l_vals[0]:.1f}, {l_vals[-1]:.1f}]')
 
     return cells
 
@@ -131,6 +171,45 @@ def filter_cells_by_az_side(cells):
     n_now = n_rising if side == 'rising' else n_setting
     print(f'  Az side: {side} ({n_rising} rising / {n_setting} setting)')
     print(f'  {len(kept)} cells kept ({n_now} currently accessible)')
+    return kept
+
+
+def filter_cells_by_existing_data(cells):
+    """Skip cells that already have enough obs dumps across all sessions.
+
+    Scans OUTPUT_DIR/session_*/obs_{l_name}_{b}/ for .npz files.
+    A cell is complete when it has >= OBS_DUMPS obs files total.
+    """
+    from pathlib import Path
+    import glob
+
+    counts = {}  # cell_lb -> {'obs': n, 'cal': n}
+    for npz in glob.glob(f'{OUTPUT_DIR}/session_*/*_*/*.npz'):
+        cell_dir = Path(npz).parent.name
+        if cell_dir.startswith('obs_'):
+            lb = cell_dir[4:]
+            counts.setdefault(lb, {'obs': 0, 'cal': 0})['obs'] += 1
+        elif cell_dir.startswith('cal_'):
+            lb = cell_dir[4:]
+            counts.setdefault(lb, {'obs': 0, 'cal': 0})['cal'] += 1
+
+    kept = []
+    n_skipped = 0
+    for row, col, l, b in cells:
+        l_name = f'{l:.2f}'.replace('.', 'p')
+        cell_lb = f'{l_name}_{b}'
+        c = counts.get(cell_lb, {'obs': 0, 'cal': 0})
+        if c['obs'] >= OBS_DUMPS and c['cal'] >= CAL_DUMPS:
+            n_skipped += 1
+        else:
+            kept.append((row, col, l, b))
+
+    if n_skipped:
+        print(f'  Existing data: {n_skipped} complete cells skipped, '
+              f'{len(kept)} remaining')
+    else:
+        print(f'  No existing data found -- keeping all {len(kept)} cells')
+
     return kept
 
 
@@ -238,7 +317,9 @@ def make_scan_target_selector(cells):
                         return None
             return None
 
-        return f'obs_{cell_l}_{cell_b}', alt, az, ra, dec
+        # Use rounded name for directory structure; float coords in metadata
+        l_name = f'{cell_l:.2f}'.replace('.', 'p')
+        return f'obs_{l_name}_{cell_b}', alt, az, ra, dec
 
     return target_selector, dump_notifier, done_event, cell_event
 
@@ -257,17 +338,14 @@ def make_lss_reader(sdrs, noise, cell_event, nsamples=NSAMPLES,
     Uses pipelined capture (FFT of previous dump overlaps USB transfer
     of current dump).
     """
-    # Per-cell schedule: (lo_mhz, noise_on)
+    # Per-cell schedule: 2 cal + 32 obs (16 pairs alternating f1/f2)
     CELL_SCHEDULE = [
         (F1_MHZ, True),   # cal f1
         (F2_MHZ, True),   # cal f2
-        (F1_MHZ, False),  # obs f1
-        (F2_MHZ, False),  # obs f2
-        (F1_MHZ, False),  # obs f1
-        (F2_MHZ, False),  # obs f2
-        (F1_MHZ, False),  # obs f1
-        (F2_MHZ, False),  # obs f2
     ]
+    for _ in range(OBS_DUMPS // 2):
+        CELL_SCHEDULE.append((F1_MHZ, False))
+        CELL_SCHEDULE.append((F2_MHZ, False))
 
     pipeline = _PipelinedSDR(sdrs, nsamples, nblocks, nfft)
 
@@ -342,19 +420,21 @@ def setup_hardware():
 def main():
     print('Leuschner Sky Survey (LSS)')
     print('=' * 60)
-    print(f'  Grid: l=[{L_MIN}, {L_MAX}], b=[{B_MIN}, {B_MAX}], step={STEP} deg')
-    print(f'  Checkerboard: (even,even) + (odd,odd)')
+    print(f'  Grid: l~[{L_MIN}, {L_MAX}], b=[{B_MIN}, {B_MAX}], b_step={B_STEP} deg')
+    print(f'  Longitude: non-integer, centered at l={L_CENTER}, '
+          f'Delta_l = {PHYSICAL_SPACING_DEG}/cos(b)')
     print(f'  LO: f1={F1_MHZ} MHz, f2={F2_MHZ} MHz')
     print(f'  Sample rate: {SAMPLE_RATE/1e6} MHz, NFFT={NFFT}, NBLOCKS={NBLOCKS}')
     print(f'  Per pointing: {CAL_DUMPS} cal + {OBS_DUMPS} obs = {DUMPS_PER_CELL} dumps')
     print(f'  Track interval: {REPOINT_INTERVAL_SEC} s')
 
-    all_cells = build_checkerboard_grid()
+    all_cells = build_hvc_grid()
     print(f'\n  Total grid cells: {len(all_cells)}')
 
     cells = filter_cells_by_az_side(all_cells)
+    cells = filter_cells_by_existing_data(cells)
     if not cells:
-        print('  No accessible cells. Exiting.')
+        print('  No remaining cells. Exiting.')
         return
 
     dump_time = NBLOCKS * NSAMPLES / SAMPLE_RATE

@@ -368,7 +368,8 @@ def make_lss_reader(sdrs, noise, cell_event, nsamples=NSAMPLES,
             submit_count += 1
             schedule_idx = 1
 
-        lo, is_cal = CELL_SCHEDULE[schedule_idx % len(CELL_SCHEDULE)]
+        idx = min(schedule_idx, len(CELL_SCHEDULE) - 1)
+        lo, is_cal = CELL_SCHEDULE[idx]
         _set_noise(is_cal)
 
         dump = pipeline.next_dump(lo)
@@ -377,7 +378,8 @@ def make_lss_reader(sdrs, noise, cell_event, nsamples=NSAMPLES,
         schedule_idx += 1
 
         if dump is None:
-            lo2, is_cal2 = CELL_SCHEDULE[schedule_idx % len(CELL_SCHEDULE)]
+            idx2 = min(schedule_idx, len(CELL_SCHEDULE) - 1)
+            lo2, is_cal2 = CELL_SCHEDULE[idx2]
             _set_noise(is_cal2)
             dump = pipeline.next_dump(lo2)
             noise_on_log.append(is_cal2)

@@ -73,8 +73,15 @@ def _sdr_capture(sdrs, nsamples, nblocks, lo_mhz):
     return data, t, lo_mhz
 
 
-def _sdr_correlate(data, nsamples, nblocks, nfft, t, lo_mhz):
-    """FFT and correlate raw SDR data. Returns dump dict."""
+def _sdr_correlate(data, nsamples, nblocks, nfft, t, lo_mhz,
+                   _batch=64):
+    """FFT and correlate raw SDR data. Returns dump dict.
+
+    Processes blocks in batches to reduce Python loop iterations (and
+    GIL re-acquisitions), enabling real overlap with USB capture when
+    called from a background thread.  Default batch size of 64 blocks
+    uses ~16 MB per polarisation (complex64), safe on a 4 GB Pi.
+    """
     dev_ids = sorted(data.keys())
 
     raw_0 = data[dev_ids[0]]  # (nblocks, nsamples, 2)
@@ -83,21 +90,21 @@ def _sdr_correlate(data, nsamples, nblocks, nfft, t, lo_mhz):
     n_valid = nblocks - 1
     n_chunks = nsamples // nfft
 
-    # Accumulate correlations block-by-block to avoid allocating the full
-    # (n_valid, n_chunks, nfft) FFT array, which can exceed Pi memory.
     corr00 = np.zeros(nfft, dtype=np.float64)
     corr11 = np.zeros(nfft, dtype=np.float64)
     corr01 = np.zeros(nfft, dtype=np.complex128)
 
-    for b in range(1, nblocks):  # skip block 0
-        block_0 = raw_0[b]  # (nsamples, 2) int8
-        block_1 = raw_1[b]
+    for b_start in range(1, nblocks, _batch):
+        b_end = min(b_start + _batch, nblocks)
 
-        iq_0 = block_0[:, 0].astype(np.float32) + 1j * block_0[:, 1].astype(np.float32)
-        iq_1 = block_1[:, 0].astype(np.float32) + 1j * block_1[:, 1].astype(np.float32)
+        chunk_0 = raw_0[b_start:b_end]          # (batch, nsamples, 2)
+        chunk_1 = raw_1[b_start:b_end]
 
-        V0 = np.fft.fft(iq_0.reshape(n_chunks, nfft), axis=-1)
-        V1 = np.fft.fft(iq_1.reshape(n_chunks, nfft), axis=-1)
+        iq_0 = chunk_0[..., 0].astype(np.float32) + 1j * chunk_0[..., 1].astype(np.float32)
+        iq_1 = chunk_1[..., 0].astype(np.float32) + 1j * chunk_1[..., 1].astype(np.float32)
+
+        V0 = np.fft.fft(iq_0.reshape(-1, nfft), axis=-1)
+        V1 = np.fft.fft(iq_1.reshape(-1, nfft), axis=-1)
 
         corr00 += np.sum((V0 * np.conj(V0)).real, axis=0)
         corr11 += np.sum((V1 * np.conj(V1)).real, axis=0)
@@ -284,6 +291,8 @@ def make_calibrated_sdr_reader(
     cal_dumps_per_lo: int = 32,
     cell_event: 'threading.Event | None' = None,
     obs_dumps_per_lo: int | None = None,
+    cell_done_event: 'threading.Event | None' = None,
+    stop_event: 'threading.Event | None' = None,
 ) -> Callable[[int | None], dict]:
     """SDR reader with noise-diode calibration and block LO switching.
 
@@ -296,9 +305,13 @@ def make_calibrated_sdr_reader(
 
     **Per-cell mode** (``cell_event`` provided):
     Each cell gets its own calibration phase followed by science dumps.
-    The schedule resets whenever ``cell_event`` is set (by the target
-    selector advancing to a new cell).  The per-cell schedule groups
-    noise and LO states to minimise transitions::
+    When the schedule is exhausted the reader flushes the pipeline (no
+    new USB capture), sets ``cell_done_event``, and blocks until
+    ``cell_event`` signals a new cell.  This keeps the reader idle
+    during slews and eliminates extra dumps at cell boundaries.
+
+    The per-cell schedule groups noise and LO states to minimise
+    transitions::
 
         CAL: LO1*N, LO2*N          (noise ON, 1 LO switch)
         OBS: LO2*M, LO1*M          (noise OFF, 0 + 1 LO switches)
@@ -328,6 +341,13 @@ def make_calibrated_sdr_reader(
     obs_dumps_per_lo : int, optional
         Number of science dumps per LO per cell.  Required when
         ``cell_event`` is not None.
+    cell_done_event : threading.Event, optional
+        Set by the reader when the per-cell schedule is exhausted.
+        The target selector should react to this by advancing to the
+        next cell and setting ``cell_event``.
+    stop_event : threading.Event, optional
+        Checked while the reader is blocked between cells so it can
+        exit cleanly on shutdown.
     """
     lo_list = list(lo_freqs_mhz)
     pipeline = _PipelinedSDR(sdrs, nsamples, nblocks, nfft)
@@ -360,26 +380,59 @@ def make_calibrated_sdr_reader(
         for lo in reversed(lo_list):
             cell_schedule.extend([(lo, False)] * obs_dumps_per_lo)
 
+        schedule_len = len(cell_schedule)
         schedule_idx = 0
+        flushed = False  # True after pipeline.flush() at end of cell
+
+        def _wait_for_new_cell():
+            """Block until cell_event or stop_event fires."""
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    return False
+                if cell_event.wait(timeout=0.5):
+                    return True
+
+        def _start_new_cell():
+            """Reset schedule, prime pipeline for the new cell."""
+            nonlocal schedule_idx, flushed, submit_count
+            cell_event.clear()
+            flushed = False
+            schedule_idx = 0
+            lo0, noise0 = cell_schedule[0]
+            _set_noise(noise0)
+            # Prime pipeline: submits first capture, returns None
+            pipeline.next_dump(lo0)
+            noise_on_flags.append(noise0)
+            submit_count += 1
+            schedule_idx = 1
 
         def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
-            nonlocal schedule_idx, call_count, submit_count
+            nonlocal schedule_idx, call_count, submit_count, flushed
 
-            # Reset schedule on cell transition; drain stale pipeline dump
+            # --- Cell complete: flush pipeline then block ---
+            if schedule_idx >= schedule_len:
+                if not flushed:
+                    # Correlate last pending capture (no new USB transfer)
+                    last = pipeline.flush()
+                    flushed = True
+                    if cell_done_event is not None:
+                        cell_done_event.set()
+                    if last is not None:
+                        last['noise_on'] = noise_on_flags[call_count]
+                        call_count += 1
+                        return last
+
+                # Pipeline already flushed — block until next cell
+                if not _wait_for_new_cell():
+                    return {}  # stop_event fired
+                _start_new_cell()
+
+            # --- Cell transition signalled externally (e.g. skip) ---
             if cell_event.is_set():
-                cell_event.clear()
-                schedule_idx = 0
-                lo0, noise0 = cell_schedule[0]
-                _set_noise(noise0)
-                stale = pipeline.next_dump(lo0)
-                if stale is not None:
-                    call_count += 1  # skip stale noise_on_flags entry
-                noise_on_flags.append(noise0)
-                submit_count += 1
-                schedule_idx = 1
+                _start_new_cell()
 
-            # Cap at last entry (obs, noise OFF) to prevent wrapping to cal
-            idx = min(schedule_idx, len(cell_schedule) - 1)
+            # --- Normal schedule entry ---
+            idx = min(schedule_idx, schedule_len - 1)
             lo, is_cal = cell_schedule[idx]
             _set_noise(is_cal)
 
@@ -389,8 +442,8 @@ def make_calibrated_sdr_reader(
             schedule_idx += 1
 
             if dump is None:
-                # First call -- pipeline priming, submit one more
-                idx2 = min(schedule_idx, len(cell_schedule) - 1)
+                # First call — pipeline priming, submit one more
+                idx2 = min(schedule_idx, schedule_len - 1)
                 lo2, is_cal2 = cell_schedule[idx2]
                 _set_noise(is_cal2)
                 dump = pipeline.next_dump(lo2)

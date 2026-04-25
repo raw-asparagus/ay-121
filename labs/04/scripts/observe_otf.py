@@ -262,12 +262,15 @@ def make_scan_target_selector(cells, dumps_per_cell):
     get observed.  If a full retry pass completes with zero successful
     observations, the remaining cells are abandoned (they never became
     accessible) and the done_event is set.
+
+    ``dump_notifier`` should be passed as ``on_read`` to
+    ``StreamingCapture`` so that counting happens in the reader thread
+    (instant feedback) rather than in the writer thread (lagged).
     """
     cell_list = list(cells)  # mutable working copy
     lock = threading.Lock()
     cell_dump_count = 0
     current_cell_idx = 0
-    transitioning = False
     done_event = threading.Event()
     skipped = []
     cells_observed_this_pass = 0  # non-zero means progress was made
@@ -297,46 +300,42 @@ def make_scan_target_selector(cells, dumps_per_cell):
         print(f'  [scan] Retry pass: {len(cell_list)} cells')
         return True
 
-    def dump_notifier():
+    def _check_end_of_list():
+        if current_cell_idx >= len(cell_list):
+            if skipped:
+                if not _start_retry_pass():
+                    done_event.set()
+                    return True
+            else:
+                print('  [scan] All cells complete.')
+                done_event.set()
+                return True
+        return False
+
+    def dump_notifier(_dump):
         nonlocal cell_dump_count
         with lock:
             cell_dump_count += 1
 
     def target_selector():
-        nonlocal current_cell_idx, cell_dump_count, transitioning, cells_observed_this_pass
+        nonlocal current_cell_idx, cell_dump_count, cells_observed_this_pass
 
         if done_event.is_set():
             return None
 
-        if current_cell_idx >= len(cell_list):
-            if skipped:
-                if not _start_retry_pass():
-                    done_event.set()
-                    return None
-            else:
-                print('  [scan] All cells complete.')
-                done_event.set()
-                return None
+        if _check_end_of_list():
+            return None
 
+        # Cell complete — advance immediately and return None to
+        # pause the reader during the slew to the new target.
         with lock:
             count = cell_dump_count
-            if count >= dumps_per_cell and not transitioning:
-                transitioning = True
-                return None
-            if transitioning:
-                transitioning = False
+            if count >= dumps_per_cell:
                 cells_observed_this_pass += 1
                 current_cell_idx += 1
                 cell_dump_count = 0
-                if current_cell_idx >= len(cell_list):
-                    if skipped:
-                        if not _start_retry_pass():
-                            done_event.set()
-                            return None
-                    else:
-                        print('  [scan] All cells complete.')
-                        done_event.set()
-                        return None
+                if _check_end_of_list():
+                    return None
                 _, _, cl, cb = cell_list[current_cell_idx]
                 print(f'  [scan] Cell {current_cell_idx+1}/{len(cell_list)}: '
                       f'l={cl}, b={cb}')
@@ -352,15 +351,8 @@ def make_scan_target_selector(cells, dumps_per_cell):
                 skipped.append(cell_list[current_cell_idx])
                 current_cell_idx += 1
                 cell_dump_count = 0
-                if current_cell_idx >= len(cell_list):
-                    if skipped:
-                        if not _start_retry_pass():
-                            done_event.set()
-                            return None
-                    else:
-                        print('  [scan] All cells complete.')
-                        done_event.set()
-                        return None
+                if _check_end_of_list():
+                    return None
             return None
 
         return f'obs_{cell_l}_{cell_b}', alt, az, ra, dec
@@ -428,8 +420,7 @@ def main():
             cal_dumps_per_lo=CAL_DUMPS,
         )
 
-        def on_save(path, dump, _notifier=dump_notifier):
-            _notifier()
+        def on_save(path, dump):
             lo_tag = f'  LO={dump["lo_freq_mhz"]}' if 'lo_freq_mhz' in dump else ''
             print(f'  [{dump["target_name"]}]{lo_tag}  -> {path}')
 
@@ -443,6 +434,7 @@ def main():
             n_writers=2,
             repoint_interval_sec=REPOINT_TRACK_SEC,
             on_save=on_save,
+            on_read=dump_notifier,
         )
 
         max_hours = part.get('max_hours')

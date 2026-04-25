@@ -219,18 +219,22 @@ def filter_cells_by_existing_data(cells):
 # ---------------------------------------------------------------------------
 
 def make_scan_target_selector(cells):
-    """Create target_selector, dump_notifier, done_event, and cell_event.
+    """Create target_selector, done_event, cell_event, and cell_done_event.
 
-    cell_event is set whenever the target advances to a new cell, so the
-    reader can reset its per-cell LO/cal schedule.
+    The reader signals cell completion via ``cell_done_event`` (set by the
+    reader when its per-cell schedule is exhausted).  The target selector
+    reacts by advancing to the next cell and setting ``cell_event`` so the
+    reader can start the new cell's schedule.
+
+    No writer-side dump counting is needed — the reader tracks the
+    schedule internally.
     """
     cell_list = list(cells)
     lock = threading.Lock()
-    cell_dump_count = 0
     current_cell_idx = 0
-    transitioning = False
     done_event = threading.Event()
-    cell_event = threading.Event()  # fires on each new cell
+    cell_event = threading.Event()
+    cell_done_event = threading.Event()
     skipped = []
     cells_observed_this_pass = 0
 
@@ -250,50 +254,38 @@ def make_scan_target_selector(cells):
         print(f'  [scan] Retry pass: {len(cell_list)} cells')
         return True
 
-    def dump_notifier():
-        nonlocal cell_dump_count
-        with lock:
-            cell_dump_count += 1
-
-    def target_selector():
-        nonlocal current_cell_idx, cell_dump_count, transitioning, cells_observed_this_pass
-
-        if done_event.is_set():
-            return None
-
+    def _check_end_of_list():
+        """Handle end-of-list: retry skipped cells or signal done."""
         if current_cell_idx >= len(cell_list):
             if skipped:
                 if not _start_retry_pass():
                     done_event.set()
-                    return None
+                    return True
             else:
                 print('  [scan] All cells complete.')
                 done_event.set()
-                return None
+                return True
+        return False
 
-        with lock:
-            count = cell_dump_count
-            if count >= DUMPS_PER_CELL and not transitioning:
-                transitioning = True
+    def target_selector():
+        nonlocal current_cell_idx, cells_observed_this_pass
+
+        if done_event.is_set():
+            return None
+
+        if _check_end_of_list():
+            return None
+
+        # Reader signalled that the cell schedule is complete.
+        if cell_done_event.is_set():
+            cell_done_event.clear()
+            cells_observed_this_pass += 1
+            current_cell_idx += 1
+            if _check_end_of_list():
                 return None
-            if transitioning:
-                transitioning = False
-                cells_observed_this_pass += 1
-                current_cell_idx += 1
-                cell_dump_count = 0
-                cell_event.set()  # signal new cell to reader
-                if current_cell_idx >= len(cell_list):
-                    if skipped:
-                        if not _start_retry_pass():
-                            done_event.set()
-                            return None
-                    else:
-                        print('  [scan] All cells complete.')
-                        done_event.set()
-                        return None
-                _, _, cl, cb = cell_list[current_cell_idx]
-                print(f'  [scan] Cell {current_cell_idx+1}/{len(cell_list)}: '
-                      f'l={cl}, b={cb}')
+            _, _, cl, cb = cell_list[current_cell_idx]
+            print(f'  [scan] Cell {current_cell_idx+1}/{len(cell_list)}: '
+                  f'l={cl}, b={cb}')
 
         _, _, cell_l, cell_b = cell_list[current_cell_idx]
         alt, az, ra, dec, _ = compute_gal_pointing(
@@ -305,24 +297,15 @@ def make_scan_target_selector(cells):
             with lock:
                 skipped.append(cell_list[current_cell_idx])
                 current_cell_idx += 1
-                cell_dump_count = 0
                 cell_event.set()
-                if current_cell_idx >= len(cell_list):
-                    if skipped:
-                        if not _start_retry_pass():
-                            done_event.set()
-                            return None
-                    else:
-                        print('  [scan] All cells complete.')
-                        done_event.set()
-                        return None
+                if _check_end_of_list():
+                    return None
             return None
 
-        # Use rounded name for directory structure; float coords in metadata
         l_name = f'{cell_l:.2f}'.replace('.', 'p')
         return f'obs_{l_name}_{cell_b}', alt, az, ra, dec
 
-    return target_selector, dump_notifier, done_event, cell_event
+    return target_selector, done_event, cell_event, cell_done_event
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +356,9 @@ def main():
     telescope, sdrs, noise = setup_hardware()
     print('Hardware ready.')
 
-    target_selector, dump_notifier, done_event, cell_event = \
+    stop_event = threading.Event()
+
+    target_selector, done_event, cell_event, cell_done_event = \
         make_scan_target_selector(cells)
 
     read_fn = make_calibrated_sdr_reader(
@@ -383,10 +368,11 @@ def main():
         cal_dumps_per_lo=CAL_DUMPS_PER_LO,
         cell_event=cell_event,
         obs_dumps_per_lo=OBS_DUMPS_PER_LO,
+        cell_done_event=cell_done_event,
+        stop_event=stop_event,
     )
 
-    def on_save(path, dump, _notifier=dump_notifier):
-        _notifier()
+    def on_save(path, dump):
         lo_tag = f'LO={dump["lo_freq_mhz"]}' if 'lo_freq_mhz' in dump else ''
         cal_tag = 'CAL' if dump.get('noise_on') else 'OBS'
         print(f'  [{dump["target_name"]}] {cal_tag} {lo_tag} -> {path}')
@@ -405,6 +391,7 @@ def main():
     )
 
     capture.run(done_event=done_event)
+    stop_event.set()  # unblock reader if waiting between cells
 
     noise.off()
     print('\n' + '=' * 60)

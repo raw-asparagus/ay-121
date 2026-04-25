@@ -154,6 +154,10 @@ class ReaderThread:
         Output queue for raw dumps.
     max_consecutive_errors : int
         Number of consecutive ``AssertionError`` failures before giving up.
+    on_read : callable, optional
+        ``on_read(dump_dict)`` called from the reader thread immediately
+        after a dump is produced, before it is placed on the write queue.
+        Useful for reader-side dump counting.
     """
 
     def __init__(
@@ -162,11 +166,13 @@ class ReaderThread:
         pointing_thread: PointingThread,
         dump_queue: queue.Queue,
         max_consecutive_errors: int = 3,
+        on_read: Callable[[dict], None] | None = None,
     ):
         self._read_fn = read_fn
         self._pointing = pointing_thread
         self._queue = dump_queue
         self._max_consecutive_errors = max_consecutive_errors
+        self._on_read = on_read
 
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, name='reader', daemon=False)
@@ -205,6 +211,20 @@ class ReaderThread:
                 prev_cnt = None
                 continue
 
+            if not d:
+                # Empty dict signals stop (e.g. stop_event in read_fn)
+                prev_cnt = None
+                continue
+
+            # Discard dump if the pointing changed during the capture
+            # (e.g. dish slewed to a new target while USB transfer ran).
+            post_state = self._pointing.get_state()
+            if (post_state is None
+                    or post_state.target_name != state.target_name):
+                prev_cnt = d.get('acc_cnt')
+                seq += 1
+                continue
+
             dump = {
                 **d,
                 'target_name': state.target_name,
@@ -214,6 +234,8 @@ class ReaderThread:
                 'dec_deg':     state.dec_deg,
                 'seq':         seq,
             }
+            if self._on_read is not None:
+                self._on_read(dump)
             self._queue.put(dump)  # blocks if queue full (backpressure)
             prev_cnt = d.get('acc_cnt')
             seq += 1
@@ -324,6 +346,10 @@ class StreamingCapture:
         How often the pointing thread repoints the same target.
     on_save : callable, optional
         ``on_save(path, dump)`` called after each dump is written.
+    on_read : callable, optional
+        ``on_read(dump)`` called from the reader thread immediately
+        after a dump is produced.  Useful for reader-side dump counting
+        in scripts that don't use per-cell scheduling.
     """
 
     def __init__(
@@ -336,12 +362,15 @@ class StreamingCapture:
         queue_maxsize: int = 200,
         repoint_interval_sec: float = 30.0,
         on_save: Callable[[str, dict], None] | None = None,
+        on_read: Callable[[dict], None] | None = None,
     ):
         self._queue = queue.Queue(maxsize=queue_maxsize)
         self._pointing = PointingThread(
             telescope, target_selector, repoint_interval_sec,
         )
-        self._reader = ReaderThread(read_fn, self._pointing, self._queue)
+        self._reader = ReaderThread(
+            read_fn, self._pointing, self._queue, on_read=on_read,
+        )
         self._writer = WriterPool(self._queue, outdir, n_writers, on_save)
 
     def run(self, done_event: 'threading.Event | None' = None) -> None:

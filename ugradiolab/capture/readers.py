@@ -18,6 +18,7 @@ import time
 from typing import Callable, Sequence
 
 import numpy as np
+from scipy.fft import fft as _fft
 
 
 # ---------------------------------------------------------------------------
@@ -103,8 +104,8 @@ def _sdr_correlate(data, nsamples, nblocks, nfft, t, lo_mhz,
         iq_0 = chunk_0[..., 0].astype(np.float32) + 1j * chunk_0[..., 1].astype(np.float32)
         iq_1 = chunk_1[..., 0].astype(np.float32) + 1j * chunk_1[..., 1].astype(np.float32)
 
-        V0 = np.fft.fft(iq_0.reshape(-1, nfft), axis=-1)
-        V1 = np.fft.fft(iq_1.reshape(-1, nfft), axis=-1)
+        V0 = _fft(iq_0.reshape(-1, nfft), axis=-1, workers=-1)
+        V1 = _fft(iq_1.reshape(-1, nfft), axis=-1, workers=-1)
 
         corr00 += np.sum((V0 * np.conj(V0)).real, axis=0)
         corr11 += np.sum((V1 * np.conj(V1)).real, axis=0)

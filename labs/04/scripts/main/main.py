@@ -11,8 +11,8 @@ Grid: b=[-4, +4], l~[-10, 250] in 2-deg latitude steps.
       At |b| <= 4 the foreshortening is minimal (cos(4) = 0.998),
       so Delta_l ~ 2.004 deg -- effectively integer spacing.
 
-Per pointing the LO sequence is:
-    cal-f1, cal-f2, then 4x alternating obs-f1/obs-f2
+Per pointing the LO sequence is (ABBA interleaved):
+    CAL-f1, CAL-f2, OBS-f2, OBS-f1, OBS-f1, OBS-f2, OBS-f2, OBS-f1
 where f1=1419.86 MHz, f2=1421.14 MHz.
 
 Usage:
@@ -215,8 +215,8 @@ def filter_cells_by_existing_data(cells):
 # Target selector + dump notifier
 # ---------------------------------------------------------------------------
 
-def make_scan_target_selector(cells, dumps_per_cell):
-    """Create target selector, dump notifier, and done_event.
+def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
+    """Create a per-cell target selector for use with per-cell reader mode.
 
     Cells that are out of alt/az limits when reached are skipped (not
     stalled on).  After one pass through all cells, any skipped cells
@@ -224,16 +224,23 @@ def make_scan_target_selector(cells, dumps_per_cell):
     get observed.  If a full retry pass completes with zero successful
     observations, the remaining cells are abandoned and done_event is set.
 
-    ``dump_notifier`` should be passed as ``on_read`` to
-    ``StreamingCapture`` so that counting happens in the reader thread.
+    The selector coordinates with the per-cell reader via events:
+
+    * **cell_done_event** -- set by the reader when its per-cell schedule
+      is exhausted.  The selector reacts by advancing to the next cell.
+    * **cell_event** -- set by the selector to tell the reader to begin
+      a new cell.  This is set *after* returning the new target to the
+      pointing thread, so the reader unblocks only once the dish is
+      about to settle (pointing state is still None from the preceding
+      ``None`` return, guaranteeing the reader waits for the slew to
+      complete before capturing).
     """
     cell_list = list(cells)
-    lock = threading.Lock()
-    cell_dump_count = 0
     current_cell_idx = 0
-    done_event = threading.Event()
     skipped = []
     cells_observed_this_pass = 0
+    need_cell_start = True   # signal reader to begin (first cell or after advance)
+    need_return_none = False  # return None once to clear pointing state on transition
 
     _, _, cl, cb = cell_list[0]
     print(f'  [scan] {len(cell_list)} cells, first: l={cl} b={cb}')
@@ -264,33 +271,30 @@ def make_scan_target_selector(cells, dumps_per_cell):
                 return True
         return False
 
-    def dump_notifier(_dump):
-        nonlocal cell_dump_count
-        with lock:
-            cell_dump_count += 1
-
     def target_selector():
-        nonlocal current_cell_idx, cell_dump_count, cells_observed_this_pass
+        nonlocal current_cell_idx, cells_observed_this_pass
+        nonlocal need_cell_start, need_return_none
 
         if done_event.is_set():
             return None
 
+        # Cell complete → return None once to clear pointing state,
+        # then advance on the next call.
+        if cell_done_event.is_set():
+            cell_done_event.clear()
+            cells_observed_this_pass += 1
+            current_cell_idx += 1
+            need_return_none = True
+            need_cell_start = True
+            if _check_end_of_list():
+                return None
+
+        if need_return_none:
+            need_return_none = False
+            return None  # pointing → None; reader waits for valid state
+
         if _check_end_of_list():
             return None
-
-        # Cell complete -- advance immediately and return None to
-        # pause the reader during the slew to the new target.
-        with lock:
-            count = cell_dump_count
-            if count >= dumps_per_cell:
-                cells_observed_this_pass += 1
-                current_cell_idx += 1
-                cell_dump_count = 0
-                if _check_end_of_list():
-                    return None
-                _, _, cl, cb = cell_list[current_cell_idx]
-                print(f'  [scan] Cell {current_cell_idx+1}/{len(cell_list)}: '
-                      f'l={cl}, b={cb}')
 
         _, _, cell_l, cell_b = cell_list[current_cell_idx]
         alt, az, ra, dec, _ = compute_gal_pointing(
@@ -299,18 +303,24 @@ def make_scan_target_selector(cells, dumps_per_cell):
         )
 
         if alt < MIN_ALT_DEG or alt > MAX_ALT_DEG or az < AZ_MIN or az > AZ_MAX:
-            with lock:
-                skipped.append(cell_list[current_cell_idx])
-                current_cell_idx += 1
-                cell_dump_count = 0
-                if _check_end_of_list():
-                    return None
+            skipped.append(cell_list[current_cell_idx])
+            current_cell_idx += 1
+            # Reader is still blocked on cell_event -- no signal needed.
+            if _check_end_of_list():
+                return None
             return None
+
+        if need_cell_start:
+            need_cell_start = False
+            cell_event.set()
+            _, _, cl, cb = cell_list[current_cell_idx]
+            print(f'  [scan] Cell {current_cell_idx+1}/{len(cell_list)}: '
+                  f'l={cl}, b={cb}')
 
         l_name = f'{cell_l:.2f}'.replace('.', 'p')
         return f'obs_{l_name}_{cell_b}', alt, az, ra, dec
 
-    return target_selector, dump_notifier, done_event
+    return target_selector
 
 
 # ---------------------------------------------------------------------------
@@ -361,15 +371,23 @@ def main():
     telescope, sdrs, noise = setup_hardware()
     print('Hardware ready.')
 
-    target_selector, dump_notifier, done_event = \
-        make_scan_target_selector(cells, DUMPS_PER_CELL)
+    cell_event = threading.Event()
+    cell_done_event = threading.Event()
+    done_event = threading.Event()
+
+    target_selector = make_scan_target_selector(
+        cells, cell_event, cell_done_event, done_event,
+    )
 
     read_fn = make_calibrated_sdr_reader(
         sdrs, noise,
         nsamples=NSAMPLES, nblocks=NBLOCKS, nfft=NFFT,
         lo_freqs_mhz=(F1_MHZ, F2_MHZ),
         cal_dumps_per_lo=CAL_DUMPS_PER_LO,
+        cell_event=cell_event,
         obs_dumps_per_lo=OBS_DUMPS_PER_LO,
+        cell_done_event=cell_done_event,
+        stop_event=done_event,
     )
 
     def on_save(path, dump):
@@ -388,7 +406,6 @@ def main():
         n_writers=2,
         repoint_interval_sec=REPOINT_INTERVAL_SEC,
         on_save=on_save,
-        on_read=dump_notifier,
     )
 
     capture.run(done_event=done_event)

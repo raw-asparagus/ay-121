@@ -284,6 +284,34 @@ def make_sdr_reader(
 # SDR reader with noise-diode calibration phase
 # ---------------------------------------------------------------------------
 
+def _build_cell_schedule(lo_list, cal_dumps_per_lo, obs_dumps_per_lo):
+    """Build an interleaved cal+obs LO schedule for one cell.
+
+    Cal phase: one dump per LO in list order (``LO1, LO2, ...``),
+    repeated ``cal_dumps_per_lo`` times per LO.
+
+    Obs phase: ABBA interleaving starting from the last cal LO.
+    The unit ``reversed(lo_list) + lo_list`` is cycled for
+    ``obs_dumps_per_lo * len(lo_list)`` dumps, ensuring maximum
+    temporal mixing::
+
+        cal_dumps_per_lo=1, obs_dumps_per_lo=3, 2 LOs (A, B):
+          CAL-A, CAL-B, OBS-B, OBS-A, OBS-A, OBS-B, OBS-B, OBS-A
+
+    Returns list of ``(lo_mhz, noise_on)`` tuples.
+    """
+    schedule = []
+    for lo in lo_list:
+        schedule.extend([(lo, True)] * cal_dumps_per_lo)
+
+    abba = list(reversed(lo_list)) + list(lo_list)
+    total_obs = obs_dumps_per_lo * len(lo_list)
+    for i in range(total_obs):
+        schedule.append((abba[i % len(abba)], False))
+
+    return schedule
+
+
 def make_calibrated_sdr_reader(
     sdrs: list,
     noise,
@@ -313,15 +341,14 @@ def make_calibrated_sdr_reader(
     ``cell_event`` signals a new cell.  This keeps the reader idle
     during slews and eliminates extra dumps at cell boundaries.
 
-    The per-cell schedule groups noise and LO states to minimise
-    transitions::
+    The per-cell schedule uses ABBA LO interleaving for maximum
+    temporal mixing of the two frequency bands::
 
-        CAL: LO1*N, LO2*N          (noise ON, 1 LO switch)
-        OBS: LO2*M, LO1*M          (noise OFF, 0 + 1 LO switches)
+        CAL: LO1, LO2              (noise ON)
+        OBS: LO2, LO1, LO1, LO2, LO2, LO1  (noise OFF, ABBA cycle)
 
     Obs starts at the last cal LO to avoid a PLL settle at the
-    cal-to-obs boundary.  Total overhead per cell: 2 LO switches +
-    1 noise toggle.
+    cal-to-obs boundary.
 
     Uses pipelined capture: FFT/correlation of the previous dump runs
     in a background thread while the next USB capture is in progress.
@@ -374,14 +401,9 @@ def make_calibrated_sdr_reader(
         if obs_dumps_per_lo is None:
             raise ValueError('obs_dumps_per_lo is required with cell_event')
 
-        # Build per-cell schedule.
-        # Cal: [LO1]*N + [LO2]*N  (noise ON throughout)
-        # Obs: [LO2]*M + [LO1]*M  (noise OFF, start at last cal LO)
-        cell_schedule = []
-        for lo in lo_list:
-            cell_schedule.extend([(lo, True)] * cal_dumps_per_lo)
-        for lo in reversed(lo_list):
-            cell_schedule.extend([(lo, False)] * obs_dumps_per_lo)
+        cell_schedule = _build_cell_schedule(
+            lo_list, cal_dumps_per_lo, obs_dumps_per_lo,
+        )
 
         schedule_len = len(cell_schedule)
         schedule_idx = 0
@@ -476,11 +498,7 @@ def make_calibrated_sdr_reader(
     # gets the correct cal/obs ratio regardless of phase drift from
     # discarded transition dumps.
     if obs_dumps_per_lo is not None:
-        cycle = []
-        for lo in lo_list:
-            cycle.extend([(lo, True)] * cal_dumps_per_lo)
-        for lo in reversed(lo_list):
-            cycle.extend([(lo, False)] * obs_dumps_per_lo)
+        cycle = _build_cell_schedule(lo_list, cal_dumps_per_lo, obs_dumps_per_lo)
         cycle_len = len(cycle)
 
         def read(prev_cnt: int | None) -> dict:  # noqa: ARG001

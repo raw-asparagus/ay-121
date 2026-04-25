@@ -18,7 +18,6 @@ Output:
     data/lab04/streaming/session_{NNN}/<obs|cal>_{l}_{b}/<obs|cal>_{l}_{b}_{timestamp}.npz
 """
 
-import glob
 import threading
 
 from ugradiolab.astronomy import (

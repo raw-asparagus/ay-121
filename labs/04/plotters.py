@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Sequence
 
 import astropy.coordinates as ac
 import astropy.units as u
@@ -20,17 +19,13 @@ import numpy as np
 
 from ugradiolab.plotting import (
     TEXTWIDTH_IN,
-    COLUMNWIDTH_IN,
     LABEL_SIZE,
     TICK_SIZE,
     LEGEND_SIZE,
     EMPHASIS_SIZE,
-    LW_NONE,
     LW_FINE,
     LW_LIGHT,
-    LW_STANDARD,
     MS_MICRO,
-    MS_FINE,
     SS_FINE,
     ALPHA_EXTRA_LIGHT,
     ALPHA_FAINT,
@@ -39,10 +34,7 @@ from ugradiolab.plotting import (
     NEUTRAL_COLOR,
     GRID_STYLE,
     GUIDE_STYLE,
-    ERRORBAR_STYLE,
-    FIT_STYLE,
     SCATTER_STYLE,
-    FILL_STYLE,
     textwidth_figure,
     columnwidth_figure,
     landscapewidth_figure,

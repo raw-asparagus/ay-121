@@ -5,7 +5,9 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-from scipy.signal import medfilt
+from scipy.signal import argrelextrema
+
+from .cache import _cache_stable
 
 
 def _dump_coordinate_key(record: dict) -> tuple[int, int] | None:
@@ -17,11 +19,82 @@ def _dump_coordinate_key(record: dict) -> tuple[int, int] | None:
     return None
 
 
-def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
-                      sigma_thresh: float = 5.0) -> int:
-    """Flag RFI channels in a single spectrum using median filter + MAD.
+@_cache_stable(module='utils.rfi')
+def _cheb_pseudocontinuum(spectrum: np.ndarray, window: int = 15,
+                          degree: int = 3, sample_frac: float = 0.7,
+                          extrema_order: int = 2,
+                          seed: int = 42) -> np.ndarray:
+    """Sliding-window Chebyshev pseudo-continuum with reflect padding.
 
-    Outlier channels (both positive spikes and negative dropouts) are
+    For each channel, a degree-N Chebyshev polynomial is fit to the
+    surrounding window after excluding local maxima and minima (which
+    may be RFI or dropouts) and drawing a random subsample of the
+    remaining points. The spectrum is reflect-padded at both edges so
+    every window position sees a full-width window.
+
+    Parameters
+    ----------
+    spectrum : 1-D float array
+        Input spectrum.
+    window : int
+        Sliding window width in channels.
+    degree : int
+        Chebyshev polynomial degree.
+    sample_frac : float
+        Fraction of non-extrema points to subsample for the fit.
+    extrema_order : int
+        ``order`` parameter for `scipy.signal.argrelextrema`; a point
+        must dominate this many neighbors on each side to be excluded.
+    seed : int
+        RNG seed for reproducible subsampling.
+
+    Returns
+    -------
+    np.ndarray
+        Pseudo-continuum estimate, same length as *spectrum*.
+    """
+    n = len(spectrum)
+    half_w = window // 2
+    rng = np.random.default_rng(seed)
+    padded = np.pad(spectrum, half_w, mode='reflect')
+
+    continuum = np.full(n, np.nan)
+    for i in range(n):
+        chunk = padded[i : i + window]
+        x_local = np.arange(window)
+        finite = np.isfinite(chunk)
+        if finite.sum() < degree + 2:
+            continue
+        x_f = x_local[finite]
+        y_f = chunk[finite]
+
+        max_idx = set(argrelextrema(y_f, np.greater, order=extrema_order)[0])
+        min_idx = set(argrelextrema(y_f, np.less, order=extrema_order)[0])
+        keep = np.array([j not in max_idx and j not in min_idx
+                         for j in range(len(y_f))])
+        if keep.sum() < degree + 1:
+            x_fit, y_fit = x_f, y_f
+        else:
+            x_fit, y_fit = x_f[keep], y_f[keep]
+            n_sample = max(degree + 1, int(len(x_fit) * sample_frac))
+            if n_sample < len(x_fit):
+                idx = np.sort(rng.choice(len(x_fit), n_sample, replace=False))
+                x_fit, y_fit = x_fit[idx], y_fit[idx]
+
+        coeffs = np.polynomial.chebyshev.chebfit(x_fit, y_fit, degree)
+        continuum[i] = np.polynomial.chebyshev.chebval(half_w, coeffs)
+    return continuum
+
+
+def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
+                      sigma_thresh: float = 10.0, degree: int = 3,
+                      sample_frac: float = 0.7,
+                      extrema_order: int = 2) -> int:
+    """Flag RFI channels using a Chebyshev pseudo-continuum + MAD clip.
+
+    A sliding-window Chebyshev polynomial is fit to the spectrum after
+    excluding local extrema, producing a robust pseudo-continuum.
+    Channels whose residual exceeds *sigma_thresh* MAD-based sigma are
     replaced with NaN **in-place**.
 
     Parameters
@@ -29,28 +102,27 @@ def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
     spectrum : 1-D float array
         The spectrum to flag (modified in-place).
     window : int
-        Median filter kernel width (forced odd for scipy.signal.medfilt).
+        Sliding window width in channels.
     sigma_thresh : float
         Number of MAD-based sigma for the flag threshold.
+    degree : int
+        Chebyshev polynomial degree for the pseudo-continuum fit.
+    sample_frac : float
+        Fraction of non-extrema points to subsample per window.
+    extrema_order : int
+        ``order`` parameter for local extrema detection.
 
     Returns
     -------
     int
         Number of channels flagged.
     """
-    kernel = window if window % 2 == 1 else window + 1
-
-    # Interpolate over NaN (e.g. DC mask) so medfilt doesn't propagate them.
-    finite = np.isfinite(spectrum)
-    buf = spectrum.copy()
-    if not finite.all() and finite.sum() >= 2:
-        chans = np.arange(len(buf))
-        buf[~finite] = np.interp(chans[~finite], chans[finite], buf[finite])
-
-    local_med = medfilt(buf, kernel_size=kernel)
-    resid = spectrum - local_med
+    continuum = _cheb_pseudocontinuum(spectrum, window, degree, sample_frac,
+                                     extrema_order)
+    resid = spectrum - continuum
     mad = np.nanmedian(np.abs(resid))
     sigma = mad / 0.6745
+    finite = np.isfinite(spectrum)
     bad = (np.abs(resid) > sigma_thresh * sigma) & finite
     n_bad = int(np.sum(bad))
     if n_bad > 0:

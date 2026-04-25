@@ -371,6 +371,16 @@ def make_lss_reader(sdrs, noise, cell_event, nsamples=NSAMPLES,
         if cell_event.is_set():
             cell_event.clear()
             schedule_idx = 0
+            # Drain the stale pipelined dump from the previous cell.
+            # Submit cal-f1 to flush pipeline, discard the returned dump.
+            lo0, is_cal0 = CELL_SCHEDULE[0]
+            _set_noise(is_cal0)
+            _stale = pipeline.next_dump(lo0)
+            if _stale is not None:
+                call_count += 1  # skip the stale entry in noise_on_log
+            noise_on_log.append(is_cal0)
+            submit_count += 1
+            schedule_idx = 1
 
         # Determine LO and noise state for this submission
         lo, is_cal = CELL_SCHEDULE[schedule_idx % len(CELL_SCHEDULE)]

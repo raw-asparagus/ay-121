@@ -65,7 +65,7 @@ PHYSICAL_SPACING_DEG = 2.0
 
 # Per-pointing dump schedule (plane is bright: T_B ~ 50-150 K)
 CAL_DUMPS  = 2    # cal-f1, cal-f2
-OBS_DUMPS  = 8    # (obs-f1, obs-f2) x 4
+OBS_DUMPS  = 6    # (obs-f1, obs-f2) x 3
 DUMPS_PER_CELL = CAL_DUMPS + OBS_DUMPS
 
 NEXT_SESSION = 1
@@ -463,4 +463,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    while True:
+        main()

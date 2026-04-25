@@ -40,8 +40,8 @@ from ugradiolab.capture.readers import _PipelinedSDR
 F1_MHZ       = 1419.86
 F2_MHZ       = 1421.14
 SAMPLE_RATE  = 3.2e6
-NSAMPLES     = 98304   # 64 chunks * 1536 channels
-NBLOCKS      = 513     # 512 valid + 1 buffer flush
+NSAMPLES     = 49152   # 32 chunks * 1536 channels
+NBLOCKS      = 769     # 768 valid + 1 buffer flush
 NFFT         = 1536
 MIN_ALT_DEG  = 17.0
 MAX_ALT_DEG  = 83.0

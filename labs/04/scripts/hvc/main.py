@@ -26,7 +26,6 @@ Run from this directory:
 """
 
 import threading
-import time
 
 import numpy as np
 
@@ -37,7 +36,7 @@ from ugradiolab.astronomy import (
     compute_gal_pointing,
 )
 from ugradiolab.capture import StreamingCapture
-from ugradiolab.capture.readers import _PipelinedSDR
+from ugradiolab.capture.readers import make_calibrated_sdr_reader
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -46,9 +45,9 @@ from ugradiolab.capture.readers import _PipelinedSDR
 F1_MHZ       = 1419.86
 F2_MHZ       = 1421.14
 SAMPLE_RATE  = 3.2e6
-NSAMPLES     = 49152   # 32 chunks * 1536 channels
-NBLOCKS      = 769     # 768 valid + 1 buffer flush
-NFFT         = 1536
+NSAMPLES     = 32768   # 32 chunks * 1024 channels
+NBLOCKS      = 1025    # 1024 valid + 1 buffer flush
+NFFT         = 1024
 MIN_ALT_DEG  = 17.0
 MAX_ALT_DEG  = 83.0
 AZ_MIN       =  7.0
@@ -64,9 +63,10 @@ B_STEP       = 2
 PHYSICAL_SPACING_DEG = 2.0  # exact physical angular spacing in longitude
 
 # Per-pointing dump schedule (HVC is faint: T_B ~ 1-5 K, need more dumps)
-CAL_DUMPS  = 2    # cal-f1, cal-f2
-OBS_DUMPS  = 32   # (obs-f1, obs-f2) x 16
-DUMPS_PER_CELL = CAL_DUMPS + OBS_DUMPS
+CAL_DUMPS_PER_LO = 1    # 1 cal dump per LO = 2 cal total
+OBS_DUMPS_PER_LO = 16   # 16 obs dumps per LO = 32 obs total
+N_LOS = 2
+DUMPS_PER_CELL = (CAL_DUMPS_PER_LO + OBS_DUMPS_PER_LO) * N_LOS
 
 NEXT_SESSION = 1
 
@@ -199,7 +199,8 @@ def filter_cells_by_existing_data(cells):
         l_name = f'{l:.2f}'.replace('.', 'p')
         cell_lb = f'{l_name}_{b}'
         c = counts.get(cell_lb, {'obs': 0, 'cal': 0})
-        if c['obs'] >= OBS_DUMPS and c['cal'] >= CAL_DUMPS:
+        if (c['obs'] >= OBS_DUMPS_PER_LO * N_LOS
+                and c['cal'] >= CAL_DUMPS_PER_LO * N_LOS):
             n_skipped += 1
         else:
             kept.append((row, col, l, b))
@@ -325,94 +326,6 @@ def make_scan_target_selector(cells):
 
 
 # ---------------------------------------------------------------------------
-# Reader with per-cell cal + interleaved LO
-# ---------------------------------------------------------------------------
-
-def make_lss_reader(sdrs, noise, cell_event, nsamples=NSAMPLES,
-                    nblocks=NBLOCKS, nfft=NFFT):  # noqa: E501
-    """Create a reader that runs per-cell cal-f1, cal-f2, then obs cycles.
-
-    On each new cell (signalled by cell_event), the schedule resets to:
-        cal-f1, cal-f2, obs-f1, obs-f2, obs-f1, obs-f2, obs-f1, obs-f2
-
-    Uses pipelined capture (FFT of previous dump overlaps USB transfer
-    of current dump).
-    """
-    # Per-cell schedule: 2 cal + 32 obs (16 pairs alternating f1/f2)
-    CELL_SCHEDULE = [
-        (F1_MHZ, True),   # cal f1
-        (F2_MHZ, True),   # cal f2
-    ]
-    for _ in range(OBS_DUMPS // 2):
-        CELL_SCHEDULE.append((F1_MHZ, False))
-        CELL_SCHEDULE.append((F2_MHZ, False))
-
-    pipeline = _PipelinedSDR(sdrs, nsamples, nblocks, nfft)
-
-    schedule_idx = 0
-    noise_on_log = []  # tracks noise_on for each submitted capture
-    call_count = 0
-    submit_count = 0
-    current_noise_state = None
-
-    def _set_noise(on):
-        nonlocal current_noise_state
-        if on != current_noise_state:
-            if on:
-                noise.on()
-            else:
-                noise.off()
-            current_noise_state = on
-
-    def read(prev_cnt):
-        nonlocal schedule_idx, call_count, submit_count
-
-        # Check if we advanced to a new cell
-        if cell_event.is_set():
-            cell_event.clear()
-            schedule_idx = 0
-            # Drain the stale pipelined dump from the previous cell.
-            # Submit cal-f1 to flush pipeline, discard the returned dump.
-            lo0, is_cal0 = CELL_SCHEDULE[0]
-            _set_noise(is_cal0)
-            _stale = pipeline.next_dump(lo0)
-            if _stale is not None:
-                call_count += 1  # skip the stale entry in noise_on_log
-            noise_on_log.append(is_cal0)
-            submit_count += 1
-            schedule_idx = 1
-
-        # Determine LO and noise state for this submission
-        idx = min(schedule_idx, len(CELL_SCHEDULE) - 1)
-        lo, is_cal = CELL_SCHEDULE[idx]
-        _set_noise(is_cal)
-
-        # Submit capture, get back previous dump
-        dump = pipeline.next_dump(lo)
-        noise_on_log.append(is_cal)
-        submit_count += 1
-        schedule_idx += 1
-
-        if dump is None:
-            # First call -- no previous dump. Submit one more.
-            idx2 = min(schedule_idx, len(CELL_SCHEDULE) - 1)
-            lo2, is_cal2 = CELL_SCHEDULE[idx2]
-            _set_noise(is_cal2)
-            dump = pipeline.next_dump(lo2)
-            noise_on_log.append(is_cal2)
-            submit_count += 1
-            schedule_idx += 1
-
-        if dump is not None:
-            dump['noise_on'] = noise_on_log[call_count]
-            call_count += 1
-
-        return dump
-
-    return read
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -437,7 +350,8 @@ def main():
           f'Delta_l = {PHYSICAL_SPACING_DEG}/cos(b)')
     print(f'  LO: f1={F1_MHZ} MHz, f2={F2_MHZ} MHz')
     print(f'  Sample rate: {SAMPLE_RATE/1e6} MHz, NFFT={NFFT}, NBLOCKS={NBLOCKS}')
-    print(f'  Per pointing: {CAL_DUMPS} cal + {OBS_DUMPS} obs = {DUMPS_PER_CELL} dumps')
+    print(f'  Per pointing: {CAL_DUMPS_PER_LO * N_LOS} cal + '
+          f'{OBS_DUMPS_PER_LO * N_LOS} obs = {DUMPS_PER_CELL} dumps')
     print(f'  Track interval: {REPOINT_INTERVAL_SEC} s')
 
     all_cells = build_hvc_grid()
@@ -462,7 +376,14 @@ def main():
     target_selector, dump_notifier, done_event, cell_event = \
         make_scan_target_selector(cells)
 
-    read_fn = make_lss_reader(sdrs, noise, cell_event)
+    read_fn = make_calibrated_sdr_reader(
+        sdrs, noise,
+        nsamples=NSAMPLES, nblocks=NBLOCKS, nfft=NFFT,
+        lo_freqs_mhz=(F1_MHZ, F2_MHZ),
+        cal_dumps_per_lo=CAL_DUMPS_PER_LO,
+        cell_event=cell_event,
+        obs_dumps_per_lo=OBS_DUMPS_PER_LO,
+    )
 
     def on_save(path, dump, _notifier=dump_notifier):
         _notifier()

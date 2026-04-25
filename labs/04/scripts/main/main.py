@@ -26,7 +26,6 @@ Run from this directory:
 """
 
 import threading
-import time
 
 import numpy as np
 

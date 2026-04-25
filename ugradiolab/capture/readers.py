@@ -468,6 +468,48 @@ def make_calibrated_sdr_reader(
 
         return read
 
+    # ----- Repeating-cycle mode -----
+    # Continuous pipeline with a repeating [cal + obs] cycle per cell.
+    # No pipeline flush between cells; priming happens only once at
+    # session start.  cycle_len == dumps_per_cell guarantees every cell
+    # gets the correct cal/obs ratio regardless of phase drift from
+    # discarded transition dumps.
+    if obs_dumps_per_lo is not None:
+        cycle = []
+        for lo in lo_list:
+            cycle.extend([(lo, True)] * cal_dumps_per_lo)
+        for lo in reversed(lo_list):
+            cycle.extend([(lo, False)] * obs_dumps_per_lo)
+        cycle_len = len(cycle)
+
+        def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
+            nonlocal call_count, submit_count
+
+            pos = submit_count % cycle_len
+            lo, is_cal = cycle[pos]
+            _set_noise(is_cal)
+
+            dump = pipeline.next_dump(lo)
+            noise_on_flags.append(is_cal)
+            submit_count += 1
+
+            if dump is None:
+                # First call -- pipeline priming (happens once per session)
+                pos2 = submit_count % cycle_len
+                lo2, is_cal2 = cycle[pos2]
+                _set_noise(is_cal2)
+                dump = pipeline.next_dump(lo2)
+                noise_on_flags.append(is_cal2)
+                submit_count += 1
+
+            if dump is not None:
+                dump['noise_on'] = noise_on_flags[call_count]
+                call_count += 1
+
+            return dump
+
+        return read
+
     # ----- Per-session mode (original behavior) -----
     total_cal_dumps = cal_dumps_per_lo * len(lo_list)
 

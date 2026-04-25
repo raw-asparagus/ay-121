@@ -191,10 +191,12 @@ class _PipelinedSDR:
         """Correlate and return the last pending capture."""
         if self._pending_data is None:
             return None
-        return _sdr_correlate(
+        result = _sdr_correlate(
             self._pending_data, self._nsamples, self._nblocks,
             self._nfft, self._pending_t, self._pending_lo,
         )
+        self._pending_data = None
+        return result
 
     def _start_correlate(self):
         """Start correlation of pending data in a background thread."""

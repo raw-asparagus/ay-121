@@ -68,7 +68,7 @@ OBS_DUMPS_PER_LO = 3    # 3 obs dumps per LO = 6 obs total
 N_LOS = 2
 DUMPS_PER_CELL = (CAL_DUMPS_PER_LO + OBS_DUMPS_PER_LO) * N_LOS
 
-NEXT_SESSION = 7
+NEXT_SESSION = 9
 
 
 def _next_session_dir() -> str:
@@ -469,6 +469,8 @@ def main():
     capture.run(done_event=done_event)
 
     noise.off()
+    for sdr in sdrs:
+        sdr.close()
     print('\n' + '=' * 60)
     print('  Galactic plane survey complete!')
     print('=' * 60)

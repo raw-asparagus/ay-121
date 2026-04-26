@@ -5,11 +5,11 @@ Galactic plane survey with per-pointing noise-diode calibration and
 interleaved frequency switching.  Uses the StreamingCapture framework
 for continuous three-thread operation (pointing, reading, writing).
 
-Grid: b=[-4, +4], l~[-10, 250] in 2-deg latitude steps.
-      Longitude uses non-integer tessellation centered at l=120:
-      Delta_l = 2/cos(b) exactly, expanded outward from center.
-      At |b| <= 4 the foreshortening is minimal (cos(4) = 0.998),
-      so Delta_l ~ 2.004 deg -- effectively integer spacing.
+Grid: two-phase brick-pattern tessellation.
+      Even phase: b=[-4, -2, 0, +2, +4], l centered at 120.
+      Odd phase:  b=[-3, -1, +1, +3], l offset by half a physical step.
+      Longitude: Delta_l = 2/cos(b) exactly, expanded outward from center.
+      Even grid runs first; odd grid starts when even is complete.
 
 Per pointing the LO sequence is (ABBA interleaved):
     CAL-f1, CAL-f2, OBS-f2, OBS-f1, OBS-f1, OBS-f2, OBS-f2, OBS-f1
@@ -82,25 +82,25 @@ def _next_session_dir() -> str:
 # Grid builder
 # ---------------------------------------------------------------------------
 
-def _build_l_row(b_deg):
-    """Build non-integer longitude grid at latitude b, centered at L_CENTER.
+def _build_l_row(b_deg, l_center=L_CENTER):
+    """Build non-integer longitude grid at latitude b, centered at l_center.
 
     Exact spacing: Delta_l = PHYSICAL_SPACING_DEG / cos(b).
-    Expands outward from L_CENTER until L_MIN and L_MAX are exceeded.
+    Expands outward from l_center until L_MIN and L_MAX are exceeded.
     Returns sorted list of l values (floats, rounded to 2 decimal places).
     """
     import math
     cos_b = math.cos(math.radians(b_deg))
     if cos_b <= 0:
-        return [L_CENTER]
+        return [l_center]
     dl = PHYSICAL_SPACING_DEG / cos_b
 
-    l_vals = [L_CENTER]
-    l = L_CENTER + dl
+    l_vals = [round(l_center, 2)]
+    l = l_center + dl
     while l <= L_MAX:
         l_vals.append(round(l, 2))
         l += dl
-    l = L_CENTER - dl
+    l = l_center - dl
     while l >= L_MIN:
         l_vals.append(round(l, 2))
         l -= dl
@@ -108,16 +108,33 @@ def _build_l_row(b_deg):
     return sorted(l_vals)
 
 
-def build_galplane_grid():
+def build_galplane_grid(phase='even'):
     """Build non-integer tessellation for galactic plane, boustrophedon order.
+
+    Parameters
+    ----------
+    phase : 'even' or 'odd'
+        'even' -- b = [-4, -2, 0, 2, 4], l centered at L_CENTER.
+        'odd'  -- b = [-3, -1, 1, 3], l offset by half a physical step
+                  from L_CENTER (brick-pattern interleave).
 
     Returns list of (row_idx, col_idx, l, b) tuples.
     """
     cells = []
-    b_vals = list(range(B_MIN, B_MAX + 1, B_STEP))
+    if phase == 'even':
+        b_vals = list(range(B_MIN, B_MAX + 1, B_STEP))
+    else:
+        b_vals = list(range(B_MIN + 1, B_MAX, B_STEP))
 
     for row_idx, b in enumerate(b_vals):
-        l_vals = _build_l_row(b)
+        if phase == 'odd':
+            import math
+            half_step = PHYSICAL_SPACING_DEG / (2 * math.cos(math.radians(b)))
+            l_center = L_CENTER + half_step
+        else:
+            l_center = L_CENTER
+
+        l_vals = _build_l_row(b, l_center=l_center)
 
         row = [(row_idx, j, l_vals[j], b) for j in range(len(l_vals))]
         if row_idx % 2 == 0:
@@ -171,14 +188,38 @@ def filter_cells_by_az_side(cells):
     return kept
 
 
+def _load_reobserve_set():
+    """Load reobserve.json and return a set of cell_lb keys to force-reobserve."""
+    import json
+    from pathlib import Path
+
+    reobs_path = Path(__file__).parent / 'reobserve.json'
+    if not reobs_path.exists():
+        return set()
+    try:
+        entries = json.loads(reobs_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return set()
+    reobs = set()
+    for e in entries:
+        l_name = f'{e["l"]:.2f}'.replace('.', 'p')
+        reobs.add(f'{l_name}_{e["b"]}')
+    return reobs
+
+
 def filter_cells_by_existing_data(cells):
     """Skip cells that already have enough obs dumps across all sessions.
 
     Scans OUTPUT_DIR/session_*/obs_{l_name}_{b}/ for .npz files.
     A cell is complete when it has >= OBS_DUMPS obs files total.
+    Cells listed in reobserve.json are always treated as incomplete.
     """
     from pathlib import Path
     import glob
+
+    reobserve = _load_reobserve_set()
+    if reobserve:
+        print(f'  Reobserve list: {len(reobserve)} cells forced incomplete')
 
     counts = {}  # cell_lb -> {'obs': n, 'cal': n}
     for npz in glob.glob(f'{OUTPUT_DIR}/session_*/*_*/*.npz'):
@@ -192,9 +233,14 @@ def filter_cells_by_existing_data(cells):
 
     kept = []
     n_skipped = 0
+    n_reobs = 0
     for row, col, l, b in cells:
         l_name = f'{l:.2f}'.replace('.', 'p')
         cell_lb = f'{l_name}_{b}'
+        if cell_lb in reobserve:
+            kept.append((row, col, l, b))
+            n_reobs += 1
+            continue
         c = counts.get(cell_lb, {'obs': 0, 'cal': 0})
         if (c['obs'] >= OBS_DUMPS_PER_LO * N_LOS
                 and c['cal'] >= CAL_DUMPS_PER_LO * N_LOS):
@@ -202,9 +248,9 @@ def filter_cells_by_existing_data(cells):
         else:
             kept.append((row, col, l, b))
 
-    if n_skipped:
+    if n_skipped or n_reobs:
         print(f'  Existing data: {n_skipped} complete cells skipped, '
-              f'{len(kept)} remaining')
+              f'{n_reobs} forced reobserve, {len(kept)} remaining')
     else:
         print(f'  No existing data found -- keeping all {len(kept)} cells')
 
@@ -352,11 +398,23 @@ def main():
           f'{OBS_DUMPS_PER_LO * N_LOS} obs = {DUMPS_PER_CELL} dumps')
     print(f'  Track interval: {REPOINT_INTERVAL_SEC} s')
 
-    all_cells = build_galplane_grid()
-    print(f'\n  Total grid cells: {len(all_cells)}')
+    # Try even phase first; if complete, fall through to odd phase.
+    phase = 'even'
+    all_cells = build_galplane_grid(phase=phase)
+    print(f'\n  Total grid cells ({phase}): {len(all_cells)}')
 
     cells = filter_cells_by_az_side(all_cells)
     cells = filter_cells_by_existing_data(cells)
+
+    if not cells:
+        phase = 'odd'
+        print(f'\n  Even grid complete -- switching to odd phase')
+        all_cells = build_galplane_grid(phase=phase)
+        print(f'\n  Total grid cells ({phase}): {len(all_cells)}')
+
+        cells = filter_cells_by_az_side(all_cells)
+        cells = filter_cells_by_existing_data(cells)
+
     if not cells:
         print('  No remaining cells. Exiting.')
         return

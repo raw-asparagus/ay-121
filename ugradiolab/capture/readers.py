@@ -4,10 +4,9 @@ Each factory returns a callable ``read_fn(prev_cnt) -> dict`` suitable for
 :class:`~ugradiolab.capture.streaming.ReaderThread`.
 
 * :func:`make_snap_reader` -- wraps a SNAP FPGA correlator
-* :func:`make_sdr_reader` -- dual-polarisation SDR with on-board FFT,
-  correlation, and frequency switching
-* :func:`make_calibrated_sdr_reader` -- same, with a noise-diode
-  calibration phase at the start
+* :func:`make_calibrated_sdr_reader` -- dual-polarisation SDR with
+  on-board FFT, correlation, frequency switching, and noise-diode
+  calibration
 """
 
 from __future__ import annotations
@@ -125,15 +124,6 @@ def _sdr_correlate(data, nsamples, nblocks, nfft, t, lo_mhz,
     }
 
 
-def _sdr_capture_and_correlate(sdrs, nsamples, nblocks, nfft, lo_mhz):
-    """Set LO, capture both polarisations, FFT, correlate, return dump dict.
-
-    This is the non-pipelined version, kept for compatibility.
-    """
-    data, t, lo = _sdr_capture(sdrs, nsamples, nblocks, lo_mhz)
-    return _sdr_correlate(data, nsamples, nblocks, nfft, t, lo)
-
-
 # ---------------------------------------------------------------------------
 # Pipelined SDR capture + correlate
 # ---------------------------------------------------------------------------
@@ -213,71 +203,6 @@ class _PipelinedSDR:
 
         self._corr_thread = threading.Thread(target=_run, daemon=True)
         self._corr_thread.start()
-
-
-# ---------------------------------------------------------------------------
-# SDR reader
-# ---------------------------------------------------------------------------
-
-def make_sdr_reader(
-    sdrs: list,
-    nsamples: int = 32768,
-    nblocks: int = 65,
-    nfft: int = 1024,
-    lo_freqs_mhz: Sequence[float] = (1420.0, 1421.0),
-) -> Callable[[int | None], dict]:
-    """Create a streaming reader for dual-polarisation SDR capture.
-
-    Each call to the returned function:
-
-    1. Sets both SDRs to the next LO frequency in the cycle.
-    2. Captures *nblocks* blocks from both SDRs simultaneously.
-    3. Discards block 0 (stale USB buffer).
-    4. Reshapes each block into chunks of *nfft* samples and FFTs.
-    5. Computes ``corr00``, ``corr01``, ``corr11`` averaged over all windows.
-
-    Parameters
-    ----------
-    sdrs : list of SDR
-        Two initialised SDR objects (polarisation 0 and 1).
-    nsamples : int
-        Samples per capture block.
-    nblocks : int
-        Total blocks to capture (block 0 is discarded).
-    nfft : int
-        FFT length (number of spectral channels).
-    lo_freqs_mhz : sequence of float
-        LO frequencies to cycle through (e.g. ``(1420.0, 1421.0)``).
-
-    Returns
-    -------
-    callable
-        ``read_fn(prev_cnt) -> dict`` with keys
-        ``corr00``, ``corr01``, ``corr11``, ``time``, ``lo_freq_mhz``.
-    """
-    # Block LO switching: all dumps at one LO before switching.
-    # Default block size = 4 (matches typical dumps_per_band).
-    _block = [lo for lo in lo_freqs_mhz for _ in range(4)]
-    freq_cycle = itertools.cycle(_block)
-    pipeline = _PipelinedSDR(sdrs, nsamples, nblocks, nfft)
-
-    def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
-        lo = next(freq_cycle)
-        dump = pipeline.next_dump(lo)
-
-        if dump is not None:
-            return dump
-
-        # First call returned None -- capture again to get the first dump
-        lo = next(freq_cycle)
-        dump = pipeline.next_dump(lo)
-        if dump is not None:
-            return dump
-
-        # Shouldn't reach here, but fall back to non-pipelined
-        return _sdr_capture_and_correlate(sdrs, nsamples, nblocks, nfft, lo)
-
-    return read
 
 
 # ---------------------------------------------------------------------------
@@ -482,44 +407,6 @@ def make_calibrated_sdr_reader(
                 noise_on_flags.append(is_cal2)
                 submit_count += 1
                 schedule_idx += 1
-
-            if dump is not None:
-                dump['noise_on'] = noise_on_flags[call_count]
-                call_count += 1
-
-            return dump
-
-        return read
-
-    # ----- Repeating-cycle mode -----
-    # Continuous pipeline with a repeating [cal + obs] cycle per cell.
-    # No pipeline flush between cells; priming happens only once at
-    # session start.  cycle_len == dumps_per_cell guarantees every cell
-    # gets the correct cal/obs ratio regardless of phase drift from
-    # discarded transition dumps.
-    if obs_dumps_per_lo is not None:
-        cycle = _build_cell_schedule(lo_list, cal_dumps_per_lo, obs_dumps_per_lo)
-        cycle_len = len(cycle)
-
-        def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
-            nonlocal call_count, submit_count
-
-            pos = submit_count % cycle_len
-            lo, is_cal = cycle[pos]
-            _set_noise(is_cal)
-
-            dump = pipeline.next_dump(lo)
-            noise_on_flags.append(is_cal)
-            submit_count += 1
-
-            if dump is None:
-                # First call -- pipeline priming (happens once per session)
-                pos2 = submit_count % cycle_len
-                lo2, is_cal2 = cycle[pos2]
-                _set_noise(is_cal2)
-                dump = pipeline.next_dump(lo2)
-                noise_on_flags.append(is_cal2)
-                submit_count += 1
 
             if dump is not None:
                 dump['noise_on'] = noise_on_flags[call_count]

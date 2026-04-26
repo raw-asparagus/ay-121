@@ -398,22 +398,14 @@ def main():
           f'{OBS_DUMPS_PER_LO * N_LOS} obs = {DUMPS_PER_CELL} dumps')
     print(f'  Track interval: {REPOINT_INTERVAL_SEC} s')
 
-    # Try even phase first; if complete, fall through to odd phase.
-    phase = 'even'
-    all_cells = build_galplane_grid(phase=phase)
-    print(f'\n  Total grid cells ({phase}): {len(all_cells)}')
-
-    cells = filter_cells_by_az_side(all_cells)
-    cells = filter_cells_by_existing_data(cells)
-
-    if not cells:
-        phase = 'odd'
-        print(f'\n  Even grid complete -- switching to odd phase')
-        all_cells = build_galplane_grid(phase=phase)
-        print(f'\n  Total grid cells ({phase}): {len(all_cells)}')
-
-        cells = filter_cells_by_az_side(all_cells)
-        cells = filter_cells_by_existing_data(cells)
+    # Build even grid first, then append odd grid.
+    cells = []
+    for phase in ('even', 'odd'):
+        all_phase = build_galplane_grid(phase=phase)
+        print(f'\n  Total grid cells ({phase}): {len(all_phase)}')
+        phase_cells = filter_cells_by_az_side(all_phase)
+        phase_cells = filter_cells_by_existing_data(phase_cells)
+        cells.extend(phase_cells)
 
     if not cells:
         print('  No remaining cells. Exiting.')

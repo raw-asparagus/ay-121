@@ -5,10 +5,12 @@ Galactic plane survey with per-pointing noise-diode calibration and
 interleaved frequency switching.  Uses the StreamingCapture framework
 for continuous three-thread operation (pointing, reading, writing).
 
-Grid: two-phase brick-pattern tessellation.
+Grid: two-phase brick-pattern tessellation, column-major scan order.
       Even phase: b=[-4, -2, 0, +2, +4], l centered at 120.
       Odd phase:  b=[-3, -1, +1, +3], l offset by half a physical step.
       Longitude: Delta_l = 2/cos(b) exactly, expanded outward from center.
+      Scan order: columns of constant l, ascending from L_MIN to L_MAX,
+      zig-zagging in b within each column.
       Even grid runs first; odd grid starts when even is complete.
 
 Per pointing the LO sequence is (ABBA interleaved):
@@ -109,7 +111,11 @@ def _build_l_row(b_deg, l_center=L_CENTER):
 
 
 def build_galplane_grid(phase='even'):
-    """Build non-integer tessellation for galactic plane, boustrophedon order.
+    """Build column-major grid: sweep constant-l columns from L_MIN to L_MAX.
+
+    For each approximate longitude, sweeps through all b values at that
+    longitude.  Adjacent columns alternate b direction (zig-zag).
+    Columns are ordered by increasing l, starting from L_MIN.
 
     Parameters
     ----------
@@ -118,33 +124,51 @@ def build_galplane_grid(phase='even'):
         'odd'  -- b = [-3, -1, 1, 3], l offset by half a physical step
                   from L_CENTER (brick-pattern interleave).
 
-    Returns list of (row_idx, col_idx, l, b) tuples.
+    Returns list of (col_idx, row_idx, l, b) tuples.
     """
-    cells = []
+    import math
+
     if phase == 'even':
         b_vals = list(range(B_MIN, B_MAX + 1, B_STEP))
     else:
         b_vals = list(range(B_MIN + 1, B_MAX, B_STEP))
 
-    for row_idx, b in enumerate(b_vals):
+    # Build all cells per b row
+    all_cells = []
+    for b in b_vals:
         if phase == 'odd':
-            import math
             half_step = PHYSICAL_SPACING_DEG / (2 * math.cos(math.radians(b)))
             l_center = L_CENTER + half_step
         else:
             l_center = L_CENTER
 
         l_vals = _build_l_row(b, l_center=l_center)
-
-        row = [(row_idx, j, l_vals[j], b) for j in range(len(l_vals))]
-        if row_idx % 2 == 0:
-            row = list(reversed(row))
-        cells.extend(row)
-
         dl = PHYSICAL_SPACING_DEG / np.cos(np.radians(b))
         print(f'  b={b:+3d}: Delta_l={dl:.2f} deg, {len(l_vals)} cells, '
               f'l=[{l_vals[0]:.1f}, {l_vals[-1]:.1f}]')
+        for l in l_vals:
+            all_cells.append((l, b))
 
+    # Group cells into columns: sort by l, bin within half-spacing tolerance
+    all_cells.sort(key=lambda c: c[0])
+    col_tol = PHYSICAL_SPACING_DEG / 2
+    columns = [[all_cells[0]]]
+    for cell in all_cells[1:]:
+        if cell[0] - columns[-1][0][0] <= col_tol:
+            columns[-1].append(cell)
+        else:
+            columns.append([cell])
+
+    # Build output: columns in ascending l, zig-zag b within each column
+    cells = []
+    for col_idx, col in enumerate(columns):
+        col_sorted = sorted(col, key=lambda c: c[1])
+        if col_idx % 2 == 1:
+            col_sorted = list(reversed(col_sorted))
+        for row_idx, (l, b) in enumerate(col_sorted):
+            cells.append((col_idx, row_idx, l, b))
+
+    print(f'  Column-major: {len(columns)} columns, {len(cells)} cells total')
     return cells
 
 

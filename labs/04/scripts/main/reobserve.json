@@ -1,15 +1,5 @@
 [
   {
-    "l": 139.03,
-    "b": -3,
-    "reason": "insufficient_pairs(n=1)"
-  },
-  {
-    "l": 139.0,
-    "b": -1,
-    "reason": "insufficient_pairs(n=2)"
-  },
-  {
     "l": 151.0,
     "b": -1,
     "reason": "insufficient_pairs(n=0)"

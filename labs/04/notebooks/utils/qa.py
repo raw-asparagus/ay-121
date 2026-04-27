@@ -72,7 +72,7 @@ def weighted_mad(
 
 # ── Beam geometry ────────────────────────────────────────────────────────
 
-def beam_overlap_weight(sep_deg: float, hpbw_deg: float = 3.4) -> float:
+def beam_overlap_weight(sep_deg: float, hpbw_deg: float) -> float:
     """Normalized overlap of two identical Gaussian beams."""
     return float(np.exp(-2.0 * np.log(2.0) * (sep_deg / hpbw_deg) ** 2))
 
@@ -96,7 +96,9 @@ def fit_weighted_local_plane(
     target_gb: float,
     neighbors: list[dict],
     value_key: str,
-    sigma_floor: float = 0.0,
+    *,
+    sigma_floor: float,
+    hpbw_deg: float,
 ) -> tuple:
     """Fit a weighted linear plane to neighbor values.
 
@@ -114,7 +116,7 @@ def fit_weighted_local_plane(
         if not np.isfinite(value):
             continue
         x, y, sep = local_tangent_offsets(target_gl, target_gb, n['gl'], n['gb'])
-        weight = beam_overlap_weight(sep)
+        weight = beam_overlap_weight(sep, hpbw_deg)
         if not np.isfinite(weight) or weight <= 0:
             continue
         rows.append([1.0, x, y])
@@ -148,6 +150,15 @@ def compute_cell_metrics(
     cell_results_combined: dict,
     v_lsr_overlap: np.ndarray,
     dv_kms: float,
+    *,
+    min_valid_ch: int,
+    noise_v_max_kms: float,
+    signal_v_lo_kms: float,
+    signal_v_hi_kms: float,
+    smooth_kernel: int,
+    peak_min_sep_kms: float,
+    peak_prom_nsigma: float,
+    min_noise_ch: int,
 ) -> dict:
     """Compute W, peak_v, SNR, and noise for each cell.
 
@@ -174,7 +185,7 @@ def compute_cell_metrics(
 
         finite = np.isfinite(R)
         n_valid_ch = int(np.count_nonzero(finite))
-        if n_valid_ch < 8:
+        if n_valid_ch < min_valid_ch:
             continue
 
         # Integrated intensity W
@@ -191,13 +202,15 @@ def compute_cell_metrics(
             W = np.nan
 
         # Noise RMS from off-signal channels
-        noise_mask = v_lsr_overlap < -100.0
+        noise_mask = v_lsr_overlap < noise_v_max_kms
         noise_vals = R[noise_mask]
         noise_vals = noise_vals[np.isfinite(noise_vals)]
-        noise_rms = float(np.std(noise_vals)) if noise_vals.size > 5 else np.nan
+        noise_rms = (
+            float(np.std(noise_vals)) if noise_vals.size > min_noise_ch else np.nan
+        )
 
         # Peak detection in signal window
-        signal_mask = (v_lsr_overlap >= -80.0) & (v_lsr_overlap <= 60.0)
+        signal_mask = (v_lsr_overlap >= signal_v_lo_kms) & (v_lsr_overlap <= signal_v_hi_kms)
         v_sig = v_lsr_overlap[signal_mask]
         R_sig = R[signal_mask]
         sig_valid = np.isfinite(R_sig)
@@ -217,12 +230,12 @@ def compute_cell_metrics(
                 sig_idx[~sig_valid], sig_idx[sig_valid], R_sig[sig_valid],
             )
 
-            kernel = np.ones(5) / 5.0
+            kernel = np.ones(smooth_kernel) / float(smooth_kernel)
             R_smooth = np.convolve(R_fill, kernel, mode='same')
 
-            distance = max(1, int(round(4.0 / dv_kms)))
+            distance = max(1, int(round(peak_min_sep_kms / dv_kms)))
             prominence = (
-                2.5 * noise_rms
+                peak_prom_nsigma * noise_rms
                 if np.isfinite(noise_rms) and noise_rms > 0
                 else 0.0
             )
@@ -270,35 +283,22 @@ def compute_cell_metrics(
 
 # ── Neighbor QA ──────────────────────────────────────────────────────────
 
-# Default thresholds
-HPBW_DEG = 3.4
-NEIGHBOR_MAX_SEP_DEG = 4.5
-MIN_NEIGHBORS = 5
-W_Z_THRESH = 3.5
-W_FRAC_THRESH = 0.30
-W_SCALE_FLOOR = 5.0
-PEAK_V_Z_THRESH = 4.0
-PEAK_V_ABS_THRESH = 15.0
-PEAK_V_MIN_SIGMA = 3.0
-PEAK_V_SCALE_FLOOR = 20.0
-BIMODAL_MIN_RATIO = 0.68  # secondary/primary amplitude floor (1-sigma)
-
 
 def neighbor_qa(
     cell_metrics: dict,
     *,
     dv_kms: float,
-    hpbw_deg: float = HPBW_DEG,
-    neighbor_max_sep_deg: float = NEIGHBOR_MAX_SEP_DEG,
-    min_neighbors: int = MIN_NEIGHBORS,
-    w_z_thresh: float = W_Z_THRESH,
-    w_frac_thresh: float = W_FRAC_THRESH,
-    w_scale_floor: float = W_SCALE_FLOOR,
-    peak_v_z_thresh: float = PEAK_V_Z_THRESH,
-    peak_v_abs_thresh: float = PEAK_V_ABS_THRESH,
-    peak_v_min_sigma: float = PEAK_V_MIN_SIGMA,
-    peak_v_scale_floor: float = PEAK_V_SCALE_FLOOR,
-    bimodal_min_ratio: float = BIMODAL_MIN_RATIO,
+    hpbw_deg: float,
+    neighbor_max_sep_deg: float,
+    min_neighbors: int,
+    w_z_thresh: float,
+    w_frac_thresh: float,
+    w_scale_floor: float,
+    peak_v_z_thresh: float,
+    peak_v_abs_thresh: float,
+    peak_v_min_sigma: float,
+    peak_v_scale_floor: float,
+    bimodal_min_ratio: float,
 ) -> list[dict]:
     """Run neighbor-based QA on cell metrics.
 
@@ -368,10 +368,12 @@ def neighbor_qa(
             else 1e-6
         )
         W_pred, W_coeffs, W_sigma, *_ = fit_weighted_local_plane(
-            gl, gb, neighbors, 'W', sigma_floor=W_sigma_floor,
+            gl, gb, neighbors, 'W',
+            sigma_floor=W_sigma_floor, hpbw_deg=hpbw_deg,
         )
         pv_pred, pv_coeffs, pv_sigma, *_ = fit_weighted_local_plane(
-            gl, gb, neighbors, 'peak_v', sigma_floor=peak_v_min_sigma,
+            gl, gb, neighbors, 'peak_v',
+            sigma_floor=peak_v_min_sigma, hpbw_deg=hpbw_deg,
         )
 
         # W residuals
@@ -495,10 +497,10 @@ def neighbor_qa(
 def flag_outlier_pairs(
     cell_pairs: dict,
     *,
-    n_sigma: float = 5.0,
-    frac_thresh: float = 0.20,
-    min_pairs: int = 3,
-    spectrum_key: str = 'R_lsr',
+    n_sigma: float,
+    frac_thresh: float,
+    min_pairs: int,
+    spectrum_key: str,
 ) -> tuple[dict, list[dict]]:
     """Cross-session per-pair outlier filter using population MAD.
 

@@ -86,10 +86,10 @@ def _cheb_pseudocontinuum(spectrum: np.ndarray, window: int = 15,
     return continuum
 
 
-def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
-                      sigma_thresh: float = 10.0, degree: int = 3,
-                      sample_frac: float = 0.7,
-                      extrema_order: int = 2) -> int:
+def flag_rfi_channels(spectrum: np.ndarray, *, window: int,
+                      sigma_thresh: float, degree: int,
+                      sample_frac: float,
+                      extrema_order: int) -> int:
     """Flag RFI channels using a Chebyshev pseudo-continuum + MAD clip.
 
     A sliding-window Chebyshev polynomial is fit to the spectrum after
@@ -131,8 +131,10 @@ def flag_rfi_channels(spectrum: np.ndarray, window: int = 15,
 
 
 def flag_outlier_dumps(records: list[dict],
-                       dev_thresh: float = 0.10,
-                       frac_thresh: float = 0.20) -> list[dict]:
+                       *,
+                       dev_thresh: float,
+                       frac_thresh: float,
+                       min_group_size: int) -> list[dict]:
     """Flag and remove dumps whose spectral shape deviates from group median.
 
     Groups dumps by (session, galactic coordinate, LO) and compares each
@@ -167,7 +169,7 @@ def flag_outlier_dumps(records: list[dict],
 
     outlier_records: list[dict] = []
     for group in cell_groups.values():
-        if len(group) < 3:
+        if len(group) < min_group_size:
             continue
 
         spectra = np.array([r['stokes_I'] for r in group])

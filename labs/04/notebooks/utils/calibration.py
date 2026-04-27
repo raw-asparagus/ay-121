@@ -31,8 +31,8 @@ def compute_cell_gains(
     dc_mask: np.ndarray,
     t_cal: float,
     *,
-    spectrum_key: str = 'corr11',
-    gain_key: str = 'gain_11',
+    spectrum_key: str,
+    gain_key: str,
 ) -> dict:
     """Per-(session, cell) gain from the noise-diode pair.
 
@@ -61,8 +61,8 @@ def apply_tsys_calibration(
     obs_dumps_by_cell: dict,
     dc_mask: np.ndarray,
     *,
-    spectrum_key: str = 'corr11',
-    gain_key: str = 'gain_11',
+    spectrum_key: str,
+    gain_key: str,
 ) -> dict:
     """Convert per-(session, cell) R spectra to T_B using each cell's T_sys.
 

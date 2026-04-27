@@ -1,15 +1,5 @@
 [
   {
-    "l": 144.06,
-    "b": -4,
-    "reason": "insufficient_pairs(n=2)"
-  },
-  {
-    "l": 158.09,
-    "b": -4,
-    "reason": "insufficient_pairs(n=2)"
-  },
-  {
     "l": 186.16,
     "b": -4,
     "reason": "W"
@@ -45,21 +35,6 @@
     "reason": "insufficient_pairs(n=0)"
   },
   {
-    "l": 18.0,
-    "b": 0,
-    "reason": "insufficient_pairs(n=2)"
-  },
-  {
-    "l": 40.0,
-    "b": 0,
-    "reason": "insufficient_pairs(n=2)"
-  },
-  {
-    "l": 170.0,
-    "b": 0,
-    "reason": "W+insufficient_pairs(n=2)"
-  },
-  {
     "l": 111.0,
     "b": 1,
     "reason": "insufficient_pairs(n=1)"
@@ -85,8 +60,13 @@
     "reason": "insufficient_pairs(n=0)"
   },
   {
-    "l": 128.0,
-    "b": 2,
+    "l": 143.03,
+    "b": 3,
+    "reason": "insufficient_pairs(n=2)"
+  },
+  {
+    "l": 147.04,
+    "b": 3,
     "reason": "insufficient_pairs(n=2)"
   },
   {

@@ -1,10 +1,5 @@
 [
   {
-    "l": 42.99,
-    "b": -1,
-    "reason": "peak_v"
-  },
-  {
     "l": 137.0,
     "b": -1,
     "reason": "insufficient_pairs(n=1)"
@@ -28,21 +23,6 @@
     "l": 165.01,
     "b": -1,
     "reason": "insufficient_pairs(n=0)"
-  },
-  {
-    "l": 118.0,
-    "b": 0,
-    "reason": "peak_v"
-  },
-  {
-    "l": 120.0,
-    "b": 0,
-    "reason": "peak_v"
-  },
-  {
-    "l": 234.0,
-    "b": 0,
-    "reason": "peak_v"
   },
   {
     "l": 111.0,
@@ -73,10 +53,5 @@
     "l": 79.9,
     "b": 4,
     "reason": "W"
-  },
-  {
-    "l": 234.28,
-    "b": 4,
-    "reason": "peak_v"
   }
 ]

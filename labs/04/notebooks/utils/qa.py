@@ -2,6 +2,29 @@
 
 Computes per-cell metrics (W, peak_v, SNR, noise) and flags outliers
 using beam-weighted local plane fits against neighboring cells.
+
+## peak_v false positives on bimodal spectra
+
+Argmax-style peak velocities are unstable on cells whose spectra contain
+two near-equal peaks (e.g. local arm + Perseus arm toward the outer
+Galaxy, or local + tangent-velocity components in the inner Galaxy).
+Tiny noise fluctuations decide which peak wins the global argmax, so the
+reported peak_v can flip by tens of km/s between sessions even though
+the underlying spectra agree. Concrete false positives observed in
+`02_scan_load.ipynb`:
+
+| Cell        | Primary peak     | Secondary peak    | Note                              |
+|-------------|------------------|-------------------|-----------------------------------|
+| (118, 0)    | -50 km/s, R=0.40 | 0   km/s, R=0.36  | Perseus + local, ratio ~0.95      |
+| (120, 0)    | -52 km/s, R=0.40 | 0   km/s, R=0.37  | Perseus + local, ratio ~0.95      |
+| (43,  -1)   | +58 km/s, R=0.46 | +35 km/s, R=0.43  | Inner-galaxy multi-component      |
+| (234, 0)    | +45 km/s, R=0.58 | +22 km/s, R=0.38  | Outer arm + local, both sessions  |
+
+In every case the primary peak fails the neighbor plane fit but the
+secondary peak is consistent with neighbors. To absorb this, when a
+cell's primary `peak_v` fails the neighbor test, the QA also checks the
+second-most-prominent peak; if that peak is consistent with neighbors,
+the flag is cleared and the cell is marked `bimodal=True`.
 """
 
 from __future__ import annotations
@@ -183,6 +206,9 @@ def compute_cell_metrics(
         peak_v = np.nan
         peak_prom = np.nan
         peak_count = 0
+        peak_v_2nd = np.nan
+        peak_R_2nd = np.nan
+        peak_prom_2nd = np.nan
 
         if sig_valid.sum() >= 3:
             sig_idx = np.arange(R_sig.size)
@@ -206,11 +232,18 @@ def compute_cell_metrics(
             peak_count = len(peaks)
 
             if peak_count > 0:
-                best = int(np.argmax(props['prominences']))
+                order = np.argsort(props['prominences'])[::-1]
+                best = int(order[0])
                 peak_idx = int(peaks[best])
                 peak_R = float(R_fill[peak_idx])
                 peak_v = float(v_sig[peak_idx])
                 peak_prom = float(props['prominences'][best])
+                if peak_count > 1:
+                    second = int(order[1])
+                    peak_idx_2 = int(peaks[second])
+                    peak_R_2nd = float(R_fill[peak_idx_2])
+                    peak_v_2nd = float(v_sig[peak_idx_2])
+                    peak_prom_2nd = float(props['prominences'][second])
             else:
                 peak_idx = int(np.nanargmax(R_fill))
                 peak_R = float(R_fill[peak_idx])
@@ -226,6 +259,8 @@ def compute_cell_metrics(
             'gl': gl, 'gb': gb,
             'W': W, 'peak_R': peak_R, 'peak_v': peak_v,
             'peak_prom': peak_prom, 'peak_count': peak_count,
+            'peak_v_2nd': peak_v_2nd, 'peak_R_2nd': peak_R_2nd,
+            'peak_prom_2nd': peak_prom_2nd,
             'snr': snr, 'noise_rms': noise_rms,
             'n_pairs': cr['n_pairs'], 'n_valid_ch': n_valid_ch,
         }
@@ -406,12 +441,35 @@ def neighbor_qa(
             and np.isfinite(cell['W_z'])
             and abs(cell['W_z']) > w_z_thresh
         )
-        cell['peak_v_flag'] = bool(
+        primary_fails = bool(
             np.isfinite(cell['peak_v_abs_resid'])
             and cell['peak_v_abs_resid'] > peak_v_abs_thresh
             and np.isfinite(cell['peak_v_z'])
             and abs(cell['peak_v_z']) > peak_v_z_thresh
         )
+
+        # Bimodal fallback: if the primary peak fails the neighbor plane
+        # test but the second-most-prominent peak passes, the cell is
+        # bimodal and the argmax simply flipped to the wrong lobe.
+        cell['bimodal'] = False
+        cell['peak_v_2nd_resid'] = np.nan
+        cell['peak_v_2nd_z'] = np.nan
+        if primary_fails and np.isfinite(cell.get('peak_v_2nd', np.nan)) \
+                and np.isfinite(pv_pred):
+            resid_2 = cell['peak_v_2nd'] - pv_pred
+            z_2 = (resid_2 / pv_sigma
+                   if np.isfinite(pv_sigma) and pv_sigma > 0 else np.nan)
+            cell['peak_v_2nd_resid'] = resid_2
+            cell['peak_v_2nd_z'] = z_2
+            secondary_passes = (
+                abs(resid_2) <= peak_v_abs_thresh
+                or (np.isfinite(z_2) and abs(z_2) <= peak_v_z_thresh)
+            )
+            if secondary_passes:
+                cell['bimodal'] = True
+                primary_fails = False
+
+        cell['peak_v_flag'] = primary_fails
 
         neighbor_cells.append(cell)
 

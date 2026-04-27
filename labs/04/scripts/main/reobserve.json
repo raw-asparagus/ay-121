@@ -1,13 +1,38 @@
 [
   {
-    "l": 44.99,
+    "l": 182.15,
+    "b": -4,
+    "reason": "insufficient_pairs(n=2)"
+  },
+  {
+    "l": 42.99,
     "b": -1,
     "reason": "peak_v"
   },
   {
-    "l": 48.99,
+    "l": 137.0,
     "b": -1,
-    "reason": "peak_v"
+    "reason": "insufficient_pairs(n=1)"
+  },
+  {
+    "l": 151.0,
+    "b": -1,
+    "reason": "insufficient_pairs(n=0)"
+  },
+  {
+    "l": 159.01,
+    "b": -1,
+    "reason": "insufficient_pairs(n=1)"
+  },
+  {
+    "l": 161.01,
+    "b": -1,
+    "reason": "insufficient_pairs(n=0)"
+  },
+  {
+    "l": 165.01,
+    "b": -1,
+    "reason": "insufficient_pairs(n=0)"
   },
   {
     "l": 118.0,
@@ -15,8 +40,43 @@
     "reason": "peak_v"
   },
   {
-    "l": 194.18,
-    "b": -4,
+    "l": 120.0,
+    "b": 0,
+    "reason": "peak_v"
+  },
+  {
+    "l": 234.0,
+    "b": 0,
+    "reason": "peak_v"
+  },
+  {
+    "l": 179.01,
+    "b": 1,
+    "reason": "insufficient_pairs(n=1)"
+  },
+  {
+    "l": 183.01,
+    "b": 1,
+    "reason": "insufficient_pairs(n=0)"
+  },
+  {
+    "l": 191.01,
+    "b": 1,
+    "reason": "insufficient_pairs(n=2)"
+  },
+  {
+    "l": 193.01,
+    "b": 1,
+    "reason": "insufficient_pairs(n=0)"
+  },
+  {
+    "l": 79.9,
+    "b": 4,
     "reason": "W"
+  },
+  {
+    "l": 234.28,
+    "b": 4,
+    "reason": "peak_v"
   }
 ]

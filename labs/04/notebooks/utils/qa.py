@@ -416,3 +416,76 @@ def neighbor_qa(
         neighbor_cells.append(cell)
 
     return neighbor_cells
+
+
+def flag_outlier_pairs(
+    cell_pairs: dict,
+    *,
+    n_sigma: float = 5.0,
+    frac_thresh: float = 0.20,
+    min_pairs: int = 3,
+    spectrum_key: str = 'R_lsr',
+) -> tuple[dict, list[dict]]:
+    """Cross-session per-pair outlier filter using population MAD.
+
+    For each cell, compute a robust population reference (median + MAD)
+    over all per-pair spectra from all sessions, then flag any pair whose
+    channels deviate from the reference too often.  Catches bad sessions
+    that the within-session dump filter missed (drifting bandpass,
+    transient line-region RFI, bad calibration).
+
+    Parameters
+    ----------
+    cell_pairs : dict
+        ``{(gl, gb): [{'session', 'pair_idx', spectrum_key: 1-D array}, ...]}``.
+        Each pair's spectrum must be on a common (e.g. LSR) velocity grid so
+        cross-session comparison is meaningful.
+    n_sigma : float
+        Per-channel MAD threshold; channels with ``|z| > n_sigma`` are
+        counted as deviant.
+    frac_thresh : float
+        A pair is flagged if its deviant-channel fraction exceeds this.
+    min_pairs : int
+        Cells with fewer than this many pairs skip filtering and pass
+        through (population statistics are not robust below the threshold).
+    spectrum_key : str
+        Key under which each pair stores its spectrum.
+
+    Returns
+    -------
+    viable_pairs_per_cell : dict
+        ``{(gl, gb): [pair_dicts]}`` after rejection.
+    flagged : list of dict
+        Records ``{'gl', 'gb', 'session', 'pair_idx', 'deviant_frac'}``
+        for each rejected pair.
+    """
+    viable_pairs_per_cell: dict[tuple, list[dict]] = {}
+    flagged: list[dict] = []
+
+    for (gl, gb), pairs in cell_pairs.items():
+        if len(pairs) < min_pairs:
+            viable_pairs_per_cell[(gl, gb)] = list(pairs)
+            continue
+
+        R_stack = np.array([p[spectrum_key] for p in pairs])
+        median = np.nanmedian(R_stack, axis=0)
+        mad = np.nanmedian(np.abs(R_stack - median), axis=0) * 1.4826
+        mad_safe = np.where(mad > 0, mad, np.nan)
+        z = (R_stack - median) / mad_safe
+        deviant_frac = np.nanmean(np.abs(z) > n_sigma, axis=1)
+
+        viable: list[dict] = []
+        for p, frac in zip(pairs, deviant_frac):
+            if frac > frac_thresh:
+                flagged.append({
+                    'gl': gl,
+                    'gb': gb,
+                    'session': p['session'],
+                    'pair_idx': p['pair_idx'],
+                    'deviant_frac': float(frac),
+                })
+            else:
+                viable.append(p)
+        viable_pairs_per_cell[(gl, gb)] = viable
+
+    return viable_pairs_per_cell, flagged

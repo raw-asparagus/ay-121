@@ -281,6 +281,7 @@ PEAK_V_Z_THRESH = 4.0
 PEAK_V_ABS_THRESH = 15.0
 PEAK_V_MIN_SIGMA = 3.0
 PEAK_V_SCALE_FLOOR = 20.0
+BIMODAL_MIN_RATIO = 0.68  # secondary/primary amplitude floor (1-sigma)
 
 
 def neighbor_qa(
@@ -297,6 +298,7 @@ def neighbor_qa(
     peak_v_abs_thresh: float = PEAK_V_ABS_THRESH,
     peak_v_min_sigma: float = PEAK_V_MIN_SIGMA,
     peak_v_scale_floor: float = PEAK_V_SCALE_FLOOR,
+    bimodal_min_ratio: float = BIMODAL_MIN_RATIO,
 ) -> list[dict]:
     """Run neighbor-based QA on cell metrics.
 
@@ -449,23 +451,37 @@ def neighbor_qa(
         )
 
         # Bimodal fallback: if the primary peak fails the neighbor plane
-        # test but the second-most-prominent peak passes, the cell is
-        # bimodal and the argmax simply flipped to the wrong lobe.
+        # test but the second-most-prominent peak (1) is comparable in
+        # amplitude to the primary and (2) is consistent with neighbors,
+        # the cell is bimodal and the argmax simply flipped to the wrong
+        # lobe. The amplitude floor (`bimodal_min_ratio`, default 0.68)
+        # rejects cases where a weak secondary happens to align with
+        # neighbors -- those are genuine outliers, not bimodal spectra.
         cell['bimodal'] = False
         cell['peak_v_2nd_resid'] = np.nan
         cell['peak_v_2nd_z'] = np.nan
+        cell['peak_R_ratio'] = np.nan
         if primary_fails and np.isfinite(cell.get('peak_v_2nd', np.nan)) \
                 and np.isfinite(pv_pred):
+            R_primary = cell.get('peak_R', np.nan)
+            R_secondary = cell.get('peak_R_2nd', np.nan)
+            if np.isfinite(R_primary) and R_primary > 0 \
+                    and np.isfinite(R_secondary):
+                cell['peak_R_ratio'] = R_secondary / R_primary
             resid_2 = cell['peak_v_2nd'] - pv_pred
             z_2 = (resid_2 / pv_sigma
                    if np.isfinite(pv_sigma) and pv_sigma > 0 else np.nan)
             cell['peak_v_2nd_resid'] = resid_2
             cell['peak_v_2nd_z'] = z_2
+            ratio_ok = (
+                np.isfinite(cell['peak_R_ratio'])
+                and cell['peak_R_ratio'] >= bimodal_min_ratio
+            )
             secondary_passes = (
                 abs(resid_2) <= peak_v_abs_thresh
                 or (np.isfinite(z_2) and abs(z_2) <= peak_v_z_thresh)
             )
-            if secondary_passes:
+            if ratio_ok and secondary_passes:
                 cell['bimodal'] = True
                 primary_fails = False
 

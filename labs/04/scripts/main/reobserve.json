@@ -1,10 +1,5 @@
 [
   {
-    "l": 182.15,
-    "b": -4,
-    "reason": "insufficient_pairs(n=2)"
-  },
-  {
     "l": 42.99,
     "b": -1,
     "reason": "peak_v"
@@ -48,6 +43,11 @@
     "l": 234.0,
     "b": 0,
     "reason": "peak_v"
+  },
+  {
+    "l": 111.0,
+    "b": 1,
+    "reason": "insufficient_pairs(n=1)"
   },
   {
     "l": 179.01,

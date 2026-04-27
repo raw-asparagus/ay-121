@@ -70,7 +70,19 @@ OBS_DUMPS_PER_LO = 3    # 3 obs dumps per LO = 6 obs total
 N_LOS = 2
 DUMPS_PER_CELL = (CAL_DUMPS_PER_LO + OBS_DUMPS_PER_LO) * N_LOS
 
-NEXT_SESSION = 18
+def _detect_next_session() -> int:
+    """Return one greater than the highest existing session_NNN dir, or 1."""
+    import glob
+    import re
+    highest = 0
+    for d in glob.glob(f'{OUTPUT_DIR}/session_*'):
+        m = re.search(r'session_(\d+)$', d)
+        if m:
+            highest = max(highest, int(m.group(1)))
+    return highest + 1 if highest else 1
+
+
+NEXT_SESSION = _detect_next_session()
 
 
 def _next_session_dir() -> str:

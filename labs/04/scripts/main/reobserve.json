@@ -1,43 +1,13 @@
 [
   {
-    "l": 151.0,
-    "b": -1,
-    "reason": "insufficient_pairs(n=0)"
-  },
-  {
-    "l": 159.01,
-    "b": -1,
-    "reason": "insufficient_pairs(n=1)"
-  },
-  {
-    "l": 161.01,
-    "b": -1,
-    "reason": "insufficient_pairs(n=0)"
-  },
-  {
-    "l": 165.01,
-    "b": -1,
-    "reason": "insufficient_pairs(n=0)"
+    "l": 170.0,
+    "b": 0,
+    "reason": "W"
   },
   {
     "l": 111.0,
     "b": 1,
     "reason": "insufficient_pairs(n=1)"
-  },
-  {
-    "l": 179.01,
-    "b": 1,
-    "reason": "insufficient_pairs(n=1)"
-  },
-  {
-    "l": 183.01,
-    "b": 1,
-    "reason": "insufficient_pairs(n=0)"
-  },
-  {
-    "l": 191.01,
-    "b": 1,
-    "reason": "insufficient_pairs(n=2)"
   },
   {
     "l": 193.01,

@@ -166,7 +166,7 @@ Edit `labs/04/scripts/observe_otf.py`:
 - FFT: NFFT=1024, NBLOCKS=1025 (block 0 discarded), NSAMPLES=32768
 - Alt limits: 17 - 83 deg
 - Az limits: 7 - 348 deg (exclusion near north)
-- Noise diode: T_cal = 79 K (pol 0), 58 K (pol 1), average 68.5 K
+- Noise diode: T_cal = 58 K (pol 0), 79 K (pol 1), average 68.5 K
 - Dump cadence: ~17 s (pipelined reader)
 - Integration per dump: 13.1 s (1025 * 32768 / 2.56e6)
 - Duty cycle: ~77% (pipelined), ~44% (sequential)

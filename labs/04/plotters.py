@@ -443,6 +443,90 @@ def plot_survey_mollweide(
     return fig, ax
 
 
+def plot_survey_mollweide_gridded(
+    gl: np.ndarray,
+    gb: np.ndarray,
+    vals: np.ndarray,
+    *,
+    center_l: float,
+    title: str,
+    cbar_label: str,
+    cmap: str,
+    hpbw_deg: float = 3.4,
+    pixel_deg: float = 0.5,
+    cutoff_hpbw: float = 2.0,
+    min_weight: float = 0.1,
+) -> tuple[plt.Figure, plt.Axes]:
+    """Beam-weighted Mollweide map of survey values.
+
+    Each pixel is a Gaussian-beam-weighted average of pointings within
+    ``cutoff_hpbw * hpbw_deg`` of its center. Pixels with total weight below
+    ``min_weight`` are masked. Produces a pcolormesh fill instead of a scatter.
+    """
+    sigma_rad = np.deg2rad(hpbw_deg / (2.0 * np.sqrt(2.0 * np.log(2.0))))
+    cutoff_rad = np.deg2rad(cutoff_hpbw * hpbw_deg)
+
+    gl_shifted = gl - center_l
+    gl_shifted = np.where(gl_shifted > 180, gl_shifted - 360, gl_shifted)
+    gl_shifted = np.where(gl_shifted < -180, gl_shifted + 360, gl_shifted)
+
+    half = pixel_deg / 2.0
+    l_centers = np.deg2rad(np.arange(-180.0 + half, 180.0, pixel_deg))
+    b_centers = np.deg2rad(np.arange(-90.0 + half, 90.0, pixel_deg))
+    l_edges = np.deg2rad(np.arange(-180.0, 180.0 + pixel_deg, pixel_deg))
+    b_edges = np.deg2rad(np.arange(-90.0, 90.0 + pixel_deg, pixel_deg))
+    LL, BB = np.meshgrid(l_centers, b_centers)
+
+    def _uv(l, b):
+        return np.stack([np.cos(b) * np.cos(l),
+                         np.cos(b) * np.sin(l),
+                         np.sin(b)], axis=-1)
+
+    P = _uv(np.deg2rad(gl_shifted), np.deg2rad(gb))         # (N, 3)
+    G = _uv(LL, BB).reshape(-1, 3)                          # (M, 3)
+    cosang = np.clip(G @ P.T, -1.0, 1.0)                    # (M, N)
+    theta = np.arccos(cosang)
+    w = np.exp(-0.5 * (theta / sigma_rad) ** 2)
+    w = np.where(theta > cutoff_rad, 0.0, w)
+
+    vals = np.asarray(vals, dtype=float)
+    finite = np.isfinite(vals)
+    w = w * finite[None, :]
+    vals_safe = np.where(finite, vals, 0.0)
+
+    num = w @ vals_safe
+    den = w.sum(axis=1)
+    img = np.where(den > min_weight, num / den, np.nan).reshape(LL.shape)
+
+    fig, _ax = landscapewidth_figure(5)
+    _ax.remove()
+    ax = fig.add_subplot(111, projection="mollweide")
+    ax.grid(True, **{k: v for k, v in GRID_STYLE.items() if k != "color"},
+            color=NEUTRAL_COLOR)
+
+    LE, BE = np.meshgrid(l_edges, b_edges)
+    pcm = ax.pcolormesh(LE, BE, img, cmap=cmap, shading="flat", zorder=2)
+
+    l_line = np.linspace(-np.pi, np.pi, 500)
+    ax.plot(l_line, np.zeros_like(l_line), lw=LW_FINE,
+            color="k", alpha=ALPHA_FAINT, zorder=3)
+
+    add_never_observable_overlay(ax, center_l=center_l, latitude_deg=LEO_LAT_DEG,
+                                 min_alt_deg=MIN_ALT_DEG, max_alt_deg=MAX_ALT_DEG,
+                                 az_min_deg=AZ_MIN_DEG, az_max_deg=AZ_MAX_DEG)
+
+    plt.colorbar(pcm, ax=ax, label=cbar_label, shrink=0.6)
+
+    tick_locs = np.arange(-150, 180, 30)
+    tick_labels = [rf"{int((t + center_l) % 360)}$^\circ$" for t in tick_locs]
+    ax.set_xticks(np.deg2rad(tick_locs))
+    ax.set_xticklabels(tick_labels, fontsize=TICK_SIZE - 3)
+
+    if title:
+        ax.set_title(title, fontsize=EMPHASIS_SIZE)
+    return fig, ax
+
+
 # ---------------------------------------------------------------------------
 # Alt/Az Mollweide
 # ---------------------------------------------------------------------------

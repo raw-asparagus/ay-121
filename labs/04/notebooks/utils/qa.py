@@ -299,7 +299,6 @@ def neighbor_qa(
     peak_v_min_sigma: float,
     peak_v_scale_floor: float,
     bimodal_min_ratio: float,
-    noise_rms_ratio_thresh: float,
 ) -> list[dict]:
     """Run neighbor-based QA on cell metrics.
 
@@ -345,7 +344,6 @@ def neighbor_qa(
                 neighbors.append({
                     'gl': ngl, 'gb': ngb,
                     'W': nc['W'], 'peak_v': nc['peak_v'],
-                    'noise_rms': nc.get('noise_rms', np.nan),
                 })
 
         cell['neighbor_count'] = len(neighbors)
@@ -356,15 +354,10 @@ def neighbor_qa(
                        'peak_v_local_pred', 'peak_v_resid',
                        'peak_v_frac_resid', 'peak_v_abs_resid',
                        'peak_v_sigma', 'peak_v_z',
-                       'peak_v_grad_l', 'peak_v_grad_b',
-                       'noise_rms_local_med', 'noise_rms_ratio'):
+                       'peak_v_grad_l', 'peak_v_grad_b'):
                 cell[k] = np.nan
             cell['W_flag'] = False
             cell['peak_v_flag'] = False
-            cell['noise_rms_flag'] = False
-            cell['noise_rms_missing'] = not np.isfinite(
-                cell.get('noise_rms', np.nan)
-            )
             neighbor_cells.append(cell)
             continue
 
@@ -444,33 +437,6 @@ def neighbor_qa(
             pv_coeffs[2] if np.ndim(pv_coeffs) > 0 and len(pv_coeffs) > 2
             else np.nan
         )
-
-        # noise_rms vs. neighbour median (robust; not a plane fit, since
-        # session-coherent offsets get absorbed into a plane gradient).
-        n_noise = np.array(
-            [n['noise_rms'] for n in neighbors], dtype=float,
-        )
-        n_noise = n_noise[np.isfinite(n_noise)]
-        noise_local_med = float(np.median(n_noise)) if n_noise.size else np.nan
-        cell_noise = cell.get('noise_rms', np.nan)
-        if (
-            np.isfinite(cell_noise) and cell_noise > 0
-            and np.isfinite(noise_local_med) and noise_local_med > 0
-        ):
-            ratio = cell_noise / noise_local_med
-        else:
-            ratio = np.nan
-        cell['noise_rms_local_med'] = noise_local_med
-        cell['noise_rms_ratio'] = ratio
-        cell['noise_rms_flag'] = bool(
-            np.isfinite(ratio)
-            and (ratio > noise_rms_ratio_thresh
-                 or ratio < 1.0 / noise_rms_ratio_thresh)
-        )
-        # Cells where the off-line window was eaten (RFI / truncation):
-        # noise_rms is NaN despite enough neighbours, so SNR and W_z
-        # silently fall back to floors. Surface this separately.
-        cell['noise_rms_missing'] = not np.isfinite(cell_noise)
 
         # Flags
         cell['W_flag'] = bool(

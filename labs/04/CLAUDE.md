@@ -116,24 +116,65 @@ Edit `labs/04/scripts/observe_otf.py`:
 ### Data organization
 
 - Each observation part creates a session: `session_{NNN}/` (sequential, timestamp-ordered)
-- Within each session: `obs_{l}_{b}/obs_{l}_{b}_{timestamp}.npz` (science dumps)
-  and `cal_{l}_{b}/cal_{l}_{b}_{timestamp}.npz` (noise-diode calibration dumps)
-- Galactic coordinates (l, b) are integer degrees; `obs_` vs `cal_` reflects `noise_on` state
+- Within each session: `obs_{l}_{b}/obs_{l}_{b}_{timestamp}.npz` (science dumps,
+  noise-off) and `cal_{l}_{b}/cal_{l}_{b}_{timestamp}.npz` (calibration dumps)
+- Galactic coordinates (l, b) are integer degrees
 - Sessions are delimited by calibration blocks: a new session starts whenever a
   `noise_on=True` dump follows a `noise_on=False` dump chronologically
+- Calibration scope depends on dataset:
+  - `data/lab04/main/` -- per-cell calibration. `cal_{l}_{b}` and `obs_{l}_{b}`
+    at the same pointing are paired; each science cell has its own gain and
+    T_sys. `cal_*/` contains noise-on dumps; the noise-off reference is the
+    matching `obs_*/` at the same (l, b).
+  - `data/lab04/streaming/` -- per-session calibration. `cal_*/` cells contain
+    only noise-on dumps; the noise-off reference is the session-wide pool of
+    `obs_*/` noise-off dumps. All cells in a session share one scalar T_sys.
 - The analysis notebook loads all `session_*/obs_*` cells and keys on (l, b)
-- m31 stare data lives in `m31/` (flat, legacy format) — not session-structured
+- m31 stare data lives in `m31/` (flat, legacy format) -- not session-structured
 - Clean up Zone.Identifier files after data transfer from Windows
 
 ### Frequency switching
 
-- Two LO frequencies: 1420.0 and 1421.0 MHz
-- Overlap after edge trim (256 kHz each side): 1419.98 to 1421.02 MHz
-- Velocity coverage: -130 to +90 km/s
-- R = (I_LO1 - I_LO2) / I_LO2, averaged over dump pairs
+- LO pair and bandwidth depend on dataset:
+  - `data/lab04/streaming/` -- 1420.0 / 1421.0 MHz, sample rate 2.56 MHz,
+    Stokes I = corr00 + corr11
+  - `data/lab04/main/`      -- 1419.86 / 1421.14 MHz, sample rate 3.2 MHz,
+    Stokes I = corr11 only (pol 0 has bad noise-diode coupling at 3.2 MHz)
+- Edge trim 256 kHz each side; the post-trim overlap defines the LSR
+  velocity grid (`v_lsr_overlap`)
+- R = (I_LO1 - I_LO2) / I_LO2, averaged over surviving dump pairs
+- T_B = R * T_sys (per-cell for main, per-session for streaming)
 - The DC bin (channel 512 after fftshift) must be masked
-- Sky frequency 1420.0 MHz + 2 bins below must be masked per LO
-- RFI flagging: scipy.signal.medfilt (kernel=15) + 5-sigma MAD threshold
+- RFI flagging: sliding-window Chebyshev pseudo-continuum with sigma MAD
+  threshold (`utils/rfi.py`); local extrema excluded from the fit so the
+  baseline is not biased by RFI spikes
+
+### Reduction QA (T_B-based)
+
+All quality-assurance steps in both pipelines run on calibrated T_B (Kelvin),
+so integrated W is in K * km/s and noise_rms is in K. This makes residual
+thresholds physical and unbiased by cell-to-cell or session-to-session T_sys.
+
+- **Cross-session pair filter** (`utils.flag_outlier_pairs`): builds per-pair
+  `T_B_lsr = R_lsr * T_sys` and rejects pairs whose deviant-channel fraction
+  exceeds `PAIR_FRAC_THRESH` against the cell's population MAD. Catches
+  sessions with anomalous gain/T_sys, not just shape outliers.
+- **Neighbor QA** (`utils.neighbor_qa`): beam-weighted local plane fit of
+  W and peak_v over neighbors within `NEIGHBOR_MAX_SEP_DEG`. `W_SCALE_FLOOR`
+  is in K * km/s (default 1000). The radius depends on the grid:
+  - `main/` brick interleave (even b in {-4,-2,0,2,4}, odd b in {-3,-1,1,3}
+    offset by Delta_l/2): use `NEIGHBOR_MAX_SEP_DEG = 2.1` -- captures the
+    8 ring-1 neighbors (4 half-row diagonals at sep ~sqrt(2), 4 same-axis
+    at sep = 2.0).
+  - `streaming/` integer 2 deg grid: use `NEIGHBOR_MAX_SEP_DEG = 3.0` --
+    captures 4 axis-aligned at 2.0 and 4 diagonals at ~2.83.
+- **T_sys QA**: per-cell for main, per-session for streaming. Flags cells
+  outside `T_SYS_NSIGMA` robust sigma or absolute bounds; per-session flag
+  excludes every cell observed in a deviant session.
+
+State handoff to downstream notebooks is via `scan_load_state.pkl` (pickled
+`cell_combined`, `qa_flagged_set`, `v_lsr_overlap`, `dv_kms`, plus per-session
+T_sys/gain dictionaries).
 
 
 ## Key files

@@ -1,12 +1,87 @@
 [
   {
-    "l": 189.09,
-    "b": -3,
-    "reason": "T_sys(193K,z=+4.1)"
+    "l": 109.98,
+    "b": -4,
+    "reason": "peak_v"
   },
   {
-    "l": 170.0,
+    "l": 111.98,
+    "b": -4,
+    "reason": "peak_v"
+  },
+  {
+    "l": 113.99,
+    "b": -4,
+    "reason": "peak_v"
+  },
+  {
+    "l": 115.99,
+    "b": -4,
+    "reason": "peak_v"
+  },
+  {
+    "l": 102.98,
+    "b": -3,
+    "reason": "insufficient_pairs(n=2)+T_sys(196K,z=+4.1)"
+  },
+  {
+    "l": 203.11,
+    "b": -3,
+    "reason": "W+T_sys(206K,z=+4.9)"
+  },
+  {
+    "l": 47.96,
+    "b": -2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 112.0,
+    "b": -2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 118.0,
+    "b": -2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 210.05,
+    "b": -2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 220.06,
+    "b": -2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 101.0,
+    "b": -1,
+    "reason": "W+T_sys(199K,z=+4.4)"
+  },
+  {
+    "l": 205.01,
+    "b": -1,
+    "reason": "T_sys(201K,z=+4.5)"
+  },
+  {
+    "l": 207.01,
+    "b": -1,
+    "reason": "T_sys(206K,z=+4.8)"
+  },
+  {
+    "l": 116.0,
     "b": 0,
+    "reason": "peak_v"
+  },
+  {
+    "l": 220.0,
+    "b": 0,
+    "reason": "peak_v"
+  },
+  {
+    "l": 101.0,
+    "b": 1,
     "reason": "W"
   },
   {
@@ -15,13 +90,53 @@
     "reason": "insufficient_pairs(n=1)"
   },
   {
-    "l": 193.01,
+    "l": 117.0,
     "b": 1,
-    "reason": "insufficient_pairs(n=0)"
+    "reason": "peak_v"
   },
   {
-    "l": 79.9,
-    "b": 4,
+    "l": 209.01,
+    "b": 1,
+    "reason": "T_sys(212K,z=+5.2)"
+  },
+  {
+    "l": 214.06,
+    "b": 2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 220.06,
+    "b": 2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 100.97,
+    "b": 3,
+    "reason": "T_sys(195K,z=+4.1)"
+  },
+  {
+    "l": 108.98,
+    "b": 3,
     "reason": "W"
+  },
+  {
+    "l": 211.12,
+    "b": 3,
+    "reason": "T_sys(196K,z=+4.1)"
+  },
+  {
+    "l": 213.13,
+    "b": 3,
+    "reason": "T_sys(205K,z=+4.7)"
+  },
+  {
+    "l": 216.23,
+    "b": 4,
+    "reason": "peak_v"
+  },
+  {
+    "l": 220.24,
+    "b": 4,
+    "reason": "peak_v"
   }
 ]

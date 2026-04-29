@@ -183,11 +183,15 @@ T_sys/gain dictionaries).
 |------|------|
 | `notebooks/00_streaming_load.ipynb` | M31 stare observation analysis |
 | `notebooks/01_scan_plan.ipynb` | Survey planning, visualization, constraint checking |
-| `notebooks/02_scan_load.ipynb` | Data loading, reduction, QA, saves `reduced_survey.npz` |
+| `notebooks/02_scan_load.ipynb` | Streaming pipeline: load, reduce, per-session calibration, QA on T_B; writes `scan_load_state.pkl` and `reduced_survey.npz` |
+| `notebooks/02_scan_load_lv.ipynb` | Streaming l-v products (Mollweide, b~0 strip, tangent-point V(R), spiral overlay); reads `scan_load_state.pkl` |
 | `notebooks/02a_scan_diagnostics.ipynb` | QA visualization, coverage maps, truncation flagging, manifest generation |
 | `notebooks/02b_survey_results.ipynb` | Science products: l-v diagrams, maps, reference spectrum |
 | `notebooks/03_m31_sensitivity.ipynb` | M31 SNR predictions and sensitivity analysis |
-| `notebooks/utils/qa.py` | Neighbor-based QA: cell metrics and local plane fits |
+| `notebooks/cal_frames.ipynb` | Side-by-side noise-on/off spectra at four pointings (start/end of each dataset) |
+| `notebooks/main/scan_load.ipynb` | Main pipeline: per-cell calibration variant of `02_scan_load.ipynb` |
+| `notebooks/main/scan_load_lv.ipynb` | Main l-v products (parallels `02_scan_load_lv.ipynb`) |
+| `notebooks/utils/qa.py` | Neighbor-based QA: cell metrics, local plane fits, cross-session pair filter |
 | `scripts/observe_otf.py` | OTF raster survey (manifest-aware, az-filtered, pipelined) |
 | `scripts/observe.py` | M31 stare (4 LOs: 1420-1423, noise cal) |
 | `scripts/observe_m31_cal_off.py` | M31 cal-off at 1420.33/1419.66 MHz |
@@ -243,11 +247,19 @@ From `src/ugradio/lab_dish/HI1.tex`:
 
 ## Survey sessions
 
-Historical data migrated to session_001 through session_027 (2026-04-16 to 2026-04-23).
-New observations start from session_028. Total: 12833 science+cal dumps across 27 sessions.
+Two parallel datasets accumulate in separate trees:
 
-Coverage spans galactic plane (b=-4 to +4), extended latitude (b up to +28),
-and scattered fills. Use `02_scan_load.ipynb` to see current cell-level completion.
+- `data/lab04/streaming/` -- legacy 2.56 MHz streaming survey, sessions
+  001-037 (2026-04-16 to 2026-04-24), ~13900 dumps. Per-session calibration.
+- `data/lab04/main/` -- current 3.2 MHz pipelined survey using the brick
+  interleave grid, sessions 001-029 and growing (2026-04-25 onward),
+  ~8500 dumps as of 2026-04-29. Per-cell calibration.
+
+Coverage spans the galactic plane (b=-4 to +4), extended latitude (b up to
++28), and scattered fills. Use the appropriate `scan_load.ipynb` (02_ for
+streaming, main/ for main) to see current cell-level completion. Counts
+above are snapshots and drift as new sessions land -- check `git log` or
+the notebook session table for current totals.
 
 ## M31 observation
 

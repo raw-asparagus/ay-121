@@ -7,4 +7,6 @@ from .calibration import (
     group_dumps_by_cell,
     compute_cell_gains,
     apply_tsys_calibration,
+    smooth_gain_spectrum,
+    smooth_tsys_spectrum,
 )

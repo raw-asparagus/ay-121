@@ -358,10 +358,9 @@ def make_calibrated_sdr_reader(
                 call_count += 1  # skip the discarded dump's noise flag
             flushed = False
             schedule_idx = 0
-            _set_noise(cell_schedule[0][1])  # pre-set noise for cal phase
 
         def read(prev_cnt: int | None) -> dict:  # noqa: ARG001
-            nonlocal schedule_idx, call_count, submit_count, flushed
+            nonlocal schedule_idx, call_count, flushed
 
             # --- Cell complete: flush pipeline then block ---
             if schedule_idx >= schedule_len:
@@ -399,23 +398,19 @@ def make_calibrated_sdr_reader(
                 return {}
 
             # --- Normal schedule entry ---
-            idx = min(schedule_idx, schedule_len - 1)
-            lo, is_cal = cell_schedule[idx]
+            lo, is_cal = cell_schedule[schedule_idx]
             _set_noise(is_cal)
 
             dump = pipeline.next_dump(lo)
             noise_on_flags.append(is_cal)
-            submit_count += 1
             schedule_idx += 1
 
             if dump is None:
                 # First call or after reset — pipeline priming, capture once more
-                idx2 = min(schedule_idx, schedule_len - 1)
-                lo2, is_cal2 = cell_schedule[idx2]
+                lo2, is_cal2 = cell_schedule[schedule_idx]
                 _set_noise(is_cal2)
                 dump = pipeline.next_dump(lo2)
                 noise_on_flags.append(is_cal2)
-                submit_count += 1
                 schedule_idx += 1
 
             if dump is not None:

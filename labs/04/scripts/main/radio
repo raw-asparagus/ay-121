@@ -27,11 +27,18 @@ Run from this directory:
     PYTHONPATH=../../.. python3 main.py
 """
 
+import glob
+import json
+import math
+import re
 import sys
 import threading
 import time as _time
+from pathlib import Path
 
 import numpy as np
+from astropy.coordinates import get_body, get_sun
+from astropy.time import Time
 
 # Allow `from utils.timing_stats import ...` when run with cwd=labs/04/.
 sys.path.insert(0, '.')
@@ -80,24 +87,12 @@ DUMPS_PER_CELL = (CAL_DUMPS_PER_LO + OBS_DUMPS_PER_LO) * N_LOS
 
 def _detect_next_session() -> int:
     """Return one greater than the highest existing session_NNN dir, or 1."""
-    import glob
-    import re
     highest = 0
     for d in glob.glob(f'{OUTPUT_DIR}/session_*'):
         m = re.search(r'session_(\d+)$', d)
         if m:
             highest = max(highest, int(m.group(1)))
     return highest + 1 if highest else 1
-
-
-NEXT_SESSION = _detect_next_session()
-
-
-def _next_session_dir() -> str:
-    global NEXT_SESSION
-    path = f'{OUTPUT_DIR}/session_{NEXT_SESSION:03d}'
-    NEXT_SESSION += 1
-    return path
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +106,6 @@ def _build_l_row(b_deg, l_center=L_CENTER):
     Expands outward from l_center until L_MIN and L_MAX are exceeded.
     Returns sorted list of l values (floats, rounded to 2 decimal places).
     """
-    import math
     cos_b = math.cos(math.radians(b_deg))
     if cos_b <= 0:
         return [l_center]
@@ -146,8 +140,6 @@ def build_galplane_grid(phase='even'):
 
     Returns list of (col_idx, row_idx, l, b) tuples.
     """
-    import math
-
     if phase == 'even':
         b_vals = list(range(B_MIN, B_MAX + 1, B_STEP))
     else:
@@ -192,14 +184,20 @@ def build_galplane_grid(phase='even'):
     return cells
 
 
-def filter_cells_by_az_side(cells):
-    """Keep cells on the az side with more currently accessible cells."""
+def filter_cells_by_az_side(cells, unix_t=None):
+    """Keep cells on the az side with more accessible cells at unix_t.
+
+    ``unix_t`` defaults to the current time.  Pass the projected phase
+    start time when planning a phase that will not begin executing
+    immediately so the side-pick reflects the sky at that moment.
+    """
     classified = []
     n_permanent = 0
 
     for row, col, l, b in cells:
         alt, az, ra, dec, _ = compute_gal_pointing(
             l, b, lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
+            unix_t=unix_t,
         )
         max_alt = 90.0 - abs(LEO_LAT_DEG - dec)
         if max_alt < MIN_ALT_DEG:
@@ -207,23 +205,23 @@ def filter_cells_by_az_side(cells):
             continue
 
         in_limits = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
-        is_rising = (AZ_MIN <= az <= 180) or az > AZ_MAX or az < AZ_MIN
+        is_rising = az <= 180 or az > AZ_MAX
         is_setting = 180 < az <= AZ_MAX
-        classified.append((row, col, l, b, alt, az, in_limits, is_rising, is_setting))
+        classified.append((row, col, l, b, in_limits, is_rising, is_setting))
 
     if n_permanent:
         print(f'  Dropped {n_permanent} permanently inaccessible cells')
 
-    n_rising = sum(1 for c in classified if c[6] and c[7])
-    n_setting = sum(1 for c in classified if c[6] and c[8])
+    n_rising = sum(1 for c in classified if c[4] and c[5])
+    n_setting = sum(1 for c in classified if c[4] and c[6])
 
     if n_rising >= n_setting:
         side = 'rising'
-        kept = [(r, c, l, b) for r, c, l, b, alt, az, ok, rising, setting
+        kept = [(r, c, l, b) for r, c, l, b, ok, rising, setting
                 in classified if rising]
     else:
         side = 'setting'
-        kept = [(r, c, l, b) for r, c, l, b, alt, az, ok, rising, setting
+        kept = [(r, c, l, b) for r, c, l, b, ok, rising, setting
                 in classified if setting]
 
     n_now = n_rising if side == 'rising' else n_setting
@@ -234,9 +232,6 @@ def filter_cells_by_az_side(cells):
 
 def _load_reobserve_set():
     """Load reobserve.json and return a set of cell_lb keys to force-reobserve."""
-    import json
-    from pathlib import Path
-
     reobs_path = Path('artifacts/main_reobserve.json')
     if not reobs_path.exists():
         return set()
@@ -258,8 +253,6 @@ def _bright_body_radec(unix_t):
     the parallax is small (<1 deg) and irrelevant at the 10 deg avoidance
     threshold.
     """
-    from astropy.time import Time
-    from astropy.coordinates import get_sun, get_body
     t = Time(unix_t, format='unix')
     sun = get_sun(t)
     moon = get_body('moon', t)
@@ -278,18 +271,18 @@ def _angular_sep_deg(ra1, dec1, ra2, dec2):
     return float(np.rad2deg(np.arccos(cos_sep)))
 
 
-def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0):
+def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0, unix_t=None):
     """Drop cells projected to be outside alt/az limits when the scan reaches them.
 
     Projects each cell's observation time as
-    ``now + (index_offset + i + 0.5) * cell_total_time_sec`` and
-    evaluates alt/az + sun/moon separation at that time.  Pass
-    ``index_offset`` equal to the number of cells queued ahead of this
-    list (e.g. earlier phase) so the timeline is continuous across phases.
+    ``unix_t + (index_offset + i + 0.5) * cell_total_time_sec`` and
+    evaluates alt/az + sun/moon separation at that time.  ``unix_t``
+    defaults to the current time; pass an explicit value when planning a
+    phase that will not begin executing immediately.
     """
     if not cells:
         return cells
-    now = _time.time()
+    now = unix_t if unix_t is not None else _time.time()
     kept = []
     n_drop_alt = 0
     n_drop_az = 0
@@ -338,9 +331,6 @@ def filter_cells_by_existing_data(cells):
     A cell is complete when it has >= OBS_DUMPS obs files total.
     Cells listed in reobserve.json are always treated as incomplete.
     """
-    from pathlib import Path
-    import glob
-
     reobserve = _load_reobserve_set()
     if reobserve:
         print(f'  Reobserve list: {len(reobserve)} cells forced incomplete')
@@ -476,8 +466,7 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
             skipped.append(cell_list[current_cell_idx])
             current_cell_idx += 1
             # Reader is still blocked on cell_event -- no signal needed.
-            if _check_end_of_list():
-                return None
+            _check_end_of_list()
             return None
 
         if need_cell_start:
@@ -510,58 +499,26 @@ def setup_hardware():
     return telescope, [sdr_0, sdr_1], noise_ctrl
 
 
-def main():
-    print('Leuschner Sky Survey -- Galactic Plane')
-    print('=' * 60)
-    print(f'  Grid: l~[{L_MIN}, {L_MAX}], b=[{B_MIN}, {B_MAX}], b_step={B_STEP} deg')
-    print(f'  Longitude: non-integer, centered at l={L_CENTER}, '
-          f'Delta_l = {PHYSICAL_SPACING_DEG}/cos(b)')
-    print(f'  LO: f1={F1_MHZ} MHz, f2={F2_MHZ} MHz')
-    print(f'  Sample rate: {SAMPLE_RATE/1e6} MHz, NFFT={NFFT}, NBLOCKS={NBLOCKS}')
-    print(f'  Per pointing: {CAL_DUMPS_PER_LO * N_LOS} cal + '
-          f'{OBS_DUMPS_PER_LO * N_LOS} obs = {DUMPS_PER_CELL} dumps')
-    print(f'  Track interval: {REPOINT_INTERVAL_SEC} s')
-
-    stats = _load_timing_stats(
-        'artifacts/main_timing_stats.json',
-        archive_dir='data/archive/main',
+def plan_phase(phase, cell_total_time_sec):
+    """Build + filter one phase's grid evaluated at the current time."""
+    now = _time.time()
+    all_phase = build_galplane_grid(phase=phase)
+    print(f'\n  Total grid cells ({phase}): {len(all_phase)}')
+    cells = filter_cells_by_az_side(all_phase, unix_t=now)
+    cells = filter_cells_by_existing_data(cells)
+    cells = filter_cells_forward_simulated(
+        cells, cell_total_time_sec, index_offset=0, unix_t=now,
     )
-    cell_total_time_sec = stats['cell_total_time_sec']['p50']
-    print(f'  Timing stats: {stats["n_cells_observed"]} cells, '
-          f'{stats["n_sessions"]} sessions, '
-          f'p50 cell time {cell_total_time_sec:.0f}s, '
-          f'duty {stats["duty_cycle"]:.2f}')
+    return cells
 
-    # Build even grid first, then append odd grid.
-    cells = []
-    for phase in ('even', 'odd'):
-        all_phase = build_galplane_grid(phase=phase)
-        print(f'\n  Total grid cells ({phase}): {len(all_phase)}')
-        phase_cells = filter_cells_by_az_side(all_phase)
-        phase_cells = filter_cells_by_existing_data(phase_cells)
-        # Forward-sim runs after the existing-data filter so the
-        # projected timeline reflects only cells that will actually
-        # be visited.  Offset accounts for cells already queued from
-        # the prior phase so the timeline is continuous.
-        phase_cells = filter_cells_forward_simulated(
-            phase_cells, cell_total_time_sec, index_offset=len(cells),
-        )
-        cells.extend(phase_cells)
 
-    if not cells:
-        print('  No remaining cells. Exiting.')
-        return
+def run_phase(phase, cells, telescope, sdrs, noise, outdir):
+    """Run a StreamingCapture pass over one phase's cells.
 
-    dump_time = NBLOCKS * NSAMPLES / SAMPLE_RATE
-    cell_time = DUMPS_PER_CELL * (dump_time + 2) + 3
-    total_time_h = len(cells) * cell_time / 3600
-    print(f'\n  Integration per dump: {dump_time:.1f} s')
-    print(f'  Estimated total: {total_time_h:.1f} h for {len(cells)} cells')
-
-    print('\nInitialising hardware ...')
-    telescope, sdrs, noise = setup_hardware()
-    print('Hardware ready.')
-
+    All per-pass state (events, reader closure, capture instance) is
+    created here so successive phases — and successive ``main()`` calls
+    in the outer ``while True`` loop — start from a clean slate.
+    """
     cell_event = threading.Event()
     cell_done_event = threading.Event()
     done_event = threading.Event()
@@ -588,8 +545,7 @@ def main():
         cal_tag = 'CAL' if dump.get('noise_on') else 'OBS'
         print(f'  [{dump["target_name"]}] {cal_tag} {lo_tag} -> {path}')
 
-    outdir = _next_session_dir()
-    print(f'  Session dir: {outdir}')
+    print(f'  Phase {phase} session dir: {outdir}')
 
     capture = StreamingCapture(
         telescope=telescope,
@@ -604,9 +560,62 @@ def main():
 
     capture.run(done_event=done_event)
 
-    noise.off()
-    for sdr in sdrs:
-        sdr.close()
+
+def main():
+    print('Leuschner Sky Survey -- Galactic Plane')
+    print('=' * 60)
+    print(f'  Grid: l~[{L_MIN}, {L_MAX}], b=[{B_MIN}, {B_MAX}], b_step={B_STEP} deg')
+    print(f'  Longitude: non-integer, centered at l={L_CENTER}, '
+          f'Delta_l = {PHYSICAL_SPACING_DEG}/cos(b)')
+    print(f'  LO: f1={F1_MHZ} MHz, f2={F2_MHZ} MHz')
+    print(f'  Sample rate: {SAMPLE_RATE/1e6} MHz, NFFT={NFFT}, NBLOCKS={NBLOCKS}')
+    print(f'  Per pointing: {CAL_DUMPS_PER_LO * N_LOS} cal + '
+          f'{OBS_DUMPS_PER_LO * N_LOS} obs = {DUMPS_PER_CELL} dumps')
+    print(f'  Track interval: {REPOINT_INTERVAL_SEC} s')
+
+    stats = _load_timing_stats(
+        'artifacts/main_timing_stats.json',
+        archive_dir='data/archive/main',
+    )
+    cell_total_time_sec = stats['cell_total_time_sec']['p50']
+    print(f'  Timing stats: {stats["n_cells_observed"]} cells, '
+          f'{stats["n_sessions"]} sessions, '
+          f'p50 cell time {cell_total_time_sec:.0f}s, '
+          f'duty {stats["duty_cycle"]:.2f}')
+
+    dump_time = NBLOCKS * NSAMPLES / SAMPLE_RATE
+    print(f'  Integration per dump: {dump_time:.1f} s')
+
+    # Re-detect on every main() call so a new outer-loop iteration picks
+    # up sessions that landed during the previous iteration.
+    next_session = _detect_next_session()
+
+    def next_session_dir() -> str:
+        nonlocal next_session
+        path = f'{OUTPUT_DIR}/session_{next_session:03d}'
+        next_session += 1
+        return path
+
+    print('\nInitialising hardware ...')
+    telescope, sdrs, noise = setup_hardware()
+    print('Hardware ready.')
+
+    try:
+        for phase in ('even', 'odd'):
+            cells = plan_phase(phase, cell_total_time_sec)
+            if not cells:
+                print(f'  Phase {phase}: no remaining cells, skipping.')
+                continue
+            cell_time = DUMPS_PER_CELL * (dump_time + 2) + 3
+            total_time_h = len(cells) * cell_time / 3600
+            print(f'  Phase {phase}: {len(cells)} cells, '
+                  f'~{total_time_h:.1f} h estimated')
+            run_phase(phase, cells, telescope, sdrs, noise, next_session_dir())
+    finally:
+        noise.off()
+        for sdr in sdrs:
+            sdr.close()
+
     print('\n' + '=' * 60)
     print('  Galactic plane survey complete!')
     print('=' * 60)

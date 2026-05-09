@@ -127,6 +127,7 @@ def compute_gal_pointing(
     lat: float = NCH_LAT_DEG,
     lon: float = NCH_LON_DEG,
     obs_alt: float = NCH_OBS_ALT_M,
+    unix_t: float | None = None,
 ) -> tuple[float, float, float, float, float]:
     """Return the pointing solution for a galactic target.
 
@@ -142,6 +143,10 @@ def compute_gal_pointing(
         Observer longitude in degrees.
     obs_alt : float, optional
         Observer altitude in meters.
+    unix_t : float, optional
+        Unix timestamp at which to evaluate the pointing.  Defaults to
+        ``get_unix_time(local=True)`` (i.e. now), preserving back-compat.
+        Pass a future timestamp for forward-simulating planners.
 
     Returns
     -------
@@ -158,7 +163,8 @@ def compute_gal_pointing(
     """
     import ugradio.coord as coord
 
-    unix_t = get_unix_time(local=True)
+    if unix_t is None:
+        unix_t = get_unix_time(local=True)
     jd = timing.julian_date(unix_t)
 
     gc = ac.SkyCoord(l=gal_l * u.deg, b=gal_b * u.deg, frame="galactic")

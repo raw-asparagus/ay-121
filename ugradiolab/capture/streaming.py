@@ -67,15 +67,25 @@ class PointingThread:
         telescope,
         target_selector: Callable[[], tuple[str, float, float, float, float] | None],
         repoint_interval_sec: float = 30.0,
+        wake_event: 'threading.Event | None' = None,
     ):
         self._telescope = telescope
         self._target_selector = target_selector
         self._repoint_interval_sec = repoint_interval_sec
+        self._wake_event = wake_event
 
         self._state: PointingState | None = None
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, name='pointing', daemon=False)
+
+    def _idle(self, timeout: float) -> None:
+        """Sleep up to timeout, returning early when wake_event is set."""
+        if self._wake_event is not None:
+            if self._wake_event.wait(timeout=timeout):
+                self._wake_event.clear()
+        else:
+            self._stop_event.wait(timeout=timeout)
 
     def start(self) -> None:
         self._thread.start()
@@ -98,7 +108,7 @@ class PointingThread:
                 with self._lock:
                     self._state = None
                 current_target = None
-                self._stop_event.wait(timeout=1.0)
+                self._idle(timeout=1.0)
                 continue
 
             name, alt, az, ra, dec = result
@@ -129,7 +139,7 @@ class PointingThread:
             with self._lock:
                 self._state = new_state
 
-            self._stop_event.wait(timeout=5.0)
+            self._idle(timeout=5.0)
 
 
 # ---------------------------------------------------------------------------
@@ -363,10 +373,12 @@ class StreamingCapture:
         repoint_interval_sec: float = 30.0,
         on_save: Callable[[str, dict], None] | None = None,
         on_read: Callable[[dict], None] | None = None,
+        wake_event: 'threading.Event | None' = None,
     ):
         self._queue = queue.Queue(maxsize=queue_maxsize)
         self._pointing = PointingThread(
             telescope, target_selector, repoint_interval_sec,
+            wake_event=wake_event,
         )
         self._reader = ReaderThread(
             read_fn, self._pointing, self._queue, on_read=on_read,

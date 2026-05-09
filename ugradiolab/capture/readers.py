@@ -249,6 +249,7 @@ def make_calibrated_sdr_reader(
     obs_dumps_per_lo: int | None = None,
     cell_done_event: 'threading.Event | None' = None,
     stop_event: 'threading.Event | None' = None,
+    pointing_wake_event: 'threading.Event | None' = None,
 ) -> Callable[[int | None], dict]:
     """SDR reader with noise-diode calibration and block LO switching.
 
@@ -365,15 +366,24 @@ def make_calibrated_sdr_reader(
             # --- Cell complete: flush pipeline then block ---
             if schedule_idx >= schedule_len:
                 if not flushed:
-                    # Correlate last pending capture (no new USB transfer)
-                    last = pipeline.flush()
+                    # Correlate last pending capture (no new USB transfer).
+                    # cell_done is NOT set here — that would let PointingThread
+                    # clear pointing state during flush and the post-state
+                    # check in ReaderThread would discard this dump.
                     flushed = True
-                    if cell_done_event is not None:
-                        cell_done_event.set()
+                    last = pipeline.flush()
                     if last is not None:
                         last['noise_on'] = noise_on_flags[call_count]
                         call_count += 1
                         return last
+
+                # Last dump has been returned and queued.  Now safe to
+                # signal cell-done so the selector + PointingThread can
+                # begin the slew.
+                if cell_done_event is not None and not cell_done_event.is_set():
+                    cell_done_event.set()
+                    if pointing_wake_event is not None:
+                        pointing_wake_event.set()
 
                 # Pipeline already flushed — block until next cell
                 if not _wait_for_new_cell():

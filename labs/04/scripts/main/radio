@@ -6,8 +6,8 @@ interleaved frequency switching.  Uses the StreamingCapture framework
 for continuous three-thread operation (pointing, reading, writing).
 
 Grid: two-phase brick-pattern tessellation, column-major scan order.
-      Even phase: b=[-4, -2, 0, +2, +4], l centered at 120.
-      Odd phase:  b=[-3, -1, +1, +3], l offset by half a physical step.
+      Even phase: b=[-6, -4, -2, 0, +2, +4, +6], l centered at 120.
+      Odd phase:  b=[-5, -3, -1, +1, +3, +5], l offset by half a physical step.
       Longitude: Delta_l = 2/cos(b) exactly, expanded outward from center.
       Scan order: columns of constant l, ascending from L_MIN to L_MAX,
       zig-zagging in b within each column.
@@ -27,9 +27,15 @@ Run from this directory:
     PYTHONPATH=../../.. python3 main.py
 """
 
+import sys
 import threading
+import time as _time
 
 import numpy as np
+
+# Allow `from utils.timing_stats import ...` when run with cwd=labs/04/.
+sys.path.insert(0, '.')
+from utils.timing_stats import load as _load_timing_stats  # noqa: E402
 
 from ugradiolab.astronomy import (
     LEO_LAT_DEG,
@@ -60,7 +66,7 @@ OUTPUT_DIR   = 'data/main'  # relative to cwd (expected: labs/04/)
 # Grid bounds (galactic plane)
 L_CENTER     = 120.0
 L_MIN, L_MAX = -10.0, 250.0
-B_MIN, B_MAX = -4, 4
+B_MIN, B_MAX = -6, 6
 B_STEP       = 2
 PHYSICAL_SPACING_DEG = 2.0
 
@@ -241,6 +247,42 @@ def _load_reobserve_set():
         l_name = f'{e["l"]:.2f}'.replace('.', 'p')
         reobs.add(f'{l_name}_{e["b"]}')
     return reobs
+
+
+def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0):
+    """Drop cells projected to be outside alt/az limits when the scan reaches them.
+
+    Projects each cell's observation time as
+    ``now + (index_offset + i + 0.5) * cell_total_time_sec`` and
+    evaluates alt/az at that time.  Pass ``index_offset`` equal to the
+    number of cells queued ahead of this list (e.g. earlier phase) so
+    the timeline is continuous across phases.
+    """
+    if not cells:
+        return cells
+    now = _time.time()
+    kept = []
+    n_drop_alt = 0
+    n_drop_az = 0
+    for i, (row, col, l, b) in enumerate(cells):
+        proj_t = now + (index_offset + i + 0.5) * cell_total_time_sec
+        alt, az, _, _, _ = compute_gal_pointing(
+            l, b,
+            lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
+            unix_t=proj_t,
+        )
+        in_alt = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
+        in_az = AZ_MIN <= az <= AZ_MAX
+        if in_alt and in_az:
+            kept.append((row, col, l, b))
+        elif not in_alt:
+            n_drop_alt += 1
+        else:
+            n_drop_az += 1
+    print(f'  Forward sim ({cell_total_time_sec:.0f}s/cell, '
+          f'offset {index_offset}): kept {len(kept)}/{len(cells)}, '
+          f'dropped {n_drop_alt} alt, {n_drop_az} az')
+    return kept
 
 
 def filter_cells_by_existing_data(cells):
@@ -434,6 +476,16 @@ def main():
           f'{OBS_DUMPS_PER_LO * N_LOS} obs = {DUMPS_PER_CELL} dumps')
     print(f'  Track interval: {REPOINT_INTERVAL_SEC} s')
 
+    stats = _load_timing_stats(
+        'artifacts/main_timing_stats.json',
+        archive_dir='data/archive/main',
+    )
+    cell_total_time_sec = stats['cell_total_time_sec']['p50']
+    print(f'  Timing stats: {stats["n_cells_observed"]} cells, '
+          f'{stats["n_sessions"]} sessions, '
+          f'p50 cell time {cell_total_time_sec:.0f}s, '
+          f'duty {stats["duty_cycle"]:.2f}')
+
     # Build even grid first, then append odd grid.
     cells = []
     for phase in ('even', 'odd'):
@@ -441,6 +493,13 @@ def main():
         print(f'\n  Total grid cells ({phase}): {len(all_phase)}')
         phase_cells = filter_cells_by_az_side(all_phase)
         phase_cells = filter_cells_by_existing_data(phase_cells)
+        # Forward-sim runs after the existing-data filter so the
+        # projected timeline reflects only cells that will actually
+        # be visited.  Offset accounts for cells already queued from
+        # the prior phase so the timeline is continuous.
+        phase_cells = filter_cells_forward_simulated(
+            phase_cells, cell_total_time_sec, index_offset=len(cells),
+        )
         cells.extend(phase_cells)
 
     if not cells:
@@ -460,6 +519,7 @@ def main():
     cell_event = threading.Event()
     cell_done_event = threading.Event()
     done_event = threading.Event()
+    pointing_wake_event = threading.Event()
 
     target_selector = make_scan_target_selector(
         cells, cell_event, cell_done_event, done_event,
@@ -474,6 +534,7 @@ def main():
         obs_dumps_per_lo=OBS_DUMPS_PER_LO,
         cell_done_event=cell_done_event,
         stop_event=done_event,
+        pointing_wake_event=pointing_wake_event,
     )
 
     def on_save(path, dump):
@@ -492,6 +553,7 @@ def main():
         n_writers=2,
         repoint_interval_sec=REPOINT_INTERVAL_SEC,
         on_save=on_save,
+        wake_event=pointing_wake_event,
     )
 
     capture.run(done_event=done_event)

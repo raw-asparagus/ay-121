@@ -42,8 +42,8 @@ from utils.tools import (
 # ---------------------------------------------------------------------------
 # Session configuration
 
-OUTDIR        = "data/lab02/unknown_length/raw"
-MANIFEST_PATH = "data/lab02/unknown_length/manifest.csv"
+OUTDIR        = "labs/02/data/unknown_length/raw"
+MANIFEST_PATH = "labs/02/data/unknown_length/manifest.csv"
 START_SET_ID: int | None = None
 
 REQUIRED_SIGGEN_FREQ_MHZ = 1420.405751768

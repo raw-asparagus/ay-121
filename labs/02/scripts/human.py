@@ -30,7 +30,7 @@ from ugradiolab.capture import ObsExperiment, SequentialRunner
 from ugradiolab.io import get_unix_time
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab02/human'
+OUTDIR = 'labs/02/data/human'
 
 ALT = 0.0  # deg
 AZI = 0.0  # deg

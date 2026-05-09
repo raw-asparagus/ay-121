@@ -16,7 +16,7 @@ Usage:
     python observe.py
 
 Output:
-    data/lab04/streaming/<target>/<target>_dump_<timestamp>_<seq>.npz
+    labs/04/data/streaming/<target>/<target>_dump_<timestamp>_<seq>.npz
 """
 
 from ugradiolab.astronomy import (
@@ -50,7 +50,7 @@ MAX_ALT_DEG  = 83.0
 AZ_MIN_DEG   =  7.0
 AZ_MAX_DEG   = 348.0
 CAL_DUMPS    = 2         # dumps per LO frequency during noise cal
-OUTDIR       = 'data/lab04/streaming'
+OUTDIR       = 'labs/04/data/streaming'
 
 
 # ---------------------------------------------------------------------------

@@ -45,8 +45,8 @@ from utils.tools import (
 
 SIGGEN_FREQ_MHZ = 1420.405751768
 
-OUTDIR        = "data/lab02/attenuation/raw"
-MANIFEST_PATH = "data/lab02/attenuation/manifest.csv"
+OUTDIR        = "labs/02/data/attenuation/raw"
+MANIFEST_PATH = "labs/02/data/attenuation/manifest.csv"
 START_SET_ID: int | None = None
 
 COMMON_CAPTURE = dict(

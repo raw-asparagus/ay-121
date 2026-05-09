@@ -1,4 +1,6 @@
-data/*
+labs/*/data/
+labs/*/.joblib-cache/
+labs/*/**/.joblib-cache/
 
 # Based on github/gitignore:
 # - TeX.gitignore

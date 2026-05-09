@@ -15,8 +15,8 @@ Usage:
     python stream_calibration.py
 
 Output:
-    data/lab03/streaming/calibration/autocorr_<timestamp>.npz
-    data/lab03/streaming/<target>/<target>_dump_<timestamp>_<seq>.npz
+    labs/03/data/streaming/calibration/autocorr_<timestamp>.npz
+    labs/03/data/streaming/<target>/<target>_dump_<timestamp>_<seq>.npz
 """
 
 import os
@@ -52,7 +52,7 @@ MAX_ALT_DEG  = 172.0
 AZ_MIN_DEG   = 90.0
 AZ_MAX_DEG   = 298.0
 
-OUTDIR    = 'data/lab03/streaming'
+OUTDIR    = 'labs/03/data/streaming'
 CAL_DUMPS = 20   # number of auto-correlation dumps to collect
 
 

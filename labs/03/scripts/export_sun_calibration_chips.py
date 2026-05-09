@@ -3,28 +3,27 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 from astropy.coordinates import get_sun
 from astropy.time import Time
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+LAB03_DIR = Path(__file__).resolve().parents[1]
+if str(LAB03_DIR) not in sys.path:
+    sys.path.insert(0, str(LAB03_DIR))
 
 from ugradiolab import NCH_LON_DEG
-
-LAB03_DIR = Path(__file__).resolve().parents[1]
-UTILS_DIR = LAB03_DIR / "utils"
-if str(UTILS_DIR) not in sys.path:
-    sys.path.insert(0, str(UTILS_DIR))
-
-from constants import F_RF0_HZ, F_S_HZ, N_FFT, PLOT_BAND_GHZ
-from captures import load_capture_series
-from chips import segment_capture_times_by_gap
-from dc import local_real_dc_correction
+from utils import (
+    F_RF0_HZ,
+    F_S_HZ,
+    N_FFT,
+    PLOT_BAND_GHZ,
+    load_capture_series,
+    segment_capture_times_by_gap,
+    local_real_dc_correction,
+)
 
 BAD_CHANNELS = np.array([0, 256, 512, 768], dtype=int)
 NOMINAL_FRINGE_PERIOD_SEC = 40.0
@@ -50,7 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=Path("data/lab03/sun_calibration"),
+        default=LAB03_DIR / "data" / "sun_calibration",
         help="Directory containing sanitized top-level raw Sun calibration NPZ files.",
     )
     parser.add_argument(

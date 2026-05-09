@@ -14,7 +14,7 @@ from pathlib import Path
 
 _LAB03_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LAB03_DIR))
-os.chdir(str(_LAB03_DIR / "notebooks"))
+os.chdir(str(_LAB03_DIR))
 
 import numpy as np
 import pickle
@@ -40,7 +40,7 @@ from utils import (
 # ============================================================
 
 def _load_data():
-    DATA_DIR = _LAB03_DIR / ".." / ".." / "data" / "lab03" / "sun_calibration" / "chips"
+    DATA_DIR = _LAB03_DIR / "data" / "sun_calibration" / "chips"
     chip_paths = sorted(DATA_DIR.resolve().glob("sun_calibration_chip_*.npz"))
     chip_data = load_processed_sun_chip_series(chip_paths)
 

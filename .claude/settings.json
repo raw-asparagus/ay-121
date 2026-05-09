@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python src/migrate_streaming.py --execute)",
+      "Bash(sed -n '245,255p' /home/ikaros/projects/ay-121/labs/04/scripts/observe_galactic_plane_2026_04_22_afternoon_1pm_8pm.py)",
+      "Bash(sed -n '328,340p' /home/ikaros/projects/ay-121/labs/04/scripts/observe_galactic_plane_2026_04_22_afternoon_1pm_8pm.py)",
+      "Bash(sed -n '500,515p' /home/ikaros/projects/ay-121/labs/04/scripts/observe_galactic_plane_2026_04_25_26_16hr_marathon.py)",
+      "Bash(sed -n '390,400p' /home/ikaros/projects/ay-121/labs/04/scripts/observe_galactic_plane_2026_04_26_backup_rising.py)"
+    ]
+  }
+}

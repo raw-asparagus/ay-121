@@ -9,8 +9,8 @@ import numpy as np
 
 from ugradiolab.data import Record
 
-INDIR_DEFAULT = Path("data/lab02/standard")
-OUTDIR_DEFAULT = Path("data/lab02/standard_combined")
+INDIR_DEFAULT = Path("labs/02/data/standard")
+OUTDIR_DEFAULT = Path("labs/02/data/standard_combined")
 
 LO_FREQS = ("1420", "1421")
 

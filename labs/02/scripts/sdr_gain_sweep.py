@@ -52,8 +52,8 @@ from utils.tools import (
 
 # ---------------------------------------------------------------------------
 # Session configuration
-OUTDIR = "data/lab02/sdr_gain_sweep/raw"
-MANIFEST_PATH = "data/lab02/sdr_gain_sweep/manifest.csv"
+OUTDIR = "labs/02/data/sdr_gain_sweep/raw"
+MANIFEST_PATH = "labs/02/data/sdr_gain_sweep/manifest.csv"
 
 SIGGEN_FREQ_MHZ = 1420.405751768
 LO_LIST_MHZ = (1420.0, 1421.0)

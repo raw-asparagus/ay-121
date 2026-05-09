@@ -30,7 +30,7 @@ from ugradiolab.astronomy import compute_gal_pointing
 from ugradiolab.capture import ObsExperiment, SequentialRunner
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab02/standard'
+OUTDIR = 'labs/02/data/standard'
 
 GAL_L = 120.0  # degrees
 GAL_B = 0.0    # degrees

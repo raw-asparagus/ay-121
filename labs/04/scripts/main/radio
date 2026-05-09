@@ -55,7 +55,7 @@ MAX_ALT_DEG  = 83.0
 AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 REPOINT_INTERVAL_SEC = 10.0
-OUTPUT_DIR   = 'data'  # relative to script directory
+OUTPUT_DIR   = 'data/main'  # relative to cwd (expected: labs/04/)
 
 # Grid bounds (galactic plane)
 L_CENTER     = 120.0
@@ -229,7 +229,7 @@ def _load_reobserve_set():
     import json
     from pathlib import Path
 
-    reobs_path = Path(__file__).parent / 'reobserve.json'
+    reobs_path = Path('artifacts/main_reobserve.json')
     if not reobs_path.exists():
         return set()
     try:

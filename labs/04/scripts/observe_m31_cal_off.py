@@ -8,7 +8,7 @@ Usage:
     python observe_m31_cal_off.py
 
 Output:
-    data/lab04/streaming/m31_cal_off/m31_cal_off_dump_<timestamp>_<seq>.npz
+    labs/04/data/streaming/m31_cal_off/m31_cal_off_dump_<timestamp>_<seq>.npz
 """
 
 from ugradiolab.astronomy import (
@@ -41,7 +41,7 @@ MAX_ALT_DEG  = 83.0
 AZ_MIN_DEG   =  7.0
 AZ_MAX_DEG   = 348.0
 CAL_DUMPS    = 0         # no noise diode calibration
-OUTDIR       = 'data/lab04/streaming'
+OUTDIR       = 'labs/04/data/streaming'
 
 
 # ---------------------------------------------------------------------------

@@ -8,14 +8,14 @@ Below-horizon cells on the chosen side are included and retried as
 they rise into view during long runs.
 
 Each survey part runs as an independent session. Sessions are written to
-  data/lab04/streaming/session_{NNN}/
+  labs/04/data/streaming/session_{NNN}/
 with cells named obs_{l}_{b} (science) and cal_{l}_{b} (noise-on calibration).
 
 Usage:
     python observe_otf.py
 
 Output:
-    data/lab04/streaming/session_{NNN}/<obs|cal>_{l}_{b}/<obs|cal>_{l}_{b}_{timestamp}.npz
+    labs/04/data/streaming/session_{NNN}/<obs|cal>_{l}_{b}/<obs|cal>_{l}_{b}_{timestamp}.npz
 """
 
 import threading
@@ -115,8 +115,8 @@ AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 CAL_DUMPS    = 2
 REPOINT_TRACK_SEC = 60.0
-STREAMING_DIR = 'data/lab04/streaming'
-MANIFEST_PATH = 'survey_manifest.json'  # relative to labs/04/
+STREAMING_DIR = 'labs/04/data/streaming'
+MANIFEST_PATH = 'artifacts/survey_manifest.json'  # relative to labs/04/
 
 
 NEXT_SESSION = 38  # set before each deployment; existing data is session_001-037

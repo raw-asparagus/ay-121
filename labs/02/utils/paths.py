@@ -5,8 +5,8 @@ UTILS_DIR = Path(__file__).resolve().parent
 LAB02_DIR = UTILS_DIR.parent
 REPO_ROOT = LAB02_DIR.parent.parent
 
-DATA_ROOT = REPO_ROOT / "data" / "lab02"
-CACHE_DIR = LAB02_DIR / "cache"
+DATA_ROOT = LAB02_DIR / "data"
+CACHE_DIR = LAB02_DIR / "artifacts"
 REPORT_DIR = LAB02_DIR / "report"
 FIGURES_DIR = REPORT_DIR / "figures"
 

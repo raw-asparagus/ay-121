@@ -30,7 +30,7 @@ from ugradiolab.astronomy import compute_gal_pointing
 from ugradiolab.capture import ObsExperiment, SequentialRunner
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab02/cygnus-x'
+OUTDIR = 'labs/02/data/cygnus-x'
 
 TARGET_NAME = 'Cygnus X'
 TARGET_SIMBAD_QUERY = 'NAME Cyg X'

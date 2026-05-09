@@ -30,7 +30,7 @@ from ugradiolab.capture import ObsExperiment, SequentialRunner
 from ugradiolab.io import get_unix_time
 
 # ---------------------------------------------------------------------------
-OUTDIR = 'data/lab02/cold_ref'
+OUTDIR = 'labs/02/data/cold_ref'
 
 ALT_DEG = 50.0   # degrees — high enough to avoid ground spillover
 AZ_DEG  = 50.0   # degrees

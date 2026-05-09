@@ -326,7 +326,7 @@ def make_scan_target_selector(cells, dumps_per_cell):
         if _check_end_of_list():
             return None
 
-        # Cell complete — advance immediately and return None to
+        # Cell complete -- advance immediately and return None to
         # pause the reader during the slew to the new target.
         with lock:
             count = cell_dump_count

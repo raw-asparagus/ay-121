@@ -33,7 +33,7 @@ import numpy as np
 from scipy.signal import find_peaks
 
 
-# ── Weighted statistics ─────────────────────────────────────────────────
+# -- Weighted statistics -------------------------------------------------
 
 def weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
     """Weighted median of *values* with positive *weights*."""
@@ -70,7 +70,7 @@ def weighted_mad(
     return weighted_median(np.abs(values - center), weights)
 
 
-# ── Beam geometry ────────────────────────────────────────────────────────
+# -- Beam geometry --------------------------------------------------------
 
 def beam_overlap_weight(sep_deg: float, hpbw_deg: float) -> float:
     """Normalized overlap of two identical Gaussian beams."""
@@ -89,7 +89,7 @@ def local_tangent_offsets(
     return float(x), float(y), sep
 
 
-# ── Local plane fit ──────────────────────────────────────────────────────
+# -- Local plane fit ------------------------------------------------------
 
 def fit_weighted_local_plane(
     target_gl: float,
@@ -144,7 +144,7 @@ def fit_weighted_local_plane(
     return predicted_center, coeffs, resid_sigma, residuals, weights, resid_center
 
 
-# ── Per-cell metrics ─────────────────────────────────────────────────────
+# -- Per-cell metrics -----------------------------------------------------
 
 def compute_cell_metrics(
     cell_results_combined: dict,
@@ -281,7 +281,7 @@ def compute_cell_metrics(
     return cell_metrics
 
 
-# ── Neighbor QA ──────────────────────────────────────────────────────────
+# -- Neighbor QA ----------------------------------------------------------
 
 
 def neighbor_qa(

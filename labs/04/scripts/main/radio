@@ -438,7 +438,7 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
         if done_event.is_set():
             return None
 
-        # Cell complete → return None once to clear pointing state,
+        # Cell complete -> return None once to clear pointing state,
         # then advance on the next call.
         if cell_done_event.is_set():
             cell_done_event.clear()
@@ -451,7 +451,7 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
 
         if need_return_none:
             need_return_none = False
-            return None  # pointing → None; reader waits for valid state
+            return None  # pointing -> None; reader waits for valid state
 
         if _check_end_of_list():
             return None
@@ -516,8 +516,8 @@ def run_phase(phase, cells, telescope, sdrs, noise, outdir):
     """Run a StreamingCapture pass over one phase's cells.
 
     All per-pass state (events, reader closure, capture instance) is
-    created here so successive phases — and successive ``main()`` calls
-    in the outer ``while True`` loop — start from a clean slate.
+    created here so successive phases -- and successive ``main()`` calls
+    in the outer ``while True`` loop -- start from a clean slate.
     """
     cell_event = threading.Event()
     cell_done_event = threading.Event()

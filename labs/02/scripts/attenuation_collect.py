@@ -25,6 +25,8 @@ Workflow per set:
 5. Print SDR metrics, then choose to save or discard the set.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from ugradio.sdr import SDR

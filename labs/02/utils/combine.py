@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Combine n files of per-LO-frequency captures into one"""
 
+from __future__ import annotations
+
 import re
 import sys
 from pathlib import Path

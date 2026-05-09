@@ -1,5 +1,7 @@
 """Lab-local plotting helpers for ``ugradiolab.Spectrum`` objects."""
 
+from __future__ import annotations
+
 from typing import Callable, Sequence
 
 import matplotlib.pyplot as plt

@@ -62,7 +62,7 @@ MAX_ALT_DEG  = 83.0
 AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 REPOINT_INTERVAL_SEC = 10.0
-SUN_AVOID_DEG  = 10.0   # skip cells within this angular distance of the Sun
+SUN_AVOID_DEG  = 30.0   # skip cells within this angular distance of the Sun (Sun sidelobe pickup at 1.4 GHz is non-negligible inside ~30 deg)
 MOON_AVOID_DEG = 10.0   # skip cells within this angular distance of the Moon (0 to disable)
 OUTPUT_DIR   = 'data/nps'  # relative to cwd (expected: labs/04/)
 

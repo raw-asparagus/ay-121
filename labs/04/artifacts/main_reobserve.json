@@ -1,1 +1,7 @@
-[]
+[
+  {
+    "l": 14.6,
+    "b": 5,
+    "reason": "insufficient_pairs(n=1)"
+  }
+]

@@ -659,14 +659,28 @@ def _sort_set_time(cells, now):
     return sorted(cells, key=lambda c: _time_until_set_sec(c[2], c[3], now))
 
 
-def _sort_column_major(cells):
-    """Constant-l columns swept in b (zigzag).
+def _sort_column_major(cells, l_ascending=True, b_first_ascending=True):
+    """Constant-l columns swept in b, alternating direction per column (zigzag).
 
-    Cells from ``build_galplane_grid`` already carry (col_idx, row_idx) in
-    this order, so a stable sort on those keys reproduces it after the
-    existing-data filter has shuffled the list.
+    Columns are taken from ``col_idx`` produced by ``build_galplane_grid``
+    (cos(b)-corrected longitude bins).  ``l_ascending`` chooses whether
+    the first column is the lowest-l or highest-l strip;
+    ``b_first_ascending`` chooses the b direction in that first column.
+    Subsequent columns alternate b direction so adjacent columns stay
+    adjacent in slew distance.
     """
-    return sorted(cells, key=lambda c: (c[0], c[1]))
+    by_col = {}
+    for c in cells:
+        by_col.setdefault(c[0], []).append(c)
+    col_order = sorted(by_col, reverse=not l_ascending)
+    ordered = []
+    for i, col_idx in enumerate(col_order):
+        col = sorted(by_col[col_idx], key=lambda c: c[3])  # by b ascending
+        ascending = b_first_ascending if i % 2 == 0 else not b_first_ascending
+        if not ascending:
+            col = list(reversed(col))
+        ordered.extend(col)
+    return ordered
 
 
 def _sort_row_major(cells, b_ascending=True, l_first_ascending=True):
@@ -708,14 +722,14 @@ def plan_phase(phase, cell_total_time_sec):
     rising = filter_cells_by_existing_data(rising_raw) if rising_raw else []
     setting = filter_cells_by_existing_data(setting_raw) if setting_raw else []
 
-    # Constant-b (row-major) sweeps only.  Forward-sim picks the b
-    # direction (asc/desc) and the starting l direction; zigzag within
-    # rows is fixed.  Four variants per side.
+    # Constant-l (column-major, cos(b)-corrected) sweeps only.
+    # Forward-sim picks the l direction (asc/desc) and the starting b
+    # direction; zigzag within columns is fixed.  Four variants per side.
     strategies = [
-        ('row b+ l+', lambda cs: _sort_row_major(cs, b_ascending=True,  l_first_ascending=True)),
-        ('row b+ l-', lambda cs: _sort_row_major(cs, b_ascending=True,  l_first_ascending=False)),
-        ('row b- l+', lambda cs: _sort_row_major(cs, b_ascending=False, l_first_ascending=True)),
-        ('row b- l-', lambda cs: _sort_row_major(cs, b_ascending=False, l_first_ascending=False)),
+        ('col l+ b+', lambda cs: _sort_column_major(cs, l_ascending=True,  b_first_ascending=True)),
+        ('col l+ b-', lambda cs: _sort_column_major(cs, l_ascending=True,  b_first_ascending=False)),
+        ('col l- b+', lambda cs: _sort_column_major(cs, l_ascending=False, b_first_ascending=True)),
+        ('col l- b-', lambda cs: _sort_column_major(cs, l_ascending=False, b_first_ascending=False)),
     ]
 
     plans = []

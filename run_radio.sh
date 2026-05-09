@@ -9,7 +9,7 @@ git pull
 # Run radio with cwd at labs/04/ so OUTPUT_DIR='data/main' resolves to
 # labs/04/data/main/ and reobs_path resolves to labs/04/artifacts/main_reobserve.json
 cd labs/04 || { echo "labs/04 not found"; exit 1; }
-PYTHONPATH=../.. python3 scripts/main/radio &
+PYTHONPATH=../.. python3 scripts/main/radio.py &
 OBSERVER_PID=$!
 echo "Observer started with PID: $OBSERVER_PID"
 

@@ -267,18 +267,23 @@ def _angular_sep_deg(ra1, dec1, ra2, dec2):
 
 
 def _time_until_set_sec(l, b, unix_t, min_alt_deg=MIN_ALT_DEG):
-    """Seconds from ``unix_t`` until cell (l, b) drops below ``min_alt_deg``.
+    """Sort key: seconds until cell (l, b) is no longer observable.
 
-    Uses the analytic setting hour angle (no horizon refraction).  Returns
-    ``-1`` if the cell is already below the limit at ``unix_t``,
-    ``inf`` if it is circumpolar above the limit.
+    Uses analytic hour-angle geometry (no horizon refraction, no az
+    exclusion).  Three regimes:
+
+    * Currently above ``min_alt_deg`` -> seconds until it sets.
+    * Not yet risen -> seconds until rise + full above-horizon duration,
+      so these cells sort *after* currently-up cells but ahead of
+      circumpolar/long-pending ones.
+    * Already set this sidereal pass, or never rises above ``min_alt_deg``
+      -> ``-1`` (sorts to front; forward-sim will drop them).
+    * Circumpolar above the limit (never sets) -> ``inf``.
     """
-    alt0, _az0, ra, dec, jd = compute_gal_pointing(
+    _alt0, _az0, ra, dec, jd = compute_gal_pointing(
         l, b, lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
         unix_t=unix_t,
     )
-    if alt0 < min_alt_deg:
-        return -1.0
     lat_r = math.radians(LEO_LAT_DEG)
     dec_r = math.radians(dec)
     cos_lat_dec = math.cos(lat_r) * math.cos(dec_r)
@@ -291,18 +296,27 @@ def _time_until_set_sec(l, b, unix_t, min_alt_deg=MIN_ALT_DEG):
     if cos_H >= 1.0:
         return -1.0   # never rises above min_alt
     if cos_H <= -1.0:
-        return float('inf')
+        return float('inf')   # circumpolar above limit
     H_set_deg = math.degrees(math.acos(cos_H))
-    # GMST -> LST -> current hour angle.
+
+    # GMST -> LST -> current hour angle in (-180, 180].
     d = jd - 2451545.0
     gmst_h = (18.697374558 + 24.06570982441908 * d) % 24.0
     lst_deg = (gmst_h * 15.0 + LEO_LON_DEG) % 360.0
     ha_now = ((lst_deg - ra + 180.0) % 360.0) - 180.0
-    if ha_now >= H_set_deg:
-        return 0.0
-    dha_deg = H_set_deg - ha_now
+
     sidereal_rate = 360.0 / 86164.0905   # deg/sec
-    return dha_deg / sidereal_rate
+
+    if abs(ha_now) <= H_set_deg:
+        # Currently above min_alt; setting in (H_set - ha_now) of sidereal time.
+        return (H_set_deg - ha_now) / sidereal_rate
+    if ha_now < -H_set_deg:
+        # Not yet risen; rise then set.  Schedule after currently-up cells.
+        time_to_rise = (-H_set_deg - ha_now) / sidereal_rate
+        duration_above = 2.0 * H_set_deg / sidereal_rate
+        return time_to_rise + duration_above
+    # ha_now > H_set_deg: already past setting on this sidereal pass.
+    return -1.0
 
 
 def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0, unix_t=None):
@@ -358,26 +372,82 @@ def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0, u
     return kept
 
 
-def filter_cells_by_existing_data(cells):
-    """Skip cells that already have enough obs dumps across all sessions.
+def _load_completeness_index() -> dict:
+    """Return cell_lb -> {(lo_round, kind): count}.
 
-    Scans OUTPUT_DIR/session_*/obs_{l_name}_{b}/ for .npz files.
-    A cell is complete when it has >= OBS_DUMPS obs files total.
+    Caches the per-file LO read in ``artifacts/main_completeness.json`` keyed
+    by mtime so subsequent planning passes are O(new files), not O(all files).
+    LO is rounded to 2 decimals to avoid float-key drift.
+    """
+    cache_path = Path('artifacts/main_completeness.json')
+    cache = {}
+    if cache_path.exists():
+        try:
+            cache = json.loads(cache_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            cache = {}
+
+    counts = {}   # cell_lb -> {(lo_str, kind): count}
+    new_entries = 0
+    for npz in glob.glob(f'{OUTPUT_DIR}/session_*/*_*/*.npz'):
+        st = Path(npz).stat()
+        key = f'{npz}:{int(st.st_mtime)}:{st.st_size}'
+        info = cache.get(key)
+        if info is None:
+            try:
+                with np.load(npz, allow_pickle=False) as d:
+                    lo = float(d['lo_freq_mhz'])
+            except (OSError, KeyError, ValueError):
+                continue
+            info = {'lo': round(lo, 2)}
+            cache[key] = info
+            new_entries += 1
+
+        cell_dir = Path(npz).parent.name
+        if cell_dir.startswith('obs_'):
+            lb = cell_dir[4:]
+            kind = 'obs'
+        elif cell_dir.startswith('cal_'):
+            lb = cell_dir[4:]
+            kind = 'cal'
+        else:
+            continue
+        bucket = counts.setdefault(lb, {})
+        bucket[(info['lo'], kind)] = bucket.get((info['lo'], kind), 0) + 1
+
+    if new_entries:
+        # Drop cache entries whose files no longer exist.
+        cache = {k: v for k, v in cache.items()
+                 if Path(k.split(':', 1)[0]).exists()}
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache))
+    return counts
+
+
+def _is_cell_complete(bucket: dict) -> bool:
+    """A cell is complete iff each LO has the required obs+cal counts."""
+    lo_targets = (F1_MHZ, F2_MHZ)
+    for lo in lo_targets:
+        lo_key = round(lo, 2)
+        if bucket.get((lo_key, 'obs'), 0) < OBS_DUMPS_PER_LO:
+            return False
+        if bucket.get((lo_key, 'cal'), 0) < CAL_DUMPS_PER_LO:
+            return False
+    return True
+
+
+def filter_cells_by_existing_data(cells):
+    """Skip cells that already have full per-LO obs+cal coverage.
+
+    A cell counts as complete only when every LO in (F1_MHZ, F2_MHZ) has
+    at least OBS_DUMPS_PER_LO obs dumps and CAL_DUMPS_PER_LO cal dumps.
     Cells listed in reobserve.json are always treated as incomplete.
     """
     reobserve = _load_reobserve_set()
     if reobserve:
         print(f'  Reobserve list: {len(reobserve)} cells forced incomplete')
 
-    counts = {}  # cell_lb -> {'obs': n, 'cal': n}
-    for npz in glob.glob(f'{OUTPUT_DIR}/session_*/*_*/*.npz'):
-        cell_dir = Path(npz).parent.name
-        if cell_dir.startswith('obs_'):
-            lb = cell_dir[4:]  # strip 'obs_'
-            counts.setdefault(lb, {'obs': 0, 'cal': 0})['obs'] += 1
-        elif cell_dir.startswith('cal_'):
-            lb = cell_dir[4:]  # strip 'cal_'
-            counts.setdefault(lb, {'obs': 0, 'cal': 0})['cal'] += 1
+    counts = _load_completeness_index()
 
     kept = []
     n_skipped = 0
@@ -389,9 +459,8 @@ def filter_cells_by_existing_data(cells):
             kept.append((row, col, l, b))
             n_reobs += 1
             continue
-        c = counts.get(cell_lb, {'obs': 0, 'cal': 0})
-        if (c['obs'] >= OBS_DUMPS_PER_LO * N_LOS
-                and c['cal'] >= CAL_DUMPS_PER_LO * N_LOS):
+        bucket = counts.get(cell_lb, {})
+        if _is_cell_complete(bucket):
             n_skipped += 1
         else:
             kept.append((row, col, l, b))
@@ -668,10 +737,15 @@ def main():
         'artifacts/main_timing_stats.json',
         archive_dir='data/archive/main',
     )
-    cell_total_time_sec = stats['cell_total_time_sec']['p50']
+    # Use the mean for forward-sim instead of p50: the distribution is right-
+    # skewed (p95 ~50% above p50) so the mean is a more honest expectation
+    # for "how long will N cells take?".
+    cell_total_time_sec = stats['cell_total_time_sec']['mean']
     print(f'  Timing stats: {stats["n_cells_observed"]} cells, '
           f'{stats["n_sessions"]} sessions, '
-          f'p50 cell time {cell_total_time_sec:.0f}s, '
+          f'mean cell time {cell_total_time_sec:.0f}s '
+          f'(p50 {stats["cell_total_time_sec"]["p50"]:.0f}s, '
+          f'p95 {stats["cell_total_time_sec"]["p95"]:.0f}s), '
           f'duty {stats["duty_cycle"]:.2f}')
 
     dump_time = NBLOCKS * NSAMPLES / SAMPLE_RATE

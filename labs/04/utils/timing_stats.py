@@ -1,6 +1,6 @@
 """Empirical scan-timing statistics from the main archive.
 
-Used by ``labs/04/scripts/main/radio`` and the planning notebooks
+Used by ``labs/04/scripts/main/radio.py`` and the planning notebooks
 (``main_scan_plan.ipynb``, ``01_scan_plan.ipynb``) so the same measured
 cadence and slew-time distributions drive the forward-simulating planner
 and any visualisations.

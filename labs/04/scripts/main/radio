@@ -271,6 +271,45 @@ def _angular_sep_deg(ra1, dec1, ra2, dec2):
     return float(np.rad2deg(np.arccos(cos_sep)))
 
 
+def _time_until_set_sec(l, b, unix_t, min_alt_deg=MIN_ALT_DEG):
+    """Seconds from ``unix_t`` until cell (l, b) drops below ``min_alt_deg``.
+
+    Uses the analytic setting hour angle (no horizon refraction).  Returns
+    ``-1`` if the cell is already below the limit at ``unix_t``,
+    ``inf`` if it is circumpolar above the limit.
+    """
+    alt0, _az0, ra, dec, jd = compute_gal_pointing(
+        l, b, lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
+        unix_t=unix_t,
+    )
+    if alt0 < min_alt_deg:
+        return -1.0
+    lat_r = math.radians(LEO_LAT_DEG)
+    dec_r = math.radians(dec)
+    cos_lat_dec = math.cos(lat_r) * math.cos(dec_r)
+    if abs(cos_lat_dec) < 1e-12:
+        return float('inf')
+    cos_H = (
+        math.sin(math.radians(min_alt_deg))
+        - math.sin(lat_r) * math.sin(dec_r)
+    ) / cos_lat_dec
+    if cos_H >= 1.0:
+        return -1.0   # never rises above min_alt
+    if cos_H <= -1.0:
+        return float('inf')
+    H_set_deg = math.degrees(math.acos(cos_H))
+    # GMST -> LST -> current hour angle.
+    d = jd - 2451545.0
+    gmst_h = (18.697374558 + 24.06570982441908 * d) % 24.0
+    lst_deg = (gmst_h * 15.0 + LEO_LON_DEG) % 360.0
+    ha_now = ((lst_deg - ra + 180.0) % 360.0) - 180.0
+    if ha_now >= H_set_deg:
+        return 0.0
+    dha_deg = H_set_deg - ha_now
+    sidereal_rate = 360.0 / 86164.0905   # deg/sec
+    return dha_deg / sidereal_rate
+
+
 def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0, unix_t=None):
     """Drop cells projected to be outside alt/az limits when the scan reaches them.
 
@@ -506,6 +545,14 @@ def plan_phase(phase, cell_total_time_sec):
     print(f'\n  Total grid cells ({phase}): {len(all_phase)}')
     cells = filter_cells_by_az_side(all_phase, unix_t=now)
     cells = filter_cells_by_existing_data(cells)
+    # Sort by setting time ascending so cells about to leave the sky are
+    # observed first.  Without this, the column-major scan order causes
+    # forward-sim to schedule cells hours into the future, by which time
+    # most of the setting side has dropped below alt_min.
+    cells = sorted(
+        cells,
+        key=lambda c: _time_until_set_sec(c[2], c[3], now),
+    )
     cells = filter_cells_forward_simulated(
         cells, cell_total_time_sec, index_offset=0, unix_t=now,
     )
@@ -606,8 +653,7 @@ def main():
             if not cells:
                 print(f'  Phase {phase}: no remaining cells, skipping.')
                 continue
-            cell_time = DUMPS_PER_CELL * (dump_time + 2) + 3
-            total_time_h = len(cells) * cell_time / 3600
+            total_time_h = len(cells) * cell_total_time_sec / 3600
             print(f'  Phase {phase}: {len(cells)} cells, '
                   f'~{total_time_h:.1f} h estimated')
             run_phase(phase, cells, telescope, sdrs, noise, next_session_dir())

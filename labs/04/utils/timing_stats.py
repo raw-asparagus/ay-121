@@ -54,10 +54,10 @@ DEFAULTS = {
     'generated_at': 0.0,
     'n_sessions': 0,
     'n_cells_observed': 0,
-    'intra_cell_cadence_sec': {'mean': 10.5, 'p50': 10.5, 'p95': 11.0},
-    'slew_gap_sec':           {'mean': 15.0, 'p50': 12.0, 'p95': 30.0},
-    'cell_total_time_sec':    {'mean': 100.0, 'p50': 95.0, 'p95': 140.0},
-    'duty_cycle': 0.78,
+    'intra_cell_cadence_sec': {'mean': 12.4, 'p50': 11.0, 'p95': 20.0},
+    'slew_gap_sec':           {'mean': 40.0, 'p50': 36.0, 'p95': 57.0},
+    'cell_total_time_sec':    {'mean': 125.0, 'p50': 114.0, 'p95': 187.0},
+    'duty_cycle': 0.67,
 }
 
 
@@ -121,9 +121,14 @@ def compute(archive_dir) -> dict:
                 n_cells += 1
             prev_target, prev_t = target, t
 
-    if intra_cell:
-        avg_cadence = float(np.mean(intra_cell))
-        duty = _NOMINAL_CAPTURE_SEC / avg_cadence if avg_cadence > 0 else DEFAULTS['duty_cycle']
+    # End-to-end duty cycle: on-source integration / total wallclock per cell
+    # (includes slew + dump overhead).  This is the metric that drives
+    # observation-time forecasts, so it must agree with cell_total_time_sec.
+    if cell_total and n_cells:
+        avg_cell_total = float(np.mean(cell_total))
+        avg_dumps_per_cell = (n_cells + len(intra_cell)) / n_cells
+        on_source_per_cell = avg_dumps_per_cell * _NOMINAL_CAPTURE_SEC
+        duty = on_source_per_cell / avg_cell_total if avg_cell_total > 0 else DEFAULTS['duty_cycle']
     else:
         duty = DEFAULTS['duty_cycle']
 

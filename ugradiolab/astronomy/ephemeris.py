@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import astropy.coordinates as ac
 import astropy.units as u
 import ugradio.timing as timing

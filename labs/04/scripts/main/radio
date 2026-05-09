@@ -184,15 +184,19 @@ def build_galplane_grid(phase='even'):
     return cells
 
 
-def filter_cells_by_az_side(cells, unix_t=None):
-    """Keep cells on the az side with more accessible cells at unix_t.
+def classify_cells_by_az_side(cells, unix_t=None):
+    """Split cells into rising and setting candidate lists at ``unix_t``.
 
-    ``unix_t`` defaults to the current time.  Pass the projected phase
-    start time when planning a phase that will not begin executing
-    immediately so the side-pick reflects the sky at that moment.
+    Permanently inaccessible cells (max_alt < MIN_ALT_DEG) are dropped.
+    Cells currently below the alt limit are still kept on whichever side
+    their azimuth puts them, so the forecasted-survivor comparison can
+    pick up cells that will rise into view.
     """
-    classified = []
+    rising = []
+    setting = []
     n_permanent = 0
+    n_rising_now = 0
+    n_setting_now = 0
 
     for row, col, l, b in cells:
         alt, az, ra, dec, _ = compute_gal_pointing(
@@ -205,29 +209,20 @@ def filter_cells_by_az_side(cells, unix_t=None):
             continue
 
         in_limits = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
-        is_rising = az <= 180 or az > AZ_MAX
-        is_setting = 180 < az <= AZ_MAX
-        classified.append((row, col, l, b, in_limits, is_rising, is_setting))
+        if az <= 180 or az > AZ_MAX:
+            rising.append((row, col, l, b))
+            if in_limits:
+                n_rising_now += 1
+        else:
+            setting.append((row, col, l, b))
+            if in_limits:
+                n_setting_now += 1
 
     if n_permanent:
         print(f'  Dropped {n_permanent} permanently inaccessible cells')
-
-    n_rising = sum(1 for c in classified if c[4] and c[5])
-    n_setting = sum(1 for c in classified if c[4] and c[6])
-
-    if n_rising >= n_setting:
-        side = 'rising'
-        kept = [(r, c, l, b) for r, c, l, b, ok, rising, setting
-                in classified if rising]
-    else:
-        side = 'setting'
-        kept = [(r, c, l, b) for r, c, l, b, ok, rising, setting
-                in classified if setting]
-
-    n_now = n_rising if side == 'rising' else n_setting
-    print(f'  Az side: {side} ({n_rising} rising / {n_setting} setting)')
-    print(f'  {len(kept)} cells kept ({n_now} currently accessible)')
-    return kept
+    print(f'  Az classification: {n_rising_now} rising / {n_setting_now} setting '
+          f'currently accessible ({len(rising)} / {len(setting)} total)')
+    return rising, setting
 
 
 def _load_reobserve_set():
@@ -538,25 +533,74 @@ def setup_hardware():
     return telescope, [sdr_0, sdr_1], noise_ctrl
 
 
+def _sort_set_time(cells, now):
+    """Sort by time-until-set ascending (cells about to set first)."""
+    return sorted(cells, key=lambda c: _time_until_set_sec(c[2], c[3], now))
+
+
+def _sort_column_major(cells):
+    """Constant-l columns swept in b (zigzag).
+
+    Cells from ``build_galplane_grid`` already carry (col_idx, row_idx) in
+    this order, so a stable sort on those keys reproduces it after the
+    existing-data filter has shuffled the list.
+    """
+    return sorted(cells, key=lambda c: (c[0], c[1]))
+
+
+def _sort_row_major(cells):
+    """Constant-b rows swept in l, alternating direction per row."""
+    by_b = {}
+    for c in cells:
+        by_b.setdefault(c[3], []).append(c)
+    ordered = []
+    for i, b in enumerate(sorted(by_b)):
+        row = sorted(by_b[b], key=lambda c: c[2])
+        if i % 2 == 1:
+            row = list(reversed(row))
+        ordered.extend(row)
+    return ordered
+
+
 def plan_phase(phase, cell_total_time_sec):
-    """Build + filter one phase's grid evaluated at the current time."""
+    """Build + filter one phase's grid evaluated at the current time.
+
+    Forecasts every (side, sweep-order) combination and picks whichever
+    has the most forward-sim survivors.  Sweep orders are constrained to
+    zigzag/parallelogram patterns since arbitrary orderings tend to add
+    slew without improving coverage.
+    """
     now = _time.time()
     all_phase = build_galplane_grid(phase=phase)
     print(f'\n  Total grid cells ({phase}): {len(all_phase)}')
-    cells = filter_cells_by_az_side(all_phase, unix_t=now)
-    cells = filter_cells_by_existing_data(cells)
-    # Sort by setting time ascending so cells about to leave the sky are
-    # observed first.  Without this, the column-major scan order causes
-    # forward-sim to schedule cells hours into the future, by which time
-    # most of the setting side has dropped below alt_min.
-    cells = sorted(
-        cells,
-        key=lambda c: _time_until_set_sec(c[2], c[3], now),
-    )
-    cells = filter_cells_forward_simulated(
-        cells, cell_total_time_sec, index_offset=0, unix_t=now,
-    )
-    return cells
+
+    rising_raw, setting_raw = classify_cells_by_az_side(all_phase, unix_t=now)
+    rising = filter_cells_by_existing_data(rising_raw) if rising_raw else []
+    setting = filter_cells_by_existing_data(setting_raw) if setting_raw else []
+
+    strategies = [
+        ('set-time',     lambda cs: _sort_set_time(cs, now)),
+        ('column-major', _sort_column_major),
+        ('row-major',    _sort_row_major),
+    ]
+
+    plans = []
+    for side, side_cells in [('rising', rising), ('setting', setting)]:
+        if not side_cells:
+            continue
+        for name, sort_fn in strategies:
+            ordered = sort_fn(side_cells)
+            kept = filter_cells_forward_simulated(
+                ordered, cell_total_time_sec, index_offset=0, unix_t=now,
+            )
+            plans.append((side, name, kept))
+
+    if not plans:
+        return []
+    side, name, kept = max(plans, key=lambda p: len(p[2]))
+    summary = ', '.join(f'{s}/{n}={len(k)}' for s, n, k in plans)
+    print(f'  Picked {side}/{name}: {len(kept)} forecast cells  [{summary}]')
+    return kept
 
 
 def run_phase(phase, cells, telescope, sdrs, noise, outdir):

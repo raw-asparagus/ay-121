@@ -192,15 +192,14 @@ def classify_cells_by_az_side(cells, unix_t=None):
     n_rising_now = 0
     n_setting_now = 0
 
+    t = unix_t if unix_t is not None else _time.time()
     for row, col, l, b in cells:
-        alt, az, ra, dec, _ = compute_gal_pointing(
-            l, b, lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
-            unix_t=unix_t,
-        )
+        ra, dec = _cell_radec(l, b)
         max_alt = 90.0 - abs(LEO_LAT_DEG - dec)
         if max_alt < MIN_ALT_DEG:
             n_permanent += 1
             continue
+        alt, az = _fast_altaz(ra, dec, t)
 
         in_limits = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
         if az <= 180 or az > AZ_MAX:
@@ -260,6 +259,74 @@ def _angular_sep_deg(ra1, dec1, ra2, dec2):
     return float(np.rad2deg(np.arccos(cos_sep)))
 
 
+# ---------------------------------------------------------------------------
+# Fast planning math
+# ---------------------------------------------------------------------------
+#
+# RA/Dec are time-invariant for galactic (l, b); the bulk of
+# ``compute_gal_pointing``'s cost is the SkyCoord+ICRS construction (~21 ms).
+# Cache (l, b) -> (ra, dec) on first lookup, then derive alt/az from a
+# closed-form numpy formula (~50 us).  Used only on the planner's hot path
+# (classify, set-time sort, forward-sim).  The hardware-driving target
+# selector keeps using compute_gal_pointing for full astropy fidelity.
+
+_RADEC_CACHE: dict = {}
+_LAT_R = math.radians(LEO_LAT_DEG)
+_SIN_LAT = math.sin(_LAT_R)
+_COS_LAT = math.cos(_LAT_R)
+
+
+def _cell_radec(l: float, b: float) -> tuple[float, float]:
+    """Cached ICRS (ra, dec) in degrees for galactic (l, b)."""
+    key = (round(l, 4), b)
+    cached = _RADEC_CACHE.get(key)
+    if cached is not None:
+        return cached
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord
+    gc = SkyCoord(l=l * u.deg, b=b * u.deg, frame='galactic')
+    ra = float(gc.icrs.ra.deg)
+    dec = float(gc.icrs.dec.deg)
+    _RADEC_CACHE[key] = (ra, dec)
+    return ra, dec
+
+
+def _gmst_hours(unix_t: float) -> float:
+    """Approximate GMST in hours from unix time (accurate to ~1 s)."""
+    jd = unix_t / 86400.0 + 2440587.5
+    d = jd - 2451545.0
+    return (18.697374558 + 24.06570982441908 * d) % 24.0
+
+
+def _fast_altaz(ra_deg: float, dec_deg: float, unix_t: float) -> tuple[float, float]:
+    """Alt/az in degrees for Leuschner from RA/Dec at unix_t.
+
+    Closed-form rotation; no astropy.  Matches compute_gal_pointing to
+    well under a degree, which is far below the dish HPBW (3.4 deg) and
+    the planner's alt/az limit margins.
+    """
+    lst_deg = (_gmst_hours(unix_t) * 15.0 + LEO_LON_DEG) % 360.0
+    ha_deg = ((lst_deg - ra_deg + 180.0) % 360.0) - 180.0
+    ha = math.radians(ha_deg)
+    dec = math.radians(dec_deg)
+    cos_dec = math.cos(dec)
+    sin_dec = math.sin(dec)
+    sin_alt = _SIN_LAT * sin_dec + _COS_LAT * cos_dec * math.cos(ha)
+    if sin_alt > 1.0:
+        sin_alt = 1.0
+    elif sin_alt < -1.0:
+        sin_alt = -1.0
+    alt = math.degrees(math.asin(sin_alt))
+    cos_alt_sq = 1.0 - sin_alt * sin_alt
+    if cos_alt_sq <= 1e-18:
+        return alt, 0.0
+    cos_alt = math.sqrt(cos_alt_sq)
+    sin_az = -cos_dec * math.sin(ha) / cos_alt
+    cos_az = (sin_dec - _SIN_LAT * sin_alt) / (_COS_LAT * cos_alt)
+    az = (math.degrees(math.atan2(sin_az, cos_az)) + 360.0) % 360.0
+    return alt, az
+
+
 def _time_until_set_sec(l, b, unix_t, min_alt_deg=MIN_ALT_DEG):
     """Sort key: seconds until cell (l, b) is no longer observable.
 
@@ -274,18 +341,14 @@ def _time_until_set_sec(l, b, unix_t, min_alt_deg=MIN_ALT_DEG):
       -> ``-1`` (sorts to front; forward-sim will drop them).
     * Circumpolar above the limit (never sets) -> ``inf``.
     """
-    _alt0, _az0, ra, dec, jd = compute_gal_pointing(
-        l, b, lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
-        unix_t=unix_t,
-    )
-    lat_r = math.radians(LEO_LAT_DEG)
+    ra, dec = _cell_radec(l, b)
     dec_r = math.radians(dec)
-    cos_lat_dec = math.cos(lat_r) * math.cos(dec_r)
+    cos_lat_dec = _COS_LAT * math.cos(dec_r)
     if abs(cos_lat_dec) < 1e-12:
         return float('inf')
     cos_H = (
         math.sin(math.radians(min_alt_deg))
-        - math.sin(lat_r) * math.sin(dec_r)
+        - _SIN_LAT * math.sin(dec_r)
     ) / cos_lat_dec
     if cos_H >= 1.0:
         return -1.0   # never rises above min_alt
@@ -293,10 +356,8 @@ def _time_until_set_sec(l, b, unix_t, min_alt_deg=MIN_ALT_DEG):
         return float('inf')   # circumpolar above limit
     H_set_deg = math.degrees(math.acos(cos_H))
 
-    # GMST -> LST -> current hour angle in (-180, 180].
-    d = jd - 2451545.0
-    gmst_h = (18.697374558 + 24.06570982441908 * d) % 24.0
-    lst_deg = (gmst_h * 15.0 + LEO_LON_DEG) % 360.0
+    # LST -> current hour angle in (-180, 180].
+    lst_deg = (_gmst_hours(unix_t) * 15.0 + LEO_LON_DEG) % 360.0
     ha_now = ((lst_deg - ra + 180.0) % 360.0) - 180.0
 
     sidereal_rate = 360.0 / 86164.0905   # deg/sec
@@ -332,11 +393,8 @@ def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0, u
     n_drop_moon = 0
     for i, (row, col, l, b) in enumerate(cells):
         proj_t = now + (index_offset + i + 0.5) * cell_total_time_sec
-        alt, az, ra, dec, _ = compute_gal_pointing(
-            l, b,
-            lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
-            unix_t=proj_t,
-        )
+        ra, dec = _cell_radec(l, b)
+        alt, az = _fast_altaz(ra, dec, proj_t)
         in_alt = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
         in_az = AZ_MIN <= az <= AZ_MAX
         if not in_alt:
@@ -611,15 +669,24 @@ def _sort_column_major(cells):
     return sorted(cells, key=lambda c: (c[0], c[1]))
 
 
-def _sort_row_major(cells):
-    """Constant-b rows swept in l, alternating direction per row."""
+def _sort_row_major(cells, b_ascending=True, l_first_ascending=True):
+    """Constant-b rows swept in l, alternating direction per row (zigzag).
+
+    ``b_ascending`` chooses whether the first row is the lowest-b or
+    highest-b strip; ``l_first_ascending`` chooses whether the first row
+    is swept low->high in l or high->low.  Subsequent rows alternate l
+    direction so adjacent rows stay adjacent in slew distance.
+    """
     by_b = {}
     for c in cells:
         by_b.setdefault(c[3], []).append(c)
+    b_order = sorted(by_b, reverse=not b_ascending)
     ordered = []
-    for i, b in enumerate(sorted(by_b)):
+    for i, b in enumerate(b_order):
         row = sorted(by_b[b], key=lambda c: c[2])
-        if i % 2 == 1:
+        # Row 0 takes the requested direction; alternate from there.
+        ascending = l_first_ascending if i % 2 == 0 else not l_first_ascending
+        if not ascending:
             row = list(reversed(row))
         ordered.extend(row)
     return ordered
@@ -641,10 +708,14 @@ def plan_phase(phase, cell_total_time_sec):
     rising = filter_cells_by_existing_data(rising_raw) if rising_raw else []
     setting = filter_cells_by_existing_data(setting_raw) if setting_raw else []
 
+    # Constant-b (row-major) sweeps only.  Forward-sim picks the b
+    # direction (asc/desc) and the starting l direction; zigzag within
+    # rows is fixed.  Four variants per side.
     strategies = [
-        ('set-time',     lambda cs: _sort_set_time(cs, now)),
-        ('column-major', _sort_column_major),
-        ('row-major',    _sort_row_major),
+        ('row b+ l+', lambda cs: _sort_row_major(cs, b_ascending=True,  l_first_ascending=True)),
+        ('row b+ l-', lambda cs: _sort_row_major(cs, b_ascending=True,  l_first_ascending=False)),
+        ('row b- l+', lambda cs: _sort_row_major(cs, b_ascending=False, l_first_ascending=True)),
+        ('row b- l-', lambda cs: _sort_row_major(cs, b_ascending=False, l_first_ascending=False)),
     ]
 
     plans = []

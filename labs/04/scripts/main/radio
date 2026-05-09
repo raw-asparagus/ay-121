@@ -61,6 +61,8 @@ MAX_ALT_DEG  = 83.0
 AZ_MIN       =  7.0
 AZ_MAX       = 348.0
 REPOINT_INTERVAL_SEC = 10.0
+SUN_AVOID_DEG  = 10.0   # skip cells within this angular distance of the Sun
+MOON_AVOID_DEG = 10.0   # skip cells within this angular distance of the Moon (0 to disable)
 OUTPUT_DIR   = 'data/main'  # relative to cwd (expected: labs/04/)
 
 # Grid bounds (galactic plane)
@@ -249,14 +251,41 @@ def _load_reobserve_set():
     return reobs
 
 
+def _bright_body_radec(unix_t):
+    """Return (sun_ra_deg, sun_dec_deg, moon_ra_deg, moon_dec_deg) at unix_t.
+
+    Uses astropy ``get_sun`` / ``get_body``.  Moon RA/Dec is geocentric;
+    the parallax is small (<1 deg) and irrelevant at the 10 deg avoidance
+    threshold.
+    """
+    from astropy.time import Time
+    from astropy.coordinates import get_sun, get_body
+    t = Time(unix_t, format='unix')
+    sun = get_sun(t)
+    moon = get_body('moon', t)
+    return (sun.ra.deg, sun.dec.deg, moon.ra.deg, moon.dec.deg)
+
+
+def _angular_sep_deg(ra1, dec1, ra2, dec2):
+    """Great-circle angular distance in degrees (vectorised in scalars)."""
+    r1 = np.deg2rad(ra1)
+    d1 = np.deg2rad(dec1)
+    r2 = np.deg2rad(ra2)
+    d2 = np.deg2rad(dec2)
+    cos_sep = (np.sin(d1) * np.sin(d2)
+               + np.cos(d1) * np.cos(d2) * np.cos(r1 - r2))
+    cos_sep = max(-1.0, min(1.0, float(cos_sep)))
+    return float(np.rad2deg(np.arccos(cos_sep)))
+
+
 def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0):
     """Drop cells projected to be outside alt/az limits when the scan reaches them.
 
     Projects each cell's observation time as
     ``now + (index_offset + i + 0.5) * cell_total_time_sec`` and
-    evaluates alt/az at that time.  Pass ``index_offset`` equal to the
-    number of cells queued ahead of this list (e.g. earlier phase) so
-    the timeline is continuous across phases.
+    evaluates alt/az + sun/moon separation at that time.  Pass
+    ``index_offset`` equal to the number of cells queued ahead of this
+    list (e.g. earlier phase) so the timeline is continuous across phases.
     """
     if not cells:
         return cells
@@ -264,24 +293,41 @@ def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0):
     kept = []
     n_drop_alt = 0
     n_drop_az = 0
+    n_drop_sun = 0
+    n_drop_moon = 0
     for i, (row, col, l, b) in enumerate(cells):
         proj_t = now + (index_offset + i + 0.5) * cell_total_time_sec
-        alt, az, _, _, _ = compute_gal_pointing(
+        alt, az, ra, dec, _ = compute_gal_pointing(
             l, b,
             lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
             unix_t=proj_t,
         )
         in_alt = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
         in_az = AZ_MIN <= az <= AZ_MAX
-        if in_alt and in_az:
-            kept.append((row, col, l, b))
-        elif not in_alt:
+        if not in_alt:
             n_drop_alt += 1
-        else:
+            continue
+        if not in_az:
             n_drop_az += 1
+            continue
+        if SUN_AVOID_DEG > 0 or MOON_AVOID_DEG > 0:
+            sun_ra, sun_dec, moon_ra, moon_dec = _bright_body_radec(proj_t)
+            if SUN_AVOID_DEG > 0:
+                sep = _angular_sep_deg(ra, dec, sun_ra, sun_dec)
+                if sep < SUN_AVOID_DEG:
+                    n_drop_sun += 1
+                    continue
+            if MOON_AVOID_DEG > 0:
+                sep = _angular_sep_deg(ra, dec, moon_ra, moon_dec)
+                if sep < MOON_AVOID_DEG:
+                    n_drop_moon += 1
+                    continue
+        kept.append((row, col, l, b))
     print(f'  Forward sim ({cell_total_time_sec:.0f}s/cell, '
           f'offset {index_offset}): kept {len(kept)}/{len(cells)}, '
-          f'dropped {n_drop_alt} alt, {n_drop_az} az')
+          f'dropped {n_drop_alt} alt, {n_drop_az} az, '
+          f'{n_drop_sun} sun (<{SUN_AVOID_DEG:.0f} deg), '
+          f'{n_drop_moon} moon (<{MOON_AVOID_DEG:.0f} deg)')
     return kept
 
 

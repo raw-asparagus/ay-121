@@ -899,11 +899,79 @@ def plot_tsys_vs_local_time_per_session(
                         fontsize=LABEL_SIZE)
     sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
-    cbar = fig.colorbar(sm, ax=axes, pad=0.02, shrink=0.85)
+    cbar = fig.colorbar(sm, ax=axes, orientation="horizontal",
+                         location="bottom", pad=0.08, shrink=0.6,
+                         aspect=40)
     cbar.set_label("Angular distance from Sun [deg]", fontsize=LABEL_SIZE)
+    cbar.ax.tick_params(labelsize=TICK_SIZE - 2)
     suptitle = title or (
         rf"Per-session $T_\mathrm{{sys}}$ vs Leuschner local time "
         rf"($T_\mathrm{{cal}} = {T_cal:g}$ K, pol 1)"
+    )
+    fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
+    return fig, list(axes)
+
+
+def plot_sun_sep_vs_local_time_per_session(
+    points_per_session: dict,
+    *,
+    tz,
+    cmap: str = "plasma",
+    title: str | None = None,
+) -> tuple[plt.Figure, list[plt.Axes]]:
+    """Per-session scatter of Sun angular distance vs local time, coloured by T_sys.
+
+    Sister to :func:`plot_tsys_vs_local_time_per_session` -- swaps the
+    y-axis and colour mapping so structure that depends on Sun proximity
+    (rather than T_sys) is visible at a glance.
+    """
+    import matplotlib.dates as mdates
+
+    sessions = [s for s, (t, *_rest) in points_per_session.items() if len(t)]
+    if not sessions:
+        fig, ax = textwidth_figure(2)
+        ax.set_axis_off()
+        return fig, [ax]
+
+    all_tsys = np.concatenate([np.asarray(points_per_session[s][1], dtype=float)
+                               for s in sessions])
+    norm = mpl.colors.Normalize(vmin=float(np.min(all_tsys)),
+                                 vmax=float(np.max(all_tsys)))
+
+    n = len(sessions)
+    fig = plt.figure(figsize=(TEXTWIDTH_IN, 2.0 * n + 0.5))
+    fig.set_layout_engine("tight")
+    axes = fig.subplots(n, 1, sharey=True)
+    if n == 1:
+        axes = [axes]
+
+    for ax, sess in zip(axes, sessions):
+        times_local, tsys_vals, seps = points_per_session[sess]
+        order = np.argsort(times_local)
+        t_ord = [times_local[i] for i in order]
+        tsys_ord = np.asarray(tsys_vals, dtype=float)[order]
+        sep_ord = np.asarray(seps, dtype=float)[order]
+        ax.scatter(t_ord, sep_ord, c=tsys_ord, cmap=cmap, norm=norm,
+                   **{**SCATTER_STYLE, "s": SS_FINE * 1.5})
+        ax.set_ylabel(sess.replace("session_", "s") + "\n" + r"Sun sep. [deg]",
+                      fontsize=TICK_SIZE - 1)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M", tz=tz))
+        ax.tick_params(axis="x", rotation=20, labelsize=TICK_SIZE - 2)
+        ax.tick_params(axis="y", labelsize=TICK_SIZE - 2)
+        ax.grid(True, **GRID_STYLE)
+
+    axes[-1].set_xlabel("Leuschner local time (Berkeley, CA / Pacific Time)",
+                        fontsize=LABEL_SIZE)
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=axes, orientation="horizontal",
+                         location="bottom", pad=0.08, shrink=0.6,
+                         aspect=40)
+    cbar.set_label(r"$T_\mathrm{sys}$ [K]", fontsize=LABEL_SIZE)
+    cbar.ax.tick_params(labelsize=TICK_SIZE - 2)
+    suptitle = title or (
+        r"Per-session Sun angular distance vs Leuschner local time "
+        r"(coloured by $T_\mathrm{sys}$, pol 1)"
     )
     fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
     return fig, list(axes)

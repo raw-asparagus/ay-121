@@ -852,7 +852,7 @@ def main():
     print('Hardware ready.')
 
     try:
-        for phase in ('even', 'odd'):
+        for phase in ('even',):  # 'odd' temporarily disabled — re-add to enable interleave phase
             cells = plan_phase(phase, cell_total_time_sec)
             if not cells:
                 print(f'  Phase {phase}: no remaining cells, skipping.')

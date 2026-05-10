@@ -9,13 +9,31 @@ git pull
 # Run from labs/04/ so OUTPUT_DIR='data/{nps,main}' and artifacts/ paths resolve
 cd labs/04 || { echo "labs/04 not found"; exit 1; }
 
+fmt_elapsed() {
+    local s=$1
+    printf '%dh%02dm%02ds' $((s/3600)) $(((s%3600)/60)) $((s%60))
+}
+
+T0=$(date +%s)
+echo "=== Launch: $(date -u +'%Y-%m-%dT%H:%M:%SZ') (t=0) ==="
+
 # Stage 1: NPS run, capped to ~1h23m so we hand off to the galactic-plane
 # loop just as l=5.37, b=+6 (galactic-centre-ish, dec=-21 deg) rises above
 # the 17 deg alt limit at Leuschner.  nps.py runs main() once and exits;
 # `timeout` enforces the cap if main() hasn't returned by then.
+T1=$(date +%s)
 echo "=== Stage 1: NPS (up to ~1h23m, until l=5.37 b=6 rises) ==="
+echo "  start:  $(date -u -d "@$T1" +'%Y-%m-%dT%H:%M:%SZ')  (t+$(fmt_elapsed $((T1-T0))))"
 timeout 5000 env PYTHONPATH=../.. python3 scripts/main/nps.py
+T1_END=$(date +%s)
+echo "  finish: $(date -u -d "@$T1_END" +'%Y-%m-%dT%H:%M:%SZ')  (t+$(fmt_elapsed $((T1_END-T0))), stage 1 took $(fmt_elapsed $((T1_END-T1))))"
 
-# Stage 2: galactic-plane loop (radio.py wraps main() in `while True`).
+# Stage 2: galactic-plane loop (scripts/main/main wraps main() in `while True`).
+T2=$(date +%s)
 echo "=== Stage 2: galactic-plane loop ==="
-PYTHONPATH=../.. python3 scripts/main/radio.py
+echo "  start:  $(date -u -d "@$T2" +'%Y-%m-%dT%H:%M:%SZ')  (t+$(fmt_elapsed $((T2-T0))))"
+PYTHONPATH=../.. python3 scripts/main/main
+T2_END=$(date +%s)
+echo "  finish: $(date -u -d "@$T2_END" +'%Y-%m-%dT%H:%M:%SZ')  (t+$(fmt_elapsed $((T2_END-T0))), stage 2 took $(fmt_elapsed $((T2_END-T2))))"
+
+echo "=== Total runtime: $(fmt_elapsed $((T2_END-T0))) ==="

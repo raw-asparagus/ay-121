@@ -244,8 +244,9 @@ def _bright_body_radec(unix_t):
     """Return (sun_ra_deg, sun_dec_deg, moon_ra_deg, moon_dec_deg) at unix_t.
 
     Uses astropy ``get_sun`` / ``get_body``.  Moon RA/Dec is geocentric;
-    the parallax is small (<1 deg) and irrelevant at the 10 deg avoidance
-    threshold.
+    its topocentric parallax (<1 deg) is well below the MOON_AVOID_DEG=10
+    threshold and the Sun's parallax is sub-arcsec at this distance, so
+    no parallax correction is applied.
     """
     t = Time(unix_t, format='unix')
     sun = get_sun(t)

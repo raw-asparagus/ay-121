@@ -770,3 +770,140 @@ def plot_calibrated_profiles(
         ax_freq.ticklabel_format(axis="x", useOffset=False)
 
     return fig, ax
+
+
+# ---------------------------------------------------------------------------
+# Per-session T_sys diagnostics
+# ---------------------------------------------------------------------------
+
+def plot_tsys_histograms_per_session(
+    tsys_per_session: dict,
+    *,
+    T_cal: float,
+    title: str | None = None,
+) -> tuple[plt.Figure, list[plt.Axes]]:
+    """Stacked per-session histograms of cell T_sys.
+
+    ``tsys_per_session`` maps a session label to an iterable of T_sys
+    values (one per cell).  Each panel shows the session histogram,
+    the session median (solid), and the global median across all
+    sessions (dashed).
+    """
+    sessions = [s for s, v in tsys_per_session.items() if len(v)]
+    if not sessions:
+        fig, ax = textwidth_figure(2)
+        ax.set_axis_off()
+        return fig, [ax]
+
+    all_tsys = np.concatenate([np.asarray(tsys_per_session[s], dtype=float)
+                               for s in sessions])
+    lo = np.floor(np.percentile(all_tsys, 1))
+    hi = np.ceil(np.percentile(all_tsys, 99))
+    bins = np.linspace(lo, hi, 41)
+    global_med = float(np.median(all_tsys))
+
+    n = len(sessions)
+    fig = plt.figure(figsize=(TEXTWIDTH_IN, 1.4 * n + 0.5))
+    fig.set_layout_engine("tight")
+    axes = fig.subplots(n, 1, sharex=True)
+    if n == 1:
+        axes = [axes]
+
+    for ax, sess in zip(axes, sessions):
+        vals = np.asarray(tsys_per_session[sess], dtype=float)
+        ax.hist(vals, bins=bins, color="C0",
+                edgecolor="black", linewidth=LW_FINE)
+        med = float(np.median(vals))
+        ax.axvline(med, color="C3", lw=LW_LIGHT,
+                   label=rf"median = {med:.0f} K")
+        ax.axvline(global_med, color=NEUTRAL_COLOR, ls="--", lw=LW_FINE,
+                   label=rf"global = {global_med:.0f} K")
+        ax.set_ylabel(sess.replace("session_", "s"),
+                      rotation=0, ha="right", va="center",
+                      fontsize=TICK_SIZE - 1)
+        ax.text(0.99, 0.85, rf"$N={len(vals)}$",
+                transform=ax.transAxes,
+                ha="right", va="top", fontsize=TICK_SIZE - 2)
+        ax.legend(loc="upper left", fontsize=LEGEND_SIZE - 2,
+                  framealpha=0.85)
+        ax.tick_params(axis="y", labelsize=TICK_SIZE - 2)
+        ax.grid(True, **GRID_STYLE)
+
+    axes[-1].set_xlabel(r"$T_\mathrm{sys}$ [K]", fontsize=LABEL_SIZE)
+    suptitle = title or rf"Per-session $T_\mathrm{{sys}}$ ($T_\mathrm{{cal}} = {T_cal:g}$ K, pol 1)"
+    fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
+    return fig, list(axes)
+
+
+def plot_tsys_vs_local_time_per_session(
+    points_per_session: dict,
+    *,
+    T_cal: float,
+    tz,
+    cmap: str = "plasma",
+    title: str | None = None,
+) -> tuple[plt.Figure, list[plt.Axes]]:
+    """Per-session scatter of cell T_sys vs local time, coloured by Sun separation.
+
+    ``points_per_session`` maps a session label to a 3-tuple
+    ``(times_local, tsys_vals, sun_sep_deg)`` -- all equal-length
+    sequences.  ``times_local`` must be tz-aware datetimes (in ``tz``).
+    A single shared colorbar spans all sessions.
+    """
+    import matplotlib.dates as mdates
+
+    sessions = [s for s, (t, *_rest) in points_per_session.items() if len(t)]
+    if not sessions:
+        fig, ax = textwidth_figure(2)
+        ax.set_axis_off()
+        return fig, [ax]
+
+    all_tsys = np.concatenate([np.asarray(points_per_session[s][1], dtype=float)
+                               for s in sessions])
+    all_seps = np.concatenate([np.asarray(points_per_session[s][2], dtype=float)
+                               for s in sessions])
+    global_med = float(np.median(all_tsys))
+    norm = mpl.colors.Normalize(vmin=float(np.min(all_seps)),
+                                 vmax=float(np.max(all_seps)))
+
+    n = len(sessions)
+    fig = plt.figure(figsize=(TEXTWIDTH_IN, 2.0 * n + 0.5))
+    fig.set_layout_engine("tight")
+    axes = fig.subplots(n, 1, sharey=True)
+    if n == 1:
+        axes = [axes]
+
+    for ax, sess in zip(axes, sessions):
+        times_local, tsys_vals, seps = points_per_session[sess]
+        order = np.argsort(times_local)
+        t_ord = [times_local[i] for i in order]
+        tsys_ord = np.asarray(tsys_vals, dtype=float)[order]
+        sep_ord = np.asarray(seps, dtype=float)[order]
+        ax.scatter(t_ord, tsys_ord, c=sep_ord, cmap=cmap, norm=norm,
+                   **{**SCATTER_STYLE, "s": SS_FINE * 1.5})
+        med = float(np.median(tsys_ord))
+        ax.axhline(med, color="C3", lw=LW_LIGHT,
+                   label=rf"median = {med:.0f} K")
+        ax.axhline(global_med, color=NEUTRAL_COLOR, ls="--", lw=LW_FINE,
+                   label=rf"global = {global_med:.0f} K")
+        ax.set_ylabel(sess.replace("session_", "s") + "\n" + r"$T_\mathrm{sys}$ [K]",
+                      fontsize=TICK_SIZE - 1)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M", tz=tz))
+        ax.tick_params(axis="x", rotation=20, labelsize=TICK_SIZE - 2)
+        ax.tick_params(axis="y", labelsize=TICK_SIZE - 2)
+        ax.legend(loc="upper left", fontsize=LEGEND_SIZE - 2,
+                  framealpha=0.85)
+        ax.grid(True, **GRID_STYLE)
+
+    axes[-1].set_xlabel("Leuschner local time (Berkeley, CA / Pacific Time)",
+                        fontsize=LABEL_SIZE)
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=axes, pad=0.02, shrink=0.85)
+    cbar.set_label("Angular distance from Sun [deg]", fontsize=LABEL_SIZE)
+    suptitle = title or (
+        rf"Per-session $T_\mathrm{{sys}}$ vs Leuschner local time "
+        rf"($T_\mathrm{{cal}} = {T_cal:g}$ K, pol 1)"
+    )
+    fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
+    return fig, list(axes)

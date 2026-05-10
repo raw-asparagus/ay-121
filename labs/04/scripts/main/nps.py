@@ -66,8 +66,12 @@ SUN_AVOID_DEG  = 30.0   # skip cells within this angular distance of the Sun (Su
 MOON_AVOID_DEG = 10.0   # skip cells within this angular distance of the Moon (0 to disable)
 OUTPUT_DIR   = 'data/nps'  # relative to cwd (expected: labs/04/)
 
-# Grid bounds (North Polar Spur: l 210-380 wrapping, b 0-70)
-L_CENTER     = 295.0
+# Grid bounds (North Polar Spur: l 210-380 wrapping, b 0-70).
+# L_CENTER is the phase anchor of the cos(b)-corrected longitude grid; setting
+# it to 120 keeps NPS rows on the same phase as the galactic-plane survey so
+# their brick interleaves are mutually consistent.  The anchor may sit outside
+# [L_MIN, L_MAX] -- _build_l_row filters the final row to stay in range.
+L_CENTER     = 120.0
 L_MIN, L_MAX = 210.0, 380.0
 B_MIN, B_MAX = 0, 70
 B_STEP       = 2
@@ -115,7 +119,7 @@ def _build_l_row(b_deg, l_center=L_CENTER):
         l_vals.append(round(l, 2))
         l -= dl
 
-    return sorted(l_vals)
+    return sorted(v for v in l_vals if L_MIN <= v <= L_MAX)
 
 
 def build_galplane_grid(phase='even'):

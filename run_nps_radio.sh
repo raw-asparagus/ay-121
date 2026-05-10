@@ -24,7 +24,7 @@ echo "=== Launch: $(date -u +'%Y-%m-%dT%H:%M:%SZ') (t=0) ==="
 T1=$(date +%s)
 echo "=== Stage 1: NPS (up to ~1h23m, until l=5.37 b=6 rises) ==="
 echo "  start:  $(date -u -d "@$T1" +'%Y-%m-%dT%H:%M:%SZ')  (t+$(fmt_elapsed $((T1-T0))))"
-timeout 5000 env PYTHONPATH=../.. python3 scripts/main/nps.py
+timeout 10800 env PYTHONPATH=../.. python3 scripts/main/nps.py
 T1_END=$(date +%s)
 echo "  finish: $(date -u -d "@$T1_END" +'%Y-%m-%dT%H:%M:%SZ')  (t+$(fmt_elapsed $((T1_END-T0))), stage 1 took $(fmt_elapsed $((T1_END-T1))))"
 

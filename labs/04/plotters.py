@@ -95,6 +95,64 @@ def plot_hi_spectrum(
 
 
 # ---------------------------------------------------------------------------
+# Beam-outline polygons for Mollweide overlays
+# ---------------------------------------------------------------------------
+
+def beam_outline_polys(
+    center_lon_deg: np.ndarray,
+    center_lat_deg: np.ndarray,
+    hpbw_deg: float,
+    *,
+    n_vertices: int = 25,
+    lat_clamp_deg: float = 78.0,
+    seam_lon_deg: float = 180.0,
+) -> tuple[list[np.ndarray], np.ndarray]:
+    """Build small-circle beam outlines on a cylindrical (lon, lat) grid.
+
+    Returns ``(polys, src_idx)`` where each entry of ``polys`` is an
+    ``(n, 2)`` array of (lon, lat) vertices in radians, suitable for
+    ``PolyCollection``, and ``src_idx[i]`` is the index of the input
+    pointing that produced ``polys[i]``.  A pointing whose outline
+    straddles the +/-``seam_lon_deg`` meridian yields two polygons (one
+    on each side of the seam) with the same ``src_idx``; callers can use
+    ``src_idx`` to fan out per-pointing colours.
+
+    The 1/cos(lat) longitude correction is clamped at ``lat_clamp_deg``
+    so beams pointed near the pole/zenith do not blow up across the
+    projection.
+    """
+    cl = np.atleast_1d(np.asarray(center_lon_deg, dtype=float))
+    cb = np.atleast_1d(np.asarray(center_lat_deg, dtype=float))
+    phi = np.linspace(0.0, 2.0 * np.pi, n_vertices)
+    r = hpbw_deg / 2.0
+    polys: list[np.ndarray] = []
+    src_idx: list[int] = []
+    for i, (lon0, lat0) in enumerate(zip(cl, cb)):
+        clamped_lat = min(abs(float(lat0)), lat_clamp_deg)
+        cos_lat = math.cos(math.radians(clamped_lat))
+        dlon = r * np.sin(phi) / cos_lat
+        dlat = r * np.cos(phi)
+        lon_unwrapped = float(lon0) + dlon
+        lat_pts = float(lat0) + dlat
+        lon_wrapped = ((lon_unwrapped + seam_lon_deg) % (2 * seam_lon_deg)) - seam_lon_deg
+        if lon_wrapped.max() - lon_wrapped.min() > seam_lon_deg:
+            for mask in (lon_wrapped < 0, lon_wrapped >= 0):
+                if mask.any():
+                    polys.append(np.column_stack([
+                        np.deg2rad(lon_wrapped[mask]),
+                        np.deg2rad(lat_pts[mask]),
+                    ]))
+                    src_idx.append(i)
+        else:
+            polys.append(np.column_stack([
+                np.deg2rad(lon_wrapped),
+                np.deg2rad(lat_pts),
+            ]))
+            src_idx.append(i)
+    return polys, np.asarray(src_idx, dtype=int)
+
+
+# ---------------------------------------------------------------------------
 # Mollweide accessibility overlay
 # ---------------------------------------------------------------------------
 

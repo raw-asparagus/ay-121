@@ -332,11 +332,11 @@ def plot_heatmap(
     l_unique = np.arange(gl_int.min(), gl_int.max() + 1)
     b_unique = np.arange(gb_int.min(), gb_int.max() + 1)
     grid = np.full((len(b_unique), len(l_unique)), np.nan)
-    for i in range(len(vals)):
-        li = np.searchsorted(l_unique, gl_int[i])
-        bi = np.searchsorted(b_unique, gb_int[i])
-        if 0 <= li < len(l_unique) and 0 <= bi < len(b_unique):
-            grid[bi, li] = vals[i]
+    # Cells are unique (gl, gb) by construction, so fancy-index assign is safe.
+    li = np.searchsorted(l_unique, gl_int)
+    bi = np.searchsorted(b_unique, gb_int)
+    in_bounds = (li >= 0) & (li < len(l_unique)) & (bi >= 0) & (bi < len(b_unique))
+    grid[bi[in_bounds], li[in_bounds]] = np.asarray(vals)[in_bounds]
 
     fig, ax = textwidth_figure(5)
     im = ax.imshow(
@@ -972,6 +972,135 @@ def plot_sun_sep_vs_local_time_per_session(
     suptitle = title or (
         r"Per-session Sun angular distance vs Leuschner local time "
         r"(coloured by $T_\mathrm{sys}$, pol 1)"
+    )
+    fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
+    return fig, list(axes)
+
+
+def plot_repeat_cell_drift(
+    sessions_ordered: list,
+    tsys_by_session_cell: dict,
+    gain_by_session_cell: dict,
+    *,
+    T_cal: float,
+    title: str | None = None,
+    bins: int = 30,
+) -> tuple[plt.Figure, list[plt.Axes]]:
+    """Histogram of per-cell max - min for repeat cells (>=2 sessions).
+
+    Top: spread of T_sys [K] across sessions for the same pointing.
+    Bottom: spread of the diode step ``gain * T_cal`` [K-equivalent] across
+    sessions for the same pointing. A narrow distribution near zero means
+    the instrument (receiver + diode) is stable cell-by-cell; a wide or
+    offset distribution implies drift between sessions.
+    """
+    cell_to_sessions = {}
+    for (sess, gl, gb), _ in tsys_by_session_cell.items():
+        cell_to_sessions.setdefault((gl, gb), []).append(sess)
+    repeat_cells = [k for k, ss in cell_to_sessions.items() if len(set(ss)) >= 2]
+
+    t_spreads, g_spreads = [], []
+    for (gl, gb) in repeat_cells:
+        ts, gs = [], []
+        for sess in sessions_ordered:
+            t = tsys_by_session_cell.get((sess, gl, gb))
+            g = gain_by_session_cell.get((sess, gl, gb))
+            if t is not None and np.isfinite(t):
+                ts.append(float(t))
+            if g is not None and np.isfinite(g):
+                gs.append(float(g) * T_cal)
+        if len(ts) >= 2:
+            t_spreads.append(max(ts) - min(ts))
+        if len(gs) >= 2:
+            g_spreads.append(max(gs) - min(gs))
+
+    t_spreads = np.asarray(t_spreads, dtype=float)
+    g_spreads = np.asarray(g_spreads, dtype=float)
+
+    fig = plt.figure(figsize=(TEXTWIDTH_IN, 4.5))
+    fig.set_layout_engine("tight")
+    ax_t, ax_g = fig.subplots(2, 1)
+
+    for ax, data, xlabel in (
+        (ax_t, t_spreads, r"$T_\mathrm{sys}^{\max} - T_\mathrm{sys}^{\min}$ [K]"),
+        (ax_g, g_spreads,
+         rf"$(g \cdot T_\mathrm{{cal}})^{{\max}} - (g \cdot T_\mathrm{{cal}})^{{\min}}$ "
+         rf"[K, $T_\mathrm{{cal}}={T_cal:g}$ K]"),
+    ):
+        if data.size:
+            ax.hist(data, bins=bins, color="C0",
+                    edgecolor=NEUTRAL_COLOR, alpha=ALPHA_STANDARD)
+            med = float(np.median(data))
+            p90 = float(np.percentile(data, 90))
+            ax.axvline(med, color="C3", lw=LW_LIGHT,
+                       label=rf"median = {med:.1f}")
+            ax.axvline(p90, color=NEUTRAL_COLOR, ls="--", lw=LW_FINE,
+                       label=rf"p90 = {p90:.1f}")
+            ax.legend(loc="upper right", fontsize=LEGEND_SIZE - 1,
+                      framealpha=0.85)
+        ax.set_xlabel(xlabel, fontsize=LABEL_SIZE)
+        ax.set_ylabel("cells", fontsize=LABEL_SIZE)
+        ax.grid(True, **GRID_STYLE)
+
+    suptitle = title or (
+        rf"Per-cell cross-session spread (max $-$ min), "
+        rf"{len(repeat_cells)} cells observed in $\geq 2$ sessions"
+    )
+    fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
+    return fig, [ax_t, ax_g]
+
+
+def plot_tsys_vs_alt_per_session(
+    points_per_session: dict,
+    *,
+    T_cal: float,
+    title: str | None = None,
+) -> tuple[plt.Figure, list[plt.Axes]]:
+    """Per-session scatter of cell T_sys vs mean altitude.
+
+    ``points_per_session`` maps a session label to a 2-tuple
+    ``(alt_deg, tsys_vals)`` of equal-length sequences.
+    """
+    sessions = [s for s, (a, *_rest) in points_per_session.items() if len(a)]
+    if not sessions:
+        fig, ax = textwidth_figure(2)
+        ax.set_axis_off()
+        return fig, [ax]
+
+    all_tsys = np.concatenate([np.asarray(points_per_session[s][1], dtype=float)
+                               for s in sessions])
+    global_med = float(np.median(all_tsys))
+
+    n = len(sessions)
+    fig = plt.figure(figsize=(TEXTWIDTH_IN, 2.0 * n + 0.5))
+    fig.set_layout_engine("tight")
+    axes = fig.subplots(n, 1, sharex=True, sharey=True)
+    if n == 1:
+        axes = [axes]
+
+    for ax, sess in zip(axes, sessions):
+        alt_vals, tsys_vals = points_per_session[sess]
+        alt_arr = np.asarray(alt_vals, dtype=float)
+        tsys_arr = np.asarray(tsys_vals, dtype=float)
+        ax.scatter(alt_arr, tsys_arr, color="C0",
+                   **{**SCATTER_STYLE, "s": SS_FINE * 1.5})
+        med = float(np.median(tsys_arr))
+        ax.axhline(med, color="C3", lw=LW_LIGHT,
+                   label=rf"median = {med:.0f} K")
+        ax.axhline(global_med, color=NEUTRAL_COLOR, ls="--", lw=LW_FINE,
+                   label=rf"global = {global_med:.0f} K")
+        ax.set_ylabel(sess.replace("session_", "s") + "\n" + r"$T_\mathrm{sys}$ [K]",
+                      fontsize=TICK_SIZE - 1)
+        ax.tick_params(axis="x", labelsize=TICK_SIZE - 2)
+        ax.tick_params(axis="y", labelsize=TICK_SIZE - 2)
+        ax.legend(loc="upper right", fontsize=LEGEND_SIZE - 2,
+                  framealpha=0.85)
+        ax.grid(True, **GRID_STYLE)
+
+    axes[-1].set_xlabel("Mean altitude [deg]", fontsize=LABEL_SIZE)
+    suptitle = title or (
+        rf"Per-session $T_\mathrm{{sys}}$ vs altitude "
+        rf"($T_\mathrm{{cal}} = {T_cal:g}$ K, pol 1)"
     )
     fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
     return fig, list(axes)

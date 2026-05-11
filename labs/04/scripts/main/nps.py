@@ -78,7 +78,7 @@ B_STEP       = 2
 PHYSICAL_SPACING_DEG = 2.0
 
 # Per-pointing dump schedule (plane is bright: T_B ~ 50-150 K)
-CAL_DUMPS_PER_LO = 1    # 1 cal dump per LO = 2 cal total
+CAL_DUMPS_PER_LO = 2    # 2 cal dumps per LO = 4 cal total
 OBS_DUMPS_PER_LO = 3    # 3 obs dumps per LO = 6 obs total
 N_LOS = 2
 DUMPS_PER_CELL = (CAL_DUMPS_PER_LO + OBS_DUMPS_PER_LO) * N_LOS

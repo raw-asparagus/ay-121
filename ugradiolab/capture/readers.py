@@ -312,6 +312,11 @@ def make_calibrated_sdr_reader(
     call_count = 0
     submit_count = 0
     current_noise_state = None
+    # Settle time after a diode state change, before the next integration
+    # starts. Lets the noise diode and any thermal tail in the LNA chain
+    # reach steady state so the first cal/obs dump after a transition is
+    # not biased by the transient.
+    NOISE_SETTLE_S = 0.5
 
     def _set_noise(on):
         nonlocal current_noise_state
@@ -321,6 +326,7 @@ def make_calibrated_sdr_reader(
             else:
                 noise.off()
             current_noise_state = on
+            time.sleep(NOISE_SETTLE_S)
 
     # ----- Per-cell mode -----
     if cell_event is not None:

@@ -77,9 +77,10 @@ def build_heatmap(
     l_unique = np.arange(gl_int.min(), gl_int.max() + 1)
     b_unique = np.arange(gb_int.min(), gb_int.max() + 1)
     map_val = np.full((len(b_unique), len(l_unique)), np.nan)
-    for i in range(len(vals)):
-        li = np.searchsorted(l_unique, gl_int[i])
-        bi = np.searchsorted(b_unique, gb_int[i])
-        if 0 <= li < len(l_unique) and 0 <= bi < len(b_unique):
-            map_val[bi, li] = vals[i]
+    # Cells in this survey are unique (gl, gb) pairs by construction, so
+    # fancy-index assignment is unambiguous (no duplicate-overwrite races).
+    li = np.searchsorted(l_unique, gl_int)
+    bi = np.searchsorted(b_unique, gb_int)
+    in_bounds = (li >= 0) & (li < len(l_unique)) & (bi >= 0) & (bi < len(b_unique))
+    map_val[bi[in_bounds], li[in_bounds]] = np.asarray(vals)[in_bounds]
     return map_val, l_unique, b_unique

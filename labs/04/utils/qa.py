@@ -322,16 +322,24 @@ def neighbor_qa(
     cell_coords = np.array(cell_keys, dtype=float)
     neighbor_cells: list[dict] = []
 
-    for gl, gb in cell_keys:
+    # Precompute the full N x N separation matrix once. The per-row math is
+    # identical to the original per-cell inline computation (same operand
+    # order, same broadcasts), so neighbor selection is bit-for-bit
+    # equivalent to the previous loop body.
+    gl_col = cell_coords[:, 0]
+    gb_col = cell_coords[:, 1]
+    dl_mat = ((gl_col[None, :] - gl_col[:, None] + 180.0) % 360.0) - 180.0
+    db_mat = gb_col[None, :] - gb_col[:, None]
+    x_mat = dl_mat * np.cos(np.deg2rad(0.5 * (gb_col[None, :] + gb_col[:, None])))
+    sep_mat = np.hypot(x_mat, db_mat)
+
+    for i, (gl, gb) in enumerate(cell_keys):
         cell = cell_metrics.get((gl, gb))
         if cell is None:
             continue
         cell = dict(cell)  # copy so we don't mutate the input
 
-        dl = ((cell_coords[:, 0] - gl + 180.0) % 360.0) - 180.0
-        db = cell_coords[:, 1] - gb
-        x = dl * np.cos(np.deg2rad(0.5 * (cell_coords[:, 1] + gb)))
-        sep = np.hypot(x, db)
+        sep = sep_mat[i]
         neighbor_indices = np.where(
             (sep > 0) & (sep <= neighbor_max_sep_deg),
         )[0]

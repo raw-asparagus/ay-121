@@ -212,27 +212,36 @@ class _PipelinedSDR:
 def _build_cell_schedule(lo_list, cal_dumps_per_lo, obs_dumps_per_lo):
     """Build an interleaved cal+obs LO schedule for one cell.
 
-    Cal phase: one dump per LO in list order (``LO1, LO2, ...``),
-    repeated ``cal_dumps_per_lo`` times per LO.
+    Cal phase: ABBA interleaving cycled to fill ``cal_dumps_per_lo`` dumps
+    per LO. With 2 LOs (A, B) and ``cal_dumps_per_lo=2`` the cal block is
+    ``A, B, B, A`` so the mean cal time of each LO coincides -- any linear
+    drift during the cal phase (LNA warming after diode on, slow gain
+    drift) cancels in the LO ratio rather than biasing G(LO1) vs G(LO2).
+    Reduces to ``A, B`` for ``cal_dumps_per_lo=1``.
 
     Obs phase: ABBA interleaving starting from the last cal LO.
     The unit ``reversed(lo_list) + lo_list`` is cycled for
     ``obs_dumps_per_lo * len(lo_list)`` dumps, ensuring maximum
     temporal mixing::
 
-        cal_dumps_per_lo=1, obs_dumps_per_lo=3, 2 LOs (A, B):
-          CAL-A, CAL-B, OBS-B, OBS-A, OBS-A, OBS-B, OBS-B, OBS-A
+        cal_dumps_per_lo=2, obs_dumps_per_lo=3, 2 LOs (A, B):
+          CAL-A, CAL-B, CAL-B, CAL-A, OBS-A, OBS-B, OBS-B, OBS-A, OBS-A, OBS-B
 
     Returns list of ``(lo_mhz, noise_on)`` tuples.
     """
     schedule = []
-    for lo in lo_list:
-        schedule.extend([(lo, True)] * cal_dumps_per_lo)
+    abba = list(lo_list) + list(reversed(lo_list))
+    total_cal = cal_dumps_per_lo * len(lo_list)
+    for i in range(total_cal):
+        schedule.append((abba[i % len(abba)], True))
 
-    abba = list(reversed(lo_list)) + list(lo_list)
+    abba_obs = list(reversed(lo_list)) + list(lo_list)
+    # Start obs at the last cal LO to avoid a PLL settle at the boundary.
+    last_cal_lo = schedule[-1][0] if schedule else lo_list[0]
+    obs_start = abba_obs.index(last_cal_lo)
     total_obs = obs_dumps_per_lo * len(lo_list)
     for i in range(total_obs):
-        schedule.append((abba[i % len(abba)], False))
+        schedule.append((abba_obs[(obs_start + i) % len(abba_obs)], False))
 
     return schedule
 

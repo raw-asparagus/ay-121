@@ -43,6 +43,7 @@ from ugradiolab.astronomy import (
     LEO_LON_DEG,
     LEO_OBS_ALT_M,
     compute_gal_pointing,
+    compute_radec_pointing,
 )
 from ugradiolab.capture import StreamingCapture
 from ugradiolab.capture.readers import make_calibrated_sdr_reader
@@ -82,6 +83,21 @@ CAL_DUMPS_PER_LO = 2    # 2 cal dumps per LO = 4 cal total
 OBS_DUMPS_PER_LO = 3    # 3 obs dumps per LO = 6 obs total
 N_LOS = 2
 DUMPS_PER_CELL = (CAL_DUMPS_PER_LO + OBS_DUMPS_PER_LO) * N_LOS
+
+# Periodic re-cal drift check: every RECAL_EVERY_N_CELLS successful cells
+# the dish points to a fixed circumpolar reference (RA/Dec) and runs the
+# normal cell schedule (cal + obs). Because the sky is identical at every
+# visit, any drift in (P_on - P_off) or T_sys at this target is purely
+# instrumental -- a direct timeline of receiver / diode drift through the
+# session. From Leuschner (lat=37.92 deg N), Dec > 69 deg is circumpolar
+# above the 17 deg altitude limit; this pointing is at Dec=+75 deg, RA=14h
+# (210 deg), corresponding to galactic (l~116, b~+40) -- cold high-latitude
+# sky so any T_sys variation reflects the receiver, not source structure.
+RECAL_ENABLE = True
+RECAL_RA_DEG = 210.0
+RECAL_DEC_DEG = 75.0
+RECAL_EVERY_N_CELLS = 20
+RECAL_NAME = 'obs_recal_drift'  # 'obs_' prefix needed for cal/obs routing
 
 def _detect_next_session() -> int:
     """Return one greater than the highest existing session_NNN dir, or 1."""
@@ -396,8 +412,11 @@ def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0, u
     n_drop_az = 0
     n_drop_sun = 0
     n_drop_moon = 0
+    # Periodic re-cal inserts one extra cell every RECAL_EVERY_N_CELLS, so
+    # actual elapsed time per scheduled cell is scaled by this factor.
+    recal_factor = (1.0 + 1.0 / RECAL_EVERY_N_CELLS) if RECAL_ENABLE else 1.0
     for i, (row, col, l, b) in enumerate(cells):
-        proj_t = now + (index_offset + i + 0.5) * cell_total_time_sec
+        proj_t = now + (index_offset + i + 0.5) * cell_total_time_sec * recal_factor
         ra, dec = _cell_radec(l, b)
         alt, az = _fast_altaz(ra, dec, proj_t)
         in_alt = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
@@ -544,6 +563,13 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
     get observed.  If a full retry pass completes with zero successful
     observations, the remaining cells are abandoned and done_event is set.
 
+    Every ``RECAL_EVERY_N_CELLS`` successful cells the selector inserts a
+    drift-check pointing at the fixed circumpolar (RA, Dec) reference; the
+    reader runs the normal per-cell schedule there, writing data to
+    ``obs_recal_drift/`` / ``cal_recal_drift/``.  Recal cells outside the
+    alt/az limits at the current sidereal time are simply skipped (the
+    survey resumes immediately).
+
     The selector coordinates with the per-cell reader via events:
 
     * **cell_done_event** -- set by the reader when its per-cell schedule
@@ -559,11 +585,18 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
     current_cell_idx = 0
     skipped = []
     cells_observed_this_pass = 0
+    # Start a session with an immediate recal so it doubles as a diode
+    # warm-up and provides a t=0 reference point for the drift timeline.
+    cells_since_recal = RECAL_EVERY_N_CELLS if RECAL_ENABLE else 0
+    in_recal_cell = False  # True while serving a recal pointing
     need_cell_start = True   # signal reader to begin (first cell or after advance)
     need_return_none = False  # return None once to clear pointing state on transition
 
     _, _, cl, cb = cell_list[0]
     print(f'  [scan] {len(cell_list)} cells, first: l={cl} b={cb}')
+    if RECAL_ENABLE:
+        print(f'  [scan] Drift recal: RA={RECAL_RA_DEG:.2f}, '
+              f'Dec={RECAL_DEC_DEG:+.2f} every {RECAL_EVERY_N_CELLS} cells')
 
     def _start_retry_pass():
         nonlocal current_cell_idx, cells_observed_this_pass
@@ -593,6 +626,7 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
 
     def target_selector():
         nonlocal current_cell_idx, cells_observed_this_pass
+        nonlocal cells_since_recal, in_recal_cell
         nonlocal need_cell_start, need_return_none
 
         if done_event.is_set():
@@ -602,16 +636,43 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
         # then advance on the next call.
         if cell_done_event.is_set():
             cell_done_event.clear()
-            cells_observed_this_pass += 1
-            current_cell_idx += 1
+            if in_recal_cell:
+                in_recal_cell = False
+            else:
+                cells_observed_this_pass += 1
+                cells_since_recal += 1
+                current_cell_idx += 1
             need_return_none = True
             need_cell_start = True
-            if _check_end_of_list():
+            if not in_recal_cell and _check_end_of_list():
                 return None
 
         if need_return_none:
             need_return_none = False
             return None  # pointing -> None; reader waits for valid state
+
+        # Inject recal cell when due, before serving the next survey cell.
+        if (RECAL_ENABLE and not in_recal_cell
+                and cells_since_recal >= RECAL_EVERY_N_CELLS):
+            alt, az, _ = compute_radec_pointing(
+                RECAL_RA_DEG, RECAL_DEC_DEG,
+                lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
+            )
+            if MIN_ALT_DEG <= alt <= MAX_ALT_DEG and AZ_MIN <= az <= AZ_MAX:
+                in_recal_cell = True
+                cells_since_recal = 0
+                if need_cell_start:
+                    need_cell_start = False
+                    cell_event.set()
+                    print(f'  [scan] Recal drift check: '
+                          f'alt={alt:.1f}, az={az:.1f}')
+                return RECAL_NAME, alt, az, RECAL_RA_DEG, RECAL_DEC_DEG
+            else:
+                # Recal target out of limits right now -- skip and try
+                # again after a few more cells.
+                cells_since_recal = max(0, RECAL_EVERY_N_CELLS - 5)
+                print(f'  [scan] Recal target out of limits '
+                      f'(alt={alt:.1f}, az={az:.1f}); deferring.')
 
         if _check_end_of_list():
             return None
@@ -855,9 +916,12 @@ def main():
             if not cells:
                 print(f'  Phase {phase}: no remaining cells, skipping.')
                 continue
-            total_time_h = len(cells) * cell_total_time_sec / 3600
+            recal_factor = (1.0 + 1.0 / RECAL_EVERY_N_CELLS) if RECAL_ENABLE else 1.0
+            total_time_h = len(cells) * cell_total_time_sec * recal_factor / 3600
+            recal_note = (f' (incl. ~{len(cells) // RECAL_EVERY_N_CELLS} recal cells)'
+                          if RECAL_ENABLE else '')
             print(f'  Phase {phase}: {len(cells)} cells, '
-                  f'~{total_time_h:.1f} h estimated')
+                  f'~{total_time_h:.1f} h estimated{recal_note}')
             run_phase(phase, cells, telescope, sdrs, noise, next_session_dir())
     finally:
         noise.off()

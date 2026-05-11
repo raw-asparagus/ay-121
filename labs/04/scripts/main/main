@@ -911,9 +911,12 @@ def main():
             if not cells:
                 print(f'  Phase {phase}: no remaining cells, skipping.')
                 continue
-            total_time_h = len(cells) * cell_total_time_sec / 3600
+            recal_factor = (1.0 + 1.0 / RECAL_EVERY_N_CELLS) if RECAL_ENABLE else 1.0
+            total_time_h = len(cells) * cell_total_time_sec * recal_factor / 3600
+            recal_note = (f' (incl. ~{len(cells) // RECAL_EVERY_N_CELLS} recal cells)'
+                          if RECAL_ENABLE else '')
             print(f'  Phase {phase}: {len(cells)} cells, '
-                  f'~{total_time_h:.1f} h estimated')
+                  f'~{total_time_h:.1f} h estimated{recal_note}')
             run_phase(phase, cells, telescope, sdrs, noise, next_session_dir())
     finally:
         noise.off()

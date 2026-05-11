@@ -49,6 +49,7 @@ from ugradiolab.astronomy import (
     LEO_LON_DEG,
     LEO_OBS_ALT_M,
     compute_gal_pointing,
+    compute_radec_pointing,
 )
 from ugradiolab.capture import StreamingCapture
 from ugradiolab.capture.readers import make_calibrated_sdr_reader
@@ -80,10 +81,25 @@ B_STEP       = 2
 PHYSICAL_SPACING_DEG = 2.0
 
 # Per-pointing dump schedule (plane is bright: T_B ~ 50-150 K)
-CAL_DUMPS_PER_LO = 1    # 1 cal dump per LO = 2 cal total
+CAL_DUMPS_PER_LO = 2    # 2 cal dumps per LO = 4 cal total
 OBS_DUMPS_PER_LO = 3    # 3 obs dumps per LO = 6 obs total
 N_LOS = 2
 DUMPS_PER_CELL = (CAL_DUMPS_PER_LO + OBS_DUMPS_PER_LO) * N_LOS
+
+# Periodic re-cal drift check: every RECAL_EVERY_N_CELLS successful cells
+# the dish points to a fixed circumpolar reference (RA/Dec) and runs the
+# normal cell schedule (cal + obs). Because the sky is identical at every
+# visit, any drift in (P_on - P_off) or T_sys at this target is purely
+# instrumental -- a direct timeline of receiver / diode drift through the
+# session. From Leuschner (lat=37.92 deg N), Dec > 69 deg is circumpolar
+# above the 17 deg altitude limit; this pointing is at Dec=+75 deg, RA=14h
+# (210 deg), corresponding to galactic (l~116, b~+40) -- cold high-latitude
+# sky so any T_sys variation reflects the receiver, not source structure.
+RECAL_ENABLE = True
+RECAL_RA_DEG = 210.0
+RECAL_DEC_DEG = 75.0
+RECAL_EVERY_N_CELLS = 20
+RECAL_NAME = 'obs_recal_drift'  # 'obs_' prefix needed for cal/obs routing
 
 def _detect_next_session() -> int:
     """Return one greater than the highest existing session_NNN dir, or 1."""
@@ -398,8 +414,11 @@ def filter_cells_forward_simulated(cells, cell_total_time_sec, index_offset=0, u
     n_drop_az = 0
     n_drop_sun = 0
     n_drop_moon = 0
+    # Periodic re-cal inserts one extra cell every RECAL_EVERY_N_CELLS, so
+    # actual elapsed time per scheduled cell is scaled by this factor.
+    recal_factor = (1.0 + 1.0 / RECAL_EVERY_N_CELLS) if RECAL_ENABLE else 1.0
     for i, (row, col, l, b) in enumerate(cells):
-        proj_t = now + (index_offset + i + 0.5) * cell_total_time_sec
+        proj_t = now + (index_offset + i + 0.5) * cell_total_time_sec * recal_factor
         ra, dec = _cell_radec(l, b)
         alt, az = _fast_altaz(ra, dec, proj_t)
         in_alt = MIN_ALT_DEG <= alt <= MAX_ALT_DEG
@@ -561,11 +580,18 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
     current_cell_idx = 0
     skipped = []
     cells_observed_this_pass = 0
+    # Start a session with an immediate recal so it doubles as a diode
+    # warm-up and provides a t=0 reference point for the drift timeline.
+    cells_since_recal = RECAL_EVERY_N_CELLS if RECAL_ENABLE else 0
+    in_recal_cell = False
     need_cell_start = True   # signal reader to begin (first cell or after advance)
     need_return_none = False  # return None once to clear pointing state on transition
 
     _, _, cl, cb = cell_list[0]
     print(f'  [scan] {len(cell_list)} cells, first: l={cl} b={cb}')
+    if RECAL_ENABLE:
+        print(f'  [scan] Drift recal: RA={RECAL_RA_DEG:.2f}, '
+              f'Dec={RECAL_DEC_DEG:+.2f} every {RECAL_EVERY_N_CELLS} cells')
 
     def _start_retry_pass():
         nonlocal current_cell_idx, cells_observed_this_pass

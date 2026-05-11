@@ -212,37 +212,40 @@ class _PipelinedSDR:
 def _build_cell_schedule(lo_list, cal_dumps_per_lo, obs_dumps_per_lo):
     """Build an interleaved cal+obs LO schedule for one cell.
 
-    Cal phase: ABBA interleaving cycled to fill ``cal_dumps_per_lo`` dumps
-    per LO. With 2 LOs (A, B) and ``cal_dumps_per_lo=2`` the cal block is
-    ``A, B, B, A`` so the mean cal time of each LO coincides -- any linear
-    drift during the cal phase (LNA warming after diode on, slow gain
-    drift) cancels in the LO ratio rather than biasing G(LO1) vs G(LO2).
-    Reduces to ``A, B`` for ``cal_dumps_per_lo=1``.
+    A single ABBA cycle ``[A, B, B, A]`` runs through both the cal and the
+    obs phases without resetting at the boundary. This guarantees:
 
-    Obs phase: ABBA interleaving starting from the last cal LO.
-    The unit ``reversed(lo_list) + lo_list`` is cycled for
-    ``obs_dumps_per_lo * len(lo_list)`` dumps, ensuring maximum
-    temporal mixing::
+    * **Balanced LOs in both phases.** Each phase contains equal counts of
+      LO1 and LO2 whenever the per-LO dump count is an integer (which it
+      is by construction), avoiding any systematic bias between
+      ``mean(P_on_LO1)`` and ``mean(P_on_LO2)`` (and similarly for obs).
+    * **No PLL settle at the cal-to-obs boundary.** The obs phase starts
+      on the same LO that the cal phase ended on, since the cycle is
+      continuous across the transition.
+    * **Maximum temporal mixing within each phase.** ABBA prevents either
+      LO from sitting at a single time slice within a phase, so any linear
+      drift over the phase averages symmetrically.
 
-        cal_dumps_per_lo=2, obs_dumps_per_lo=3, 2 LOs (A, B):
+    Examples (2 LOs, A and B)::
+
+        cal_dumps_per_lo=1, obs_dumps_per_lo=3:
+          CAL-A, CAL-B, OBS-B, OBS-A, OBS-A, OBS-B, OBS-B, OBS-A
+        cal_dumps_per_lo=2, obs_dumps_per_lo=3:
           CAL-A, CAL-B, CAL-B, CAL-A, OBS-A, OBS-B, OBS-B, OBS-A, OBS-A, OBS-B
+        cal_dumps_per_lo=2, obs_dumps_per_lo=2:
+          CAL-A, CAL-B, CAL-B, CAL-A, OBS-A, OBS-B, OBS-B, OBS-A
 
     Returns list of ``(lo_mhz, noise_on)`` tuples.
     """
+    abba_cycle = list(lo_list) + list(reversed(lo_list))
+    cycle_len = len(abba_cycle)
     schedule = []
-    abba = list(lo_list) + list(reversed(lo_list))
     total_cal = cal_dumps_per_lo * len(lo_list)
     for i in range(total_cal):
-        schedule.append((abba[i % len(abba)], True))
-
-    abba_obs = list(reversed(lo_list)) + list(lo_list)
-    # Start obs at the last cal LO to avoid a PLL settle at the boundary.
-    last_cal_lo = schedule[-1][0] if schedule else lo_list[0]
-    obs_start = abba_obs.index(last_cal_lo)
+        schedule.append((abba_cycle[i % cycle_len], True))
     total_obs = obs_dumps_per_lo * len(lo_list)
     for i in range(total_obs):
-        schedule.append((abba_obs[(obs_start + i) % len(abba_obs)], False))
-
+        schedule.append((abba_cycle[(total_cal + i) % cycle_len], False))
     return schedule
 
 

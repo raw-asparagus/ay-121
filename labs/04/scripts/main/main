@@ -91,15 +91,32 @@ DUMPS_PER_CELL = (CAL_DUMPS_PER_LO + OBS_DUMPS_PER_LO) * N_LOS
 # normal cell schedule (cal + obs). Because the sky is identical at every
 # visit, any drift in (P_on - P_off) or T_sys at this target is purely
 # instrumental -- a direct timeline of receiver / diode drift through the
-# session. From Leuschner (lat=37.92 deg N), Dec > 69 deg is circumpolar
-# above the 17 deg altitude limit; this pointing is at Dec=+75 deg, RA=14h
-# (210 deg), corresponding to galactic (l~116, b~+40) -- cold high-latitude
-# sky so any T_sys variation reflects the receiver, not source structure.
+# session.
+#
+# From Leuschner (lat=37.92 deg N), no fixed (RA, Dec) target is *always*
+# within limits: any Dec > 69 deg is circumpolar above alt=17 deg but
+# crosses az=0 deg at both transits, hitting the 19 deg north exclusion
+# (AZ_MIN=7, AZ_MAX=348). Dec=+72 deg minimises the combined blockage to
+# ~8 h/day -- max az excursion ~22.4 deg comfortably clears the exclusion
+# at non-transit phases, lower transit alt ~19.9 deg has a safe 2.9 deg
+# margin above the 17 deg limit. RA=12h places transit windows away from
+# typical evening observing (~LST 12-17h around late spring). Galactic
+# (l~120, b~+44) -- extragalactic, very cold sky. The defer-and-retry
+# logic in the selector handles transit blockage cleanly: when the recal
+# target is in the exclusion, cells_since_recal is rolled back so the
+# recal fires within ~5 survey cells of the source clearing.
 RECAL_ENABLE = True
-RECAL_RA_DEG = 210.0
-RECAL_DEC_DEG = 75.0
+# Two targets at the same Dec=+72 deg but RA offset by 6h (90 deg). By
+# geometry the two transit-blockage windows of each target fall inside
+# the other target's safe window, so at any LST at least one of the two
+# is observable. The selector tries primary first, falls back to backup
+# if the primary is currently blocked. Both names get distinct cell dirs
+# so the drift timeline can be tracked per target.
+RECAL_TARGETS = [
+    {'name': 'obs_recal_drift',    'ra_deg': 180.0, 'dec_deg': 72.0},
+    {'name': 'obs_recal_drift_bk', 'ra_deg':  90.0, 'dec_deg': 72.0},
+]
 RECAL_EVERY_N_CELLS = 20
-RECAL_NAME = 'obs_recal_drift'  # 'obs_' prefix needed for cal/obs routing
 
 def _detect_next_session() -> int:
     """Return one greater than the highest existing session_NNN dir, or 1."""
@@ -590,8 +607,12 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
     _, _, cl, cb = cell_list[0]
     print(f'  [scan] {len(cell_list)} cells, first: l={cl} b={cb}')
     if RECAL_ENABLE:
-        print(f'  [scan] Drift recal: RA={RECAL_RA_DEG:.2f}, '
-              f'Dec={RECAL_DEC_DEG:+.2f} every {RECAL_EVERY_N_CELLS} cells')
+        targets_str = ' | '.join(
+            f'{t["name"]} (RA={t["ra_deg"]:.1f}, Dec={t["dec_deg"]:+.1f})'
+            for t in RECAL_TARGETS
+        )
+        print(f'  [scan] Drift recal every {RECAL_EVERY_N_CELLS} cells, '
+              f'targets: {targets_str}')
 
     def _start_retry_pass():
         nonlocal current_cell_idx, cells_observed_this_pass
@@ -647,27 +668,40 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
             return None  # pointing -> None; reader waits for valid state
 
         # Inject recal cell when due, before serving the next survey cell.
+        # Try each recal target in order; use the first one currently in
+        # alt/az limits. The two targets are chosen so at most one is
+        # blocked at any LST.
         if (RECAL_ENABLE and not in_recal_cell
                 and cells_since_recal >= RECAL_EVERY_N_CELLS):
-            alt, az, _ = compute_radec_pointing(
-                RECAL_RA_DEG, RECAL_DEC_DEG,
-                lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
-            )
-            if MIN_ALT_DEG <= alt <= MAX_ALT_DEG and AZ_MIN <= az <= AZ_MAX:
+            chosen = None
+            tried = []
+            for tgt in RECAL_TARGETS:
+                alt, az, _ = compute_radec_pointing(
+                    tgt['ra_deg'], tgt['dec_deg'],
+                    lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
+                )
+                tried.append((tgt['name'], alt, az))
+                if MIN_ALT_DEG <= alt <= MAX_ALT_DEG and AZ_MIN <= az <= AZ_MAX:
+                    chosen = (tgt, alt, az)
+                    break
+            if chosen is not None:
+                tgt, alt, az = chosen
                 in_recal_cell = True
                 cells_since_recal = 0
                 if need_cell_start:
                     need_cell_start = False
                     cell_event.set()
-                    print(f'  [scan] Recal drift check: '
+                    print(f'  [scan] Recal drift check [{tgt["name"]}]: '
                           f'alt={alt:.1f}, az={az:.1f}')
-                return RECAL_NAME, alt, az, RECAL_RA_DEG, RECAL_DEC_DEG
+                return tgt['name'], alt, az, tgt['ra_deg'], tgt['dec_deg']
             else:
-                # Recal target out of limits right now -- skip and try
+                # All recal targets out of limits right now -- skip and try
                 # again after a few more cells.
                 cells_since_recal = max(0, RECAL_EVERY_N_CELLS - 5)
-                print(f'  [scan] Recal target out of limits '
-                      f'(alt={alt:.1f}, az={az:.1f}); deferring.')
+                tried_str = ', '.join(f'{n} (alt={a:.1f},az={z:.1f})'
+                                       for n, a, z in tried)
+                print(f'  [scan] All recal targets out of limits '
+                      f'({tried_str}); deferring.')
 
         if _check_end_of_list():
             return None

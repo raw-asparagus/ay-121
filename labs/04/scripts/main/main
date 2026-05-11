@@ -621,6 +621,7 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
 
     def target_selector():
         nonlocal current_cell_idx, cells_observed_this_pass
+        nonlocal cells_since_recal, in_recal_cell
         nonlocal need_cell_start, need_return_none
 
         if done_event.is_set():
@@ -630,16 +631,43 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
         # then advance on the next call.
         if cell_done_event.is_set():
             cell_done_event.clear()
-            cells_observed_this_pass += 1
-            current_cell_idx += 1
+            if in_recal_cell:
+                in_recal_cell = False
+            else:
+                cells_observed_this_pass += 1
+                cells_since_recal += 1
+                current_cell_idx += 1
             need_return_none = True
             need_cell_start = True
-            if _check_end_of_list():
+            if not in_recal_cell and _check_end_of_list():
                 return None
 
         if need_return_none:
             need_return_none = False
             return None  # pointing -> None; reader waits for valid state
+
+        # Inject recal cell when due, before serving the next survey cell.
+        if (RECAL_ENABLE and not in_recal_cell
+                and cells_since_recal >= RECAL_EVERY_N_CELLS):
+            alt, az, _ = compute_radec_pointing(
+                RECAL_RA_DEG, RECAL_DEC_DEG,
+                lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
+            )
+            if MIN_ALT_DEG <= alt <= MAX_ALT_DEG and AZ_MIN <= az <= AZ_MAX:
+                in_recal_cell = True
+                cells_since_recal = 0
+                if need_cell_start:
+                    need_cell_start = False
+                    cell_event.set()
+                    print(f'  [scan] Recal drift check: '
+                          f'alt={alt:.1f}, az={az:.1f}')
+                return RECAL_NAME, alt, az, RECAL_RA_DEG, RECAL_DEC_DEG
+            else:
+                # Recal target out of limits right now -- skip and try
+                # again after a few more cells.
+                cells_since_recal = max(0, RECAL_EVERY_N_CELLS - 5)
+                print(f'  [scan] Recal target out of limits '
+                      f'(alt={alt:.1f}, az={az:.1f}); deferring.')
 
         if _check_end_of_list():
             return None

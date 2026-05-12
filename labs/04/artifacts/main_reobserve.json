@@ -1,0 +1,12 @@
+[
+  {
+    "l": 97.99,
+    "b": -2,
+    "reason": "insufficient_pairs(n=2)"
+  },
+  {
+    "l": 109.99,
+    "b": 2,
+    "reason": "insufficient_pairs(n=2)"
+  }
+]

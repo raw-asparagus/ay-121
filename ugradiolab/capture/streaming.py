@@ -87,9 +87,20 @@ class PointingThread:
         else:
             self._stop_event.wait(timeout=timeout)
 
-    def _slew_with_monitor(self, alt: float, az: float, poll_sec: float = 0.5) -> None:
+    def _slew_with_monitor(
+        self,
+        alt: float,
+        az: float,
+        poll_sec: float = 0.5,
+        min_slew_deg: float = 1.0,
+    ) -> None:
         """Run a blocking ``point(alt, az, wait=True)`` while a side thread
         polls ``get_pointing()`` and prints live dish coordinates.
+
+        Live updates are suppressed for tracking repoints (current position
+        already within ``min_slew_deg`` of the target on both axes), so the
+        log only shows real slews -- not the every-10s sidereal nudges that
+        fire while a cell is being integrated.
 
         The watcher uses a fresh TCP socket per query (see ugradio.leusch),
         so it does not interfere with the in-flight ``wait`` command.
@@ -99,22 +110,38 @@ class PointingThread:
             self._telescope.point(alt, az, wait=True)
             return
 
+        try:
+            cur_alt, cur_az = get_pointing()
+        except (OSError, TimeoutError, ValueError, AssertionError):
+            cur_alt = cur_az = None
+
+        is_tracking_nudge = (
+            cur_alt is not None
+            and abs(cur_alt - alt) < min_slew_deg
+            and abs(cur_az - az) < min_slew_deg
+        )
+        if is_tracking_nudge:
+            self._telescope.point(alt, az, wait=True)
+            return
+
         stop = threading.Event()
+        printed = threading.Event()
 
         def watch() -> None:
             while not stop.wait(poll_sec):
                 try:
-                    cur_alt, cur_az = get_pointing()
+                    p_alt, p_az = get_pointing()
                 except (OSError, TimeoutError, ValueError, AssertionError):
                     continue
-                d_alt = cur_alt - alt
-                d_az = cur_az - az
+                d_alt = p_alt - alt
+                d_az = p_az - az
                 print(
                     f'\r  [pointing] slew -> alt={alt:6.2f} az={az:6.2f} | '
-                    f'now alt={cur_alt:6.2f} az={cur_az:6.2f} | '
+                    f'now alt={p_alt:6.2f} az={p_az:6.2f} | '
                     f'd_alt={d_alt:+6.2f} d_az={d_az:+6.2f}   ',
                     end='', flush=True,
                 )
+                printed.set()
 
         watcher = threading.Thread(target=watch, name='slew-monitor', daemon=True)
         watcher.start()
@@ -123,7 +150,8 @@ class PointingThread:
         finally:
             stop.set()
             watcher.join(timeout=poll_sec * 4)
-            print()
+            if printed.is_set():
+                print()
 
     def start(self) -> None:
         self._thread.start()

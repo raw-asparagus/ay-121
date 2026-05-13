@@ -87,6 +87,44 @@ class PointingThread:
         else:
             self._stop_event.wait(timeout=timeout)
 
+    def _slew_with_monitor(self, alt: float, az: float, poll_sec: float = 0.5) -> None:
+        """Run a blocking ``point(alt, az, wait=True)`` while a side thread
+        polls ``get_pointing()`` and prints live dish coordinates.
+
+        The watcher uses a fresh TCP socket per query (see ugradio.leusch),
+        so it does not interfere with the in-flight ``wait`` command.
+        """
+        get_pointing = getattr(self._telescope, 'get_pointing', None)
+        if get_pointing is None:
+            self._telescope.point(alt, az, wait=True)
+            return
+
+        stop = threading.Event()
+
+        def watch() -> None:
+            while not stop.wait(poll_sec):
+                try:
+                    cur_alt, cur_az = get_pointing()
+                except (OSError, TimeoutError, ValueError, AssertionError):
+                    continue
+                d_alt = cur_alt - alt
+                d_az = cur_az - az
+                print(
+                    f'\r  [pointing] slew -> alt={alt:6.2f} az={az:6.2f} | '
+                    f'now alt={cur_alt:6.2f} az={cur_az:6.2f} | '
+                    f'd_alt={d_alt:+6.2f} d_az={d_az:+6.2f}   ',
+                    end='', flush=True,
+                )
+
+        watcher = threading.Thread(target=watch, name='slew-monitor', daemon=True)
+        watcher.start()
+        try:
+            self._telescope.point(alt, az, wait=True)
+        finally:
+            stop.set()
+            watcher.join(timeout=poll_sec * 4)
+            print()
+
     def start(self) -> None:
         self._thread.start()
 
@@ -120,7 +158,7 @@ class PointingThread:
 
             if need_repoint:
                 try:
-                    self._telescope.point(alt, az, wait=True)
+                    self._slew_with_monitor(alt, az)
                 except (AssertionError, TimeoutError, OSError) as exc:
                     print(f'  [pointing] slew failed: {exc}')
                     self._stop_event.wait(timeout=5.0)

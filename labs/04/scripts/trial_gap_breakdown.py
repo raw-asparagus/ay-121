@@ -116,11 +116,28 @@ class FakeTelescope:
 # ---------------------------------------------------------------------------
 
 class TrialSDRSession(SDRSession):
+    """Logging wrapper around SDRSession.
+
+    When ``real=False`` (default), ``_capture`` and ``_submit_correlate`` are
+    stubbed with sleeps so this runs without hardware.  When ``real=True``
+    they delegate to the real SDRSession methods and only add log markers,
+    so the wrapper is safe to use on the Pi with live SDRs.
+    """
+
     cell_tag = '-'
+    real = False
 
     def prearm(self, lo_mhz: float, noise_on: bool) -> None:
         with stage(self.cell_tag, f'prearm[lo={lo_mhz},on={noise_on}]'):
             super().prearm(lo_mhz, noise_on)
+
+    def set_lo(self, lo_mhz: float) -> None:
+        with stage(self.cell_tag, f'set_lo[{lo_mhz}]'):
+            super().set_lo(lo_mhz)
+
+    def set_noise(self, on: bool) -> None:
+        with stage(self.cell_tag, f'set_noise[{on}]'):
+            super().set_noise(on)
 
     def run_schedule(self, schedule):
         with stage(self.cell_tag, 'run_schedule'):
@@ -132,13 +149,31 @@ class TrialSDRSession(SDRSession):
 
     def _capture(self):
         log(self.cell_tag, 'capture.start')
+        if self.real:
+            try:
+                data, t = super()._capture()
+            finally:
+                log(self.cell_tag, 'capture.end')
+            return data, t
         time.sleep(CAPTURE_SEC)
         log(self.cell_tag, 'capture.end')
         return {}, time.time()
 
     def _submit_correlate(self, data, t, lo, noise_on):
-        fut = _Future()
         tag = self.cell_tag
+        if self.real:
+            log(tag, 'correlate.submit')
+            fut = super()._submit_correlate(data, t, lo, noise_on)
+            real_set = fut.set_result
+
+            def _wrap_set(value):
+                log(tag, 'correlate.done')
+                real_set(value)
+
+            fut.set_result = _wrap_set  # type: ignore[assignment]
+            return fut
+
+        fut = _Future()
 
         def _run() -> None:
             log(tag, 'correlate.start')
@@ -152,6 +187,59 @@ class TrialSDRSession(SDRSession):
 
         threading.Thread(target=_run, name='trial-correlate', daemon=True).start()
         return fut
+
+
+# ---------------------------------------------------------------------------
+# Real-hardware wrappers (add log markers without changing behaviour)
+# ---------------------------------------------------------------------------
+
+class LoggingTelescope:
+    """Wrap a real telescope so point()/get_pointing() are logged."""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self._cell_tag = '-'
+
+    def point(self, alt: float, az: float, wait: bool = True) -> None:
+        if wait:
+            with stage(self._cell_tag, f'point.wait[alt={alt:.2f},az={az:.2f}]'):
+                self._inner.point(alt, az, wait=True)
+        else:
+            log(self._cell_tag, f'point.nowait[alt={alt:.2f},az={az:.2f}]')
+            self._inner.point(alt, az, wait=False)
+
+    def get_pointing(self):
+        return self._inner.get_pointing()
+
+
+class LoggingNoise:
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self._cell_tag = '-'
+
+    def on(self) -> None:
+        with stage(self._cell_tag, 'noise.on'):
+            self._inner.on()
+
+    def off(self) -> None:
+        with stage(self._cell_tag, 'noise.off'):
+            self._inner.off()
+
+
+class LoggingSDR:
+    """Wrap a real ugradio.sdr.SDR; logs set_center_freq duration."""
+
+    def __init__(self, inner, idx: int) -> None:
+        self._inner = inner
+        self.idx = idx
+        self._cell_tag = '-'
+
+    def set_center_freq(self, hz: float) -> None:
+        with stage(self._cell_tag, f'sdr{self.idx}.set_center_freq[{hz/1e6:.2f}MHz]'):
+            self._inner.set_center_freq(hz)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 # ---------------------------------------------------------------------------
@@ -185,8 +273,63 @@ def make_cells(n: int) -> list[Cell]:
 # Driver
 # ---------------------------------------------------------------------------
 
+def _make_real_cells(telescope, n: int) -> list[Cell]:
+    """Build N cells stepping ~2 deg in az from the current dish pointing.
+
+    Keeps inside Leuschner limits (alt 17-83, az 7-348) so the trial is
+    safe to run unattended.  Schedule is short to keep total time small.
+    """
+    cur_alt, cur_az = telescope.get_pointing()
+    if not (20.0 < cur_alt < 80.0):
+        cur_alt = 45.0
+    if not (15.0 < cur_az < 340.0):
+        cur_az = 180.0
+    cells = []
+    alt = float(cur_alt)
+    az = float(cur_az)
+    f1, f2 = 1419.86, 1421.14
+    n_per_cell = int(os.environ.get('TRIAL_DUMPS_PER_CELL', '4'))
+    schedule = [(f1, False), (f2, False)] * (n_per_cell // 2)
+    for i in range(n):
+        if i % 2 == 0:
+            az = az + 2.0 if az < 340.0 else az - 2.0
+        else:
+            alt = alt + 2.0 if alt < 80.0 else alt - 2.0
+        p = Pointing(
+            target_name=f'obs_trial_{i:02d}',
+            alt_deg=alt, az_deg=az,
+            ra_deg=0.0, dec_deg=0.0,
+        )
+        cells.append(Cell(pointing=p, schedule=schedule, recompute_altaz=None))
+    return cells
+
+
+def _build_real_hardware():
+    """Import and construct real Leuschner hardware.  Called only when --real."""
+    from ugradio.leusch import LeuschNoise, LeuschTelescope
+    from ugradio.sdr import SDR
+
+    f1_mhz = 1419.86
+    sample_rate = 3.2e6
+    raw_sdrs = [
+        SDR(device_index=0, direct=False,
+            center_freq=f1_mhz * 1e6, sample_rate=sample_rate, gain=0.0),
+        SDR(device_index=1, direct=False,
+            center_freq=f1_mhz * 1e6, sample_rate=sample_rate, gain=0.0),
+    ]
+    telescope = LoggingTelescope(LeuschTelescope())
+    noise = LoggingNoise(LeuschNoise())
+    sdrs = [LoggingSDR(s, i) for i, s in enumerate(raw_sdrs)]
+    return telescope, sdrs, noise
+
+
 def main() -> None:
-    n_cells = int(sys.argv[1]) if len(sys.argv) > 1 else 6
+    argv = list(sys.argv[1:])
+    use_real = '--real' in argv
+    if use_real:
+        argv.remove('--real')
+    n_cells = int(argv[0]) if argv else 6
+
     outdir = Path('/tmp/trial_gap_breakdown')
     outdir.mkdir(parents=True, exist_ok=True)
     for sub in outdir.iterdir():
@@ -195,17 +338,28 @@ def main() -> None:
                 f.unlink()
             sub.rmdir()
 
-    sdrs = [FakeSDR(0), FakeSDR(1)]
-    noise = FakeNoise()
-    telescope = FakeTelescope(alt0=40.0, az0=180.0)
+    if use_real:
+        telescope, sdrs, noise = _build_real_hardware()
+        nsamples, nblocks = 16384, 1025
+        print('[trial] REAL hardware mode -- Leuschner dish + 2x RTL-SDR')
+    else:
+        telescope = FakeTelescope(alt0=40.0, az0=180.0)
+        sdrs = [FakeSDR(0), FakeSDR(1)]
+        noise = FakeNoise()
+        nsamples, nblocks = 16384, 1025
+        print('[trial] MOCK mode -- sleep-based fakes')
 
     sdr_session = TrialSDRSession(
         sdrs=sdrs, noise=noise,
-        nsamples=16384, nblocks=1025, nfft=1024,
+        nsamples=nsamples, nblocks=nblocks, nfft=1024,
         noise_settle_s=NOISE_SETTLE_S,
     )
+    sdr_session.real = use_real
 
-    cells = make_cells(n_cells)
+    if use_real:
+        cells = _make_real_cells(telescope, n_cells)
+    else:
+        cells = make_cells(n_cells)
 
     # Bind cell tag onto every fake before each cell runs.
     def _scheduler():

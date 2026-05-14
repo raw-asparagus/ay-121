@@ -601,6 +601,7 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
     # warm-up and provides a t=0 reference point for the drift timeline.
     cells_since_recal = RECAL_EVERY_N_CELLS if RECAL_ENABLE else 0
     in_recal_cell = False
+    chosen_recal = None      # (name, ra_deg, dec_deg) of the active recal target
     need_cell_start = True   # signal reader to begin (first cell or after advance)
     need_return_none = False  # return None once to clear pointing state on transition
 
@@ -642,7 +643,7 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
 
     def target_selector():
         nonlocal current_cell_idx, cells_observed_this_pass
-        nonlocal cells_since_recal, in_recal_cell
+        nonlocal cells_since_recal, in_recal_cell, chosen_recal
         nonlocal need_cell_start, need_return_none
 
         if done_event.is_set():
@@ -654,6 +655,7 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
             cell_done_event.clear()
             if in_recal_cell:
                 in_recal_cell = False
+                chosen_recal = None
             else:
                 cells_observed_this_pass += 1
                 cells_since_recal += 1
@@ -666,6 +668,17 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
         if need_return_none:
             need_return_none = False
             return None  # pointing -> None; reader waits for valid state
+
+        # While a recal pointing is active, keep returning it until cell_done.
+        # Without this, subsequent polls fall through to the survey-cell
+        # branch and the dish slews mid-recal-schedule.
+        if in_recal_cell and chosen_recal is not None:
+            name, ra, dec = chosen_recal
+            alt, az, _ = compute_radec_pointing(
+                ra, dec,
+                lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
+            )
+            return name, alt, az, ra, dec
 
         # Inject recal cell when due, before serving the next survey cell.
         # Try each recal target in order; use the first one currently in
@@ -687,6 +700,7 @@ def make_scan_target_selector(cells, cell_event, cell_done_event, done_event):
             if chosen is not None:
                 tgt, alt, az = chosen
                 in_recal_cell = True
+                chosen_recal = (tgt['name'], tgt['ra_deg'], tgt['dec_deg'])
                 cells_since_recal = 0
                 if need_cell_start:
                     need_cell_start = False

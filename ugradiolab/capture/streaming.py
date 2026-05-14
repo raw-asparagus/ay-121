@@ -185,6 +185,13 @@ class PointingThread:
             )
 
             if need_repoint:
+                # For cross-target slews, clear the published state so the
+                # reader pauses for the duration of the slew. Same-target
+                # tracking nudges keep the state intact (small motion, the
+                # reader can continue integrating).
+                if name != current_target:
+                    with self._lock:
+                        self._state = None
                 try:
                     self._slew_with_monitor(alt, az)
                 except (AssertionError, TimeoutError, OSError) as exc:

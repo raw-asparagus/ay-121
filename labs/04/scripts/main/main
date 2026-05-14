@@ -51,10 +51,6 @@ CONFIG = SurveyConfig(
     az_max=348.0,
     track_interval_s=10.0,
 
-    # Sun sidelobe pickup at 1.4 GHz is non-negligible inside ~30 deg.
-    sun_avoid_deg=30.0,
-    moon_avoid_deg=10.0,
-
     # Galactic plane bounds.
     l_center=120.0,
     l_min=-10.0,

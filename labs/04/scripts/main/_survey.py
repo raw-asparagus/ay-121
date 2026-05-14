@@ -100,6 +100,15 @@ class SurveyConfig:
     b_step: int = 2
     physical_spacing_deg: float = 2.0
 
+    # Planner horizon: drop cells whose projected observation time is more
+    # than this many hours past `now` at planning time.  Prevents the
+    # planner from keeping cells that come into view many hours later but
+    # then get reached by the executor (which iterates at real-time rate)
+    # within minutes -- and silently skipped because they're still below
+    # the horizon.  With main's outer `while True: run()` loop, the planner
+    # re-runs each iteration so cells naturally roll in as they rise.
+    max_planning_horizon_h: float = 4.0
+
     # Per-cell schedule (per-LO; ABBA expansion happens internally)
     cal_dumps_per_lo: int = 2
     obs_dumps_per_lo: int = 3
@@ -328,12 +337,21 @@ def filter_cells_forward_simulated(
         return cells
     now = unix_t if unix_t is not None else _time.time()
     kept = []
-    n_drop_alt = n_drop_az = n_drop_sun = n_drop_moon = 0
+    n_drop_alt = n_drop_az = n_drop_sun = n_drop_moon = n_drop_horizon = 0
     recal_factor = (
         (1.0 + 1.0 / cfg.recal_every_n_cells) if cfg.recal_enable else 1.0
     )
+    horizon_s = cfg.max_planning_horizon_h * 3600.0
     for i, (row, col, l, b) in enumerate(cells):
-        proj_t = now + (index_offset + i + 0.5) * cell_total_time_sec * recal_factor
+        offset_s = (index_offset + i + 0.5) * cell_total_time_sec * recal_factor
+        # Planning horizon: don't keep cells the executor won't reach in
+        # the planned window. The executor iterates at real-time rate, so
+        # a cell with a large offset_s wouldn't be observed for many
+        # hours -- by which time the plan is stale anyway.
+        if offset_s > horizon_s:
+            n_drop_horizon += 1
+            continue
+        proj_t = now + offset_s
         ra, dec = _cell_radec(l, b)
         alt, az = _fast_altaz(ra, dec, proj_t)
         if not (cfg.min_alt_deg <= alt <= cfg.max_alt_deg):
@@ -354,10 +372,12 @@ def filter_cells_forward_simulated(
                     continue
         kept.append((row, col, l, b))
     print(f'  Forward sim ({cell_total_time_sec:.0f}s/cell, '
-          f'offset {index_offset}): kept {len(kept)}/{len(cells)}, '
+          f'offset {index_offset}, horizon {cfg.max_planning_horizon_h:.1f} h): '
+          f'kept {len(kept)}/{len(cells)}, '
           f'dropped {n_drop_alt} alt, {n_drop_az} az, '
           f'{n_drop_sun} sun (<{cfg.sun_avoid_deg:.0f} deg), '
-          f'{n_drop_moon} moon (<{cfg.moon_avoid_deg:.0f} deg)')
+          f'{n_drop_moon} moon (<{cfg.moon_avoid_deg:.0f} deg), '
+          f'{n_drop_horizon} past horizon')
     return kept
 
 

@@ -179,10 +179,7 @@ def compute_cell_metrics(
     cell_metrics: dict[tuple, dict] = {}
 
     for (gl, gb), cr in cell_results_combined.items():
-        R = np.asarray(cr['R_overlap'], dtype=float)
-        if R.ndim != 1 or R.size != len(v_lsr_overlap):
-            continue
-
+        R = cr['R_overlap']
         finite = np.isfinite(R)
         n_valid_ch = int(np.count_nonzero(finite))
         if n_valid_ch < min_valid_ch:
@@ -573,3 +570,80 @@ def flag_outlier_pairs(
         viable_pairs_per_cell[(gl, gb)] = viable
 
     return viable_pairs_per_cell, flagged
+
+
+def combine_viable_pairs(
+    viable_pairs_per_cell: dict,
+    *,
+    min_pairs: int,
+    spectrum_key: str = 'R_lsr',
+) -> tuple[dict, list[dict]]:
+    """Average per-pair spectra into a single spectrum per (gl, gb) cell.
+
+    Parameters
+    ----------
+    viable_pairs_per_cell : dict
+        ``(gl, gb) -> list of pair dicts`` (output of ``flag_outlier_pairs``).
+    min_pairs : int
+        Cells with fewer surviving pairs are still combined but flagged for
+        reobservation.
+    spectrum_key : str
+        Key on each pair dict holding the spectrum to average (default
+        ``'R_lsr'``).
+
+    Returns
+    -------
+    cell_combined : dict
+        ``(gl, gb) -> {'R', 'n_pairs'}`` where ``R`` is the per-channel
+        nanmean over surviving pairs.
+    cells_insufficient_pairs : list of dict
+        Records describing cells with fewer than ``min_pairs`` viable pairs
+        (suitable for the reobserve list).
+    """
+    cell_combined: dict = {}
+    cells_insufficient: list[dict] = []
+    for (gl, gb), pairs in viable_pairs_per_cell.items():
+        specs = [p[spectrum_key] for p in pairs]
+        n_viable = len(specs)
+        if n_viable == 0:
+            cells_insufficient.append({'l': gl, 'b': gb, 'n_viable': 0})
+            continue
+        cell_combined[(gl, gb)] = {
+            'R': np.nanmean(specs, axis=0),
+            'n_pairs': n_viable,
+        }
+        if n_viable < min_pairs:
+            cells_insufficient.append({'l': gl, 'b': gb,
+                                       'n_viable': n_viable})
+    return cell_combined, cells_insufficient
+
+
+def collect_reobserve(
+    neighbor_cells: list[dict],
+    cells_insufficient_pairs: list[dict],
+) -> list[dict]:
+    """Union neighbor-QA flags and pair-count failures into a reobserve list.
+
+    Each returned record is ``{'l', 'b', 'reason'}`` with reasons joined by
+    ``'+'`` when a cell trips multiple checks. Sorted by (b, l).
+    """
+    reobs_map: dict = {}
+    for c in neighbor_cells:
+        if not (c['W_flag'] or c['peak_v_flag']):
+            continue
+        flags = []
+        if c['W_flag']:
+            flags.append('W')
+        if c['peak_v_flag']:
+            flags.append('peak_v')
+        key = (c['gl'], c['gb'])
+        reobs_map[key] = {'l': c['gl'], 'b': c['gb'],
+                          'reason': '+'.join(flags)}
+    for c in cells_insufficient_pairs:
+        key = (c['l'], c['b'])
+        tag = f"insufficient_pairs(n={c['n_viable']})"
+        if key in reobs_map:
+            reobs_map[key]['reason'] += '+' + tag
+        else:
+            reobs_map[key] = {'l': c['l'], 'b': c['b'], 'reason': tag}
+    return sorted(reobs_map.values(), key=lambda r: (r['b'], r['l']))

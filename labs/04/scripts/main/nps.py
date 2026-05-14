@@ -42,9 +42,6 @@ CONFIG = SurveyConfig(
     az_max=348.0,
     track_interval_s=10.0,
 
-    sun_avoid_deg=30.0,
-    moon_avoid_deg=10.0,
-
     # NPS shape: l 210-380 (wraps through 360), b 0-70.  Anchor matches
     # main so the brick interleave aligns across surveys.
     l_center=120.0,

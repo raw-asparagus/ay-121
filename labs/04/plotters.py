@@ -840,15 +840,13 @@ def plot_tsys_vs_local_time_per_session(
     *,
     T_cal: float,
     tz,
-    cmap: str = "plasma",
     title: str | None = None,
 ) -> tuple[plt.Figure, list[plt.Axes]]:
-    """Per-session scatter of cell T_sys vs local time, coloured by Sun separation.
+    """Per-session scatter of cell T_sys vs local time.
 
-    ``points_per_session`` maps a session label to a 3-tuple
-    ``(times_local, tsys_vals, sun_sep_deg)`` -- all equal-length
-    sequences.  ``times_local`` must be tz-aware datetimes (in ``tz``).
-    A single shared colorbar spans all sessions.
+    ``points_per_session`` maps a session label to a 2-tuple
+    ``(times_local, tsys_vals)`` -- both equal-length sequences.
+    ``times_local`` must be tz-aware datetimes (in ``tz``).
     """
     import matplotlib.dates as mdates
 
@@ -860,11 +858,7 @@ def plot_tsys_vs_local_time_per_session(
 
     all_tsys = np.concatenate([np.asarray(points_per_session[s][1], dtype=float)
                                for s in sessions])
-    all_seps = np.concatenate([np.asarray(points_per_session[s][2], dtype=float)
-                               for s in sessions])
     global_med = float(np.median(all_tsys))
-    norm = mpl.colors.Normalize(vmin=float(np.min(all_seps)),
-                                 vmax=float(np.max(all_seps)))
 
     n = len(sessions)
     fig = plt.figure(figsize=(TEXTWIDTH_IN, 2.0 * n + 0.5))
@@ -874,12 +868,11 @@ def plot_tsys_vs_local_time_per_session(
         axes = [axes]
 
     for ax, sess in zip(axes, sessions):
-        times_local, tsys_vals, seps = points_per_session[sess]
+        times_local, tsys_vals = points_per_session[sess][:2]
         order = np.argsort(times_local)
         t_ord = [times_local[i] for i in order]
         tsys_ord = np.asarray(tsys_vals, dtype=float)[order]
-        sep_ord = np.asarray(seps, dtype=float)[order]
-        ax.scatter(t_ord, tsys_ord, c=sep_ord, cmap=cmap, norm=norm,
+        ax.scatter(t_ord, tsys_ord,
                    **{**SCATTER_STYLE, "s": SS_FINE * 1.5})
         med = float(np.median(tsys_ord))
         ax.axhline(med, color="C3", lw=LW_LIGHT,
@@ -897,81 +890,9 @@ def plot_tsys_vs_local_time_per_session(
 
     axes[-1].set_xlabel("Leuschner local time (Berkeley, CA / Pacific Time)",
                         fontsize=LABEL_SIZE)
-    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=axes, orientation="horizontal",
-                         location="bottom", pad=0.08, shrink=0.6,
-                         aspect=40)
-    cbar.set_label("Angular distance from Sun [deg]", fontsize=LABEL_SIZE)
-    cbar.ax.tick_params(labelsize=TICK_SIZE - 2)
     suptitle = title or (
         rf"Per-session $T_\mathrm{{sys}}$ vs Leuschner local time "
         rf"($T_\mathrm{{cal}} = {T_cal:g}$ K, pol 1)"
-    )
-    fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
-    return fig, list(axes)
-
-
-def plot_sun_sep_vs_local_time_per_session(
-    points_per_session: dict,
-    *,
-    tz,
-    cmap: str = "plasma",
-    title: str | None = None,
-) -> tuple[plt.Figure, list[plt.Axes]]:
-    """Per-session scatter of Sun angular distance vs local time, coloured by T_sys.
-
-    Sister to :func:`plot_tsys_vs_local_time_per_session` -- swaps the
-    y-axis and colour mapping so structure that depends on Sun proximity
-    (rather than T_sys) is visible at a glance.
-    """
-    import matplotlib.dates as mdates
-
-    sessions = [s for s, (t, *_rest) in points_per_session.items() if len(t)]
-    if not sessions:
-        fig, ax = textwidth_figure(2)
-        ax.set_axis_off()
-        return fig, [ax]
-
-    all_tsys = np.concatenate([np.asarray(points_per_session[s][1], dtype=float)
-                               for s in sessions])
-    norm = mpl.colors.Normalize(vmin=float(np.min(all_tsys)),
-                                 vmax=float(np.max(all_tsys)))
-
-    n = len(sessions)
-    fig = plt.figure(figsize=(TEXTWIDTH_IN, 2.0 * n + 0.5))
-    fig.set_layout_engine("tight")
-    axes = fig.subplots(n, 1, sharey=True)
-    if n == 1:
-        axes = [axes]
-
-    for ax, sess in zip(axes, sessions):
-        times_local, tsys_vals, seps = points_per_session[sess]
-        order = np.argsort(times_local)
-        t_ord = [times_local[i] for i in order]
-        tsys_ord = np.asarray(tsys_vals, dtype=float)[order]
-        sep_ord = np.asarray(seps, dtype=float)[order]
-        ax.scatter(t_ord, sep_ord, c=tsys_ord, cmap=cmap, norm=norm,
-                   **{**SCATTER_STYLE, "s": SS_FINE * 1.5})
-        ax.set_ylabel(sess.replace("session_", "s") + "\n" + r"Sun sep. [deg]",
-                      fontsize=TICK_SIZE - 1)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M", tz=tz))
-        ax.tick_params(axis="x", rotation=20, labelsize=TICK_SIZE - 2)
-        ax.tick_params(axis="y", labelsize=TICK_SIZE - 2)
-        ax.grid(True, **GRID_STYLE)
-
-    axes[-1].set_xlabel("Leuschner local time (Berkeley, CA / Pacific Time)",
-                        fontsize=LABEL_SIZE)
-    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=axes, orientation="horizontal",
-                         location="bottom", pad=0.08, shrink=0.6,
-                         aspect=40)
-    cbar.set_label(r"$T_\mathrm{sys}$ [K]", fontsize=LABEL_SIZE)
-    cbar.ax.tick_params(labelsize=TICK_SIZE - 2)
-    suptitle = title or (
-        r"Per-session Sun angular distance vs Leuschner local time "
-        r"(coloured by $T_\mathrm{sys}$, pol 1)"
     )
     fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
     return fig, list(axes)
@@ -1104,3 +1025,65 @@ def plot_tsys_vs_alt_per_session(
     )
     fig.suptitle(suptitle, fontsize=EMPHASIS_SIZE, y=1.0)
     return fig, list(axes)
+
+
+def spectra_per_session_pdf(
+    out_path,
+    v_axis,
+    viable_pairs_per_cell: dict,
+    excluded_cells: set,
+    sessions: list,
+    *,
+    spectrum_key: str = 'R_lsr',
+    ncols: int = 5,
+    color: str = 'C0',
+    title_suffix: str = 'post pair filter + QA, LSR frame',
+) -> int:
+    """Write a per-session spectra grid PDF.
+
+    For each session, average the per-pair spectra at each non-excluded cell,
+    then lay them out via :func:`plot_spectra_grid`.  Returns the number of
+    PDF pages written.
+    """
+    from collections import defaultdict
+    from matplotlib.backends.backend_pdf import PdfPages
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    viable_per_session_cell: dict = defaultdict(list)
+    for (gl, gb), pairs in viable_pairs_per_cell.items():
+        if (gl, gb) in excluded_cells:
+            continue
+        for p in pairs:
+            viable_per_session_cell[(p['session'], gl, gb)].append(p[spectrum_key])
+
+    def _safe_nanmean(rs):
+        stack = np.array(rs)
+        col_has_data = np.any(np.isfinite(stack), axis=0)
+        mean = np.full(stack.shape[1], np.nan)
+        if col_has_data.any():
+            mean[col_has_data] = np.nanmean(stack[:, col_has_data], axis=0)
+        return mean
+
+    n_pages = 0
+    with PdfPages(out_path) as pdf:
+        for dr in sessions:
+            dr_spectra = {
+                (l, b): _safe_nanmean(rs)
+                for (d, l, b), rs in viable_per_session_cell.items()
+                if d == dr
+            }
+            if not dr_spectra:
+                continue
+            result = plot_spectra_grid(
+                v_axis, dr_spectra,
+                ncols=ncols,
+                color=color,
+                title=f'{dr} -- {len(dr_spectra)} pointings ({title_suffix})',
+            )
+            figs = result if isinstance(result, list) else [result]
+            for f in figs:
+                pdf.savefig(f)
+                plt.close(f)
+                n_pages += 1
+    return n_pages

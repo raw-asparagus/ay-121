@@ -10,15 +10,6 @@ from scipy.signal import argrelextrema
 from .cache import _cache_stable
 
 
-def _dump_coordinate_key(record: dict) -> tuple[int, int] | None:
-    """Return the galactic (l, b) coordinate key for a dump record."""
-    gl = record.get('gl')
-    gb = record.get('gb')
-    if gl is not None and gb is not None and np.isfinite(gl) and np.isfinite(gb):
-        return (int(round(float(gl))), int(round(float(gb))))
-    return None
-
-
 @_cache_stable(module='utils.rfi')
 def _cheb_pseudocontinuum(spectrum: np.ndarray, window: int = 15,
                           degree: int = 3, sample_frac: float = 0.7,
@@ -130,6 +121,43 @@ def flag_rfi_channels(spectrum: np.ndarray, *, window: int,
     return n_bad
 
 
+def preprocess_dumps(
+    records: list[dict],
+    *,
+    pol_key: str = 'corr11',
+    rfi_window: int,
+    rfi_sigma: float,
+    rfi_degree: int,
+    rfi_sample_frac: float,
+    rfi_extrema_order: int,
+) -> int:
+    """In-place fftshift, Stokes-I aliasing, and RFI flagging.
+
+    Applies ``np.fft.fftshift`` to ``corr00`` and ``corr11`` so baseband
+    indices run lowest-to-highest, aliases the selected polarization to
+    ``stokes_I``, and then runs :func:`flag_rfi_channels` on each dump.
+    Pol 0 has unreliable noise-diode coupling at 3.2 MHz on the main
+    dataset, so the default selects pol 1.
+
+    Returns the total number of channels flagged across all dumps.
+    """
+    for r in records:
+        r['corr00'] = np.fft.fftshift(r['corr00'])
+        r['corr11'] = np.fft.fftshift(r['corr11'])
+        r['stokes_I'] = r[pol_key]
+    return sum(
+        flag_rfi_channels(
+            r['stokes_I'],
+            window=rfi_window,
+            sigma_thresh=rfi_sigma,
+            degree=rfi_degree,
+            sample_frac=rfi_sample_frac,
+            extrema_order=rfi_extrema_order,
+        )
+        for r in records
+    )
+
+
 def flag_outlier_dumps(records: list[dict],
                        *,
                        dev_thresh: float,
@@ -162,10 +190,7 @@ def flag_outlier_dumps(records: list[dict],
     for r in records:
         if r['noise_on']:
             continue
-        coord_key = _dump_coordinate_key(r)
-        if coord_key is None:
-            continue
-        cell_groups[(r['session'], coord_key, r['lo_mhz'])].append(r)
+        cell_groups[(r['session'], r['gl'], r['gb'], r['lo_mhz'])].append(r)
 
     outlier_records: list[dict] = []
     for group in cell_groups.values():

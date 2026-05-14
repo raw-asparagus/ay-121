@@ -8,8 +8,10 @@ import numpy as np
 def compute_cell_W(
     results_dict: dict,
     dv_kms: float,
+    *,
+    spectrum_key: str = 'R',
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Compute velocity-integrated R for each cell.
+    """Compute velocity-integrated spectrum for each cell.
 
     NaN channels (DC mask, RFI) are filled by linear interpolation from
     neighboring valid channels before integration.
@@ -18,14 +20,16 @@ def compute_cell_W(
     ----------
     results_dict : dict
         Mapping of ``(l, b)`` or ``(dr, l, b)`` to result dicts
-        containing an ``'R_overlap'`` key.
+        containing a spectrum at ``spectrum_key``.
     dv_kms : float
         Channel width in km/s.
+    spectrum_key : str
+        Key holding the spectrum to integrate (default ``'R'``).
 
     Returns
     -------
     gl, gb, vals : 1-D float arrays
-        Galactic coordinates and integrated W values.
+        Galactic coordinates and integrated values.
     """
     gl, gb, vals = [], [], []
     for key, cr in results_dict.items():
@@ -35,7 +39,7 @@ def compute_cell_W(
             _, l, b = key
         gl.append(l)
         gb.append(b)
-        R_ov = cr['R_overlap'].copy()
+        R_ov = cr[spectrum_key].copy()
         valid = np.isfinite(R_ov)
         if valid.sum() >= 2:
             channels = np.arange(len(R_ov))

@@ -10,7 +10,7 @@ The runtime path is:
 
     plan_phase(cfg)
         -> build cell list (filtered by accessibility, completeness,
-           bright-body avoidance, and forward-sim survival)
+           and forward-sim survival)
     SurveyScheduler(cells, cfg)
         -> generator of Cell objects (recal injection, retry pass,
            final recal)
@@ -31,8 +31,6 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 import numpy as np
-from astropy.coordinates import get_body, get_sun
-from astropy.time import Time
 
 # Allow `from utils.timing_stats import ...` when run with cwd=labs/04/.
 sys.path.insert(0, '.')
@@ -87,10 +85,6 @@ class SurveyConfig:
     az_max: float = 348.0
     track_interval_s: float = 10.0
 
-    # Bright-body avoidance
-    sun_avoid_deg: float = 30.0
-    moon_avoid_deg: float = 10.0
-
     # Grid bounds
     l_center: float = 120.0
     l_min: float = -10.0
@@ -120,6 +114,15 @@ class SurveyConfig:
         RecalTarget('obs_recal_drift_bk',  90.0, 72.0),
     )
     recal_every_n_cells: int = 10
+    # End-to-end recal cycle cost (last survey dump -> first survey dump
+    # of the next group): slew-out + 12-dump recal block + slew-back.
+    # Measured across data/main and data/nps (10 cycles as of 2026-05-13):
+    #   mean=260.5  p50=245.6  p90=305.0  p95=310.2  max=315.5
+    # Default is p90 -- pessimistic budget so cells survive forecast only
+    # if they really fit at runtime.  Used by the planner's stepwise
+    # forward sim to charge real recal cost at each boundary instead of
+    # the smoothed `1 + 1/N` factor.
+    recal_block_sec: float = 305.0
 
     # Phases
     phases: tuple[str, ...] = ('even',)
@@ -276,24 +279,6 @@ def _fast_altaz(ra_deg: float, dec_deg: float, unix_t: float) -> tuple[float, fl
     return alt, az
 
 
-def _bright_body_radec(unix_t: float):
-    t = Time(unix_t, format='unix')
-    sun = get_sun(t)
-    moon = get_body('moon', t)
-    return (sun.ra.deg, sun.dec.deg, moon.ra.deg, moon.dec.deg)
-
-
-def _angular_sep_deg(ra1, dec1, ra2, dec2) -> float:
-    r1 = np.deg2rad(ra1)
-    d1 = np.deg2rad(dec1)
-    r2 = np.deg2rad(ra2)
-    d2 = np.deg2rad(dec2)
-    cos_sep = (np.sin(d1) * np.sin(d2)
-               + np.cos(d1) * np.cos(d2) * np.cos(r1 - r2))
-    cos_sep = max(-1.0, min(1.0, float(cos_sep)))
-    return float(np.rad2deg(np.arccos(cos_sep)))
-
-
 def classify_cells_by_az_side(cells, cfg: SurveyConfig, unix_t=None):
     """Split cells into rising and setting candidate lists at unix_t."""
     rising = []
@@ -337,17 +322,22 @@ def filter_cells_forward_simulated(
         return cells
     now = unix_t if unix_t is not None else _time.time()
     kept = []
-    n_drop_alt = n_drop_az = n_drop_sun = n_drop_moon = n_drop_horizon = 0
-    recal_factor = (
-        (1.0 + 1.0 / cfg.recal_every_n_cells) if cfg.recal_enable else 1.0
-    )
+    n_drop_alt = n_drop_az = n_drop_horizon = 0
     horizon_s = cfg.max_planning_horizon_h * 3600.0
+    # Stepwise recal accounting: every `recal_every_n_cells` survey cells,
+    # one recal block (~recal_block_sec) is injected between them. The
+    # session also starts with one recal (the initial diode warm-up), so
+    # the count of recals completed before cell i is offset by 1 when
+    # recal is enabled.
+    init_recals = 1 if cfg.recal_enable else 0
     for i, (row, col, l, b) in enumerate(cells):
-        offset_s = (index_offset + i + 0.5) * cell_total_time_sec * recal_factor
-        # Planning horizon: don't keep cells the executor won't reach in
-        # the planned window. The executor iterates at real-time rate, so
-        # a cell with a large offset_s wouldn't be observed for many
-        # hours -- by which time the plan is stale anyway.
+        global_idx = index_offset + i
+        if cfg.recal_enable and cfg.recal_every_n_cells > 0:
+            n_recals = init_recals + global_idx // cfg.recal_every_n_cells
+        else:
+            n_recals = 0
+        offset_s = ((global_idx + 0.5) * cell_total_time_sec
+                    + n_recals * cfg.recal_block_sec)
         if offset_s > horizon_s:
             n_drop_horizon += 1
             continue
@@ -360,23 +350,12 @@ def filter_cells_forward_simulated(
         if not (cfg.az_min <= az <= cfg.az_max):
             n_drop_az += 1
             continue
-        if cfg.sun_avoid_deg > 0 or cfg.moon_avoid_deg > 0:
-            sun_ra, sun_dec, moon_ra, moon_dec = _bright_body_radec(proj_t)
-            if cfg.sun_avoid_deg > 0:
-                if _angular_sep_deg(ra, dec, sun_ra, sun_dec) < cfg.sun_avoid_deg:
-                    n_drop_sun += 1
-                    continue
-            if cfg.moon_avoid_deg > 0:
-                if _angular_sep_deg(ra, dec, moon_ra, moon_dec) < cfg.moon_avoid_deg:
-                    n_drop_moon += 1
-                    continue
         kept.append((row, col, l, b))
-    print(f'  Forward sim ({cell_total_time_sec:.0f}s/cell, '
+    print(f'  Forward sim ({cell_total_time_sec:.0f}s/cell + '
+          f'{cfg.recal_block_sec:.0f}s/recal every {cfg.recal_every_n_cells}, '
           f'offset {index_offset}, horizon {cfg.max_planning_horizon_h:.1f} h): '
           f'kept {len(kept)}/{len(cells)}, '
           f'dropped {n_drop_alt} alt, {n_drop_az} az, '
-          f'{n_drop_sun} sun (<{cfg.sun_avoid_deg:.0f} deg), '
-          f'{n_drop_moon} moon (<{cfg.moon_avoid_deg:.0f} deg), '
           f'{n_drop_horizon} past horizon')
     return kept
 
@@ -527,13 +506,9 @@ def plan_phase(phase: str, cfg: SurveyConfig, cell_total_time_sec: float):
         ('col l- b-', lambda cs: _sort_column_major(cs, False, False)),
     ]
 
-    # The initial recal (always served first when recal is enabled) eats
-    # ~1 cell-time before survey cell #0 is reached.  Bias the forward-sim
-    # by one slot so cell #0's projected observation time matches reality
-    # -- without this, cells at the alt/az limit get kept and then all
-    # silently skip at runtime.
-    initial_recal_offset = 1 if cfg.recal_enable else 0
-
+    # The initial recal is now charged inside filter_cells_forward_simulated
+    # (init_recals=1 when recal_enable=True), so no index_offset bias is
+    # needed here.
     plans = []
     for side, side_cells in [('rising', rising), ('setting', setting)]:
         if not side_cells:
@@ -542,7 +517,7 @@ def plan_phase(phase: str, cfg: SurveyConfig, cell_total_time_sec: float):
             ordered = sort_fn(side_cells)
             kept = filter_cells_forward_simulated(
                 ordered, cfg, cell_total_time_sec,
-                index_offset=initial_recal_offset, unix_t=now,
+                index_offset=0, unix_t=now,
             )
             plans.append((side, name, kept))
 
@@ -601,6 +576,12 @@ class SurveyScheduler:
       is a recal cell.  ``cfg.recal_targets`` are tried in order; the
       first one in alt/az limits is chosen.  If none are accessible the
       recal is deferred (with a small back-off) and the survey continues.
+    * Paired recal: when at least two recal targets are accessible *and*
+      one of them has just transitioned into the alt/az limits (or it
+      is the very first recal of the session), every accessible target
+      is yielded back-to-back so the reduction can tie their gain/T_cal
+      references together.  Sessions where only one target is ever
+      accessible behave as before -- one target is self-consistent.
     * One final recal fires after the last survey cell (or after the
       retry pass abandons), so every session bookends with drift refs.
     """
@@ -619,6 +600,14 @@ class SurveyScheduler:
         final_recal_pending = cfg.recal_enable
         idx = 0
         skip_log: list[str] = []  # accumulated skip reasons for this pass
+        # Paired-recal bookkeeping: track per-target accessibility so we can
+        # fire all currently-accessible targets back-to-back the first time
+        # they are simultaneously in limits (session start) or when one of
+        # them transitions out-of-limits -> in-limits during the session.
+        last_recal_in_limits: dict[str, bool] = {
+            t.name: False for t in cfg.recal_targets
+        }
+        pending_recals: list[Cell] = []
 
         if cell_list:
             _, _, cl, cb = cell_list[0]
@@ -634,17 +623,48 @@ class SurveyScheduler:
                   f'targets: {tgts}')
 
         while True:
+            # 0) Drain any pending paired-recal cells before anything else.
+            if pending_recals:
+                next_cell = pending_recals.pop(0)
+                since_recal = 0
+                yield next_cell
+                continue
+
             # 1) Recal injection.
             if (cfg.recal_enable
                     and cfg.recal_targets
                     and since_recal >= cfg.recal_every_n_cells):
-                recal = self._try_pick_recal()
-                if recal is not None:
+                recal_cells = self._build_recal_cells()
+                in_limits_now = {n: (c is not None) for n, c in recal_cells.items()}
+                accessible = [
+                    recal_cells[t.name] for t in cfg.recal_targets
+                    if in_limits_now[t.name]
+                ]
+                if accessible:
+                    newly_accessible = [
+                        n for n, ok in in_limits_now.items()
+                        if ok and not last_recal_in_limits[n]
+                    ]
+                    pair = len(accessible) >= 2 and bool(newly_accessible)
+                    last_recal_in_limits = in_limits_now
+                    if pair:
+                        names = ', '.join(c.pointing.target_name for c in accessible)
+                        trigger = ('session start' if all(
+                            not v for k, v in last_recal_in_limits.items()
+                            if k not in newly_accessible
+                        ) else f'newly accessible: {",".join(newly_accessible)}')
+                        print(f'  [scan] Paired recal ({trigger}); firing '
+                              f'{len(accessible)} targets back-to-back: {names}')
+                        pending_recals = accessible[1:]
+                        since_recal = 0
+                        yield accessible[0]
+                        continue
                     since_recal = 0
-                    yield recal
+                    yield accessible[0]
                     continue
                 # All recal targets out of limits right now -- back off and
                 # keep doing survey cells; retry recal in a few cells.
+                last_recal_in_limits = in_limits_now
                 since_recal = max(0, cfg.recal_every_n_cells - 5)
 
             # 2) Out of survey cells?
@@ -720,16 +740,23 @@ class SurveyScheduler:
         return (cfg.min_alt_deg <= alt <= cfg.max_alt_deg
                 and cfg.az_min <= az <= cfg.az_max)
 
-    def _try_pick_recal(self) -> Cell | None:
+    def _build_recal_cells(self) -> dict[str, 'Cell | None']:
+        """Evaluate every recal target's current alt/az and build a Cell
+        for each that is in limits.  Returns an ordered dict keyed by
+        target name, value=None for out-of-limits targets.
+        """
         cfg = self._cfg
-        tried = []
+        out: dict[str, Cell | None] = {}
+        diag = []
         for tgt in cfg.recal_targets:
             alt, az, _ = compute_radec_pointing(
                 tgt.ra_deg, tgt.dec_deg,
                 lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
             )
-            tried.append((tgt.name, alt, az))
-            if self._in_limits(alt, az):
+            in_lim = self._in_limits(alt, az)
+            diag.append(f'{tgt.name} (alt={alt:.1f},az={az:.1f},'
+                        f'{"ok" if in_lim else "out"})')
+            if in_lim:
                 pointing = Pointing(
                     target_name=tgt.name,
                     alt_deg=alt, az_deg=az,
@@ -740,13 +767,17 @@ class SurveyScheduler:
                     cfg.cal_dumps_per_lo, cfg.obs_dumps_per_lo,
                 )
                 recompute = self._make_radec_recompute(tgt.ra_deg, tgt.dec_deg)
-                print(f'  [scan] Recal drift check [{tgt.name}]: '
-                      f'alt={alt:.1f}, az={az:.1f}')
-                return Cell(pointing=pointing, schedule=schedule,
-                            recompute_altaz=recompute)
-        tried_str = ', '.join(f'{n} (alt={a:.1f},az={z:.1f})' for n, a, z in tried)
-        print(f'  [scan] All recal targets out of limits ({tried_str}); deferring.')
-        return None
+                out[tgt.name] = Cell(pointing=pointing, schedule=schedule,
+                                     recompute_altaz=recompute)
+            else:
+                out[tgt.name] = None
+        n_ok = sum(c is not None for c in out.values())
+        if n_ok == 0:
+            print(f'  [scan] All recal targets out of limits ({"; ".join(diag)}); '
+                  f'deferring.')
+        else:
+            print(f'  [scan] Recal drift check: {"; ".join(diag)}')
+        return out
 
     @staticmethod
     def _make_gal_recompute(l: float, b: float):

@@ -27,6 +27,37 @@ _SCALAR_FIELDS = (
 )
 
 
+def _load_dump(path, survey: str, session_id: str) -> dict:
+    """Load a single .npz dump into a record dict (no galactic coords yet)."""
+    with np.load(path, allow_pickle=True) as f:
+        rec = {
+            'path': path,
+            'survey': survey,
+            'session': session_id,
+            'target': str(f['target_name']),
+            'corr00': f['corr00'],
+            'corr11': f['corr11'],
+        }
+        for out_key, npz_key, cast in _SCALAR_FIELDS:
+            rec[out_key] = cast(f[npz_key])
+    return rec
+
+
+def _assign_galactic(records: list[dict]) -> None:
+    """Set 'gl' (2 dp) and 'gb' (integer deg) on each record from RA/Dec."""
+    for r in records:
+        c = ac.SkyCoord(ra=r['ra'] * u.deg, dec=r['dec'] * u.deg, frame='icrs')
+        r['gl'] = round(c.galactic.l.deg, 2)
+        r['gb'] = round(c.galactic.b.deg)
+
+
+def _strip_obscal_prefix(target: str) -> str:
+    """``obs_recal_drift`` / ``cal_recal_drift`` -> ``recal_drift``."""
+    if target.startswith(('obs_', 'cal_')):
+        return target[4:]
+    return target
+
+
 def load_session_dumps(
     data_dirs: list[Path],
     *,
@@ -36,8 +67,8 @@ def load_session_dumps(
 
     Each record carries the correlator spectra, observation metadata, and the
     galactic (l, b) of the pointing (rounded to integer b, two decimals on l).
-    Recal-drift cells are skipped by default since they only feed the (now
-    disabled) T_cal drift correction.
+    Recal-drift cells are skipped by default; load them via
+    :func:`load_recal_dumps` if needed.
     """
     records: list[dict] = []
     for data_dir in data_dirs:
@@ -50,26 +81,38 @@ def load_session_dumps(
                 if skip_recal and cell_dir.name.startswith(RECAL_CELL_PREFIXES):
                     continue
                 for p in sorted(cell_dir.glob('*.npz')):
-                    with np.load(p, allow_pickle=True) as f:
-                        rec = {
-                            'path': p,
-                            'survey': survey,
-                            'session': session_id,
-                            'target': str(f['target_name']),
-                            'corr00': f['corr00'],
-                            'corr11': f['corr11'],
-                        }
-                        for out_key, npz_key, cast in _SCALAR_FIELDS:
-                            rec[out_key] = cast(f[npz_key])
+                    records.append(_load_dump(p, survey, session_id))
+
+    _assign_galactic(records)
+    return records
+
+
+def load_recal_dumps(data_dirs: list[Path]) -> list[dict]:
+    """Load only recal-pointing dumps, tagged with a ``target_id`` field.
+
+    The two recal targets used by the main survey (``recal_drift`` and
+    ``recal_drift_bk``) sit at fixed (RA, Dec) and are therefore at a single
+    galactic (l, b) per target.  Each record's galactic (l, b) is filled in
+    just like science records; ``target_id`` strips the ``obs_``/``cal_``
+    prefix so noise-on and noise-off dumps from the same target collapse to
+    one key for visit clustering.
+    """
+    records: list[dict] = []
+    for data_dir in data_dirs:
+        survey = data_dir.name
+        for session_dir in sorted(data_dir.glob('session_*')):
+            session_id = f'{survey}/{session_dir.name}'
+            cell_dirs = (sorted(session_dir.glob('obs_*'))
+                         + sorted(session_dir.glob('cal_*')))
+            for cell_dir in cell_dirs:
+                if not cell_dir.name.startswith(RECAL_CELL_PREFIXES):
+                    continue
+                for p in sorted(cell_dir.glob('*.npz')):
+                    rec = _load_dump(p, survey, session_id)
+                    rec['target_id'] = _strip_obscal_prefix(rec['target'])
                     records.append(rec)
 
-    # Galactic coordinates from RA/Dec. Round l to 2 dp and b to integer to
-    # match the grid step used by the survey scheduler.
-    for r in records:
-        c = ac.SkyCoord(ra=r['ra'] * u.deg, dec=r['dec'] * u.deg, frame='icrs')
-        r['gl'] = round(c.galactic.l.deg, 2)
-        r['gb'] = round(c.galactic.b.deg)
-
+    _assign_galactic(records)
     return records
 
 

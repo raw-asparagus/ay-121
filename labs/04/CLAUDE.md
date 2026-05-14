@@ -139,7 +139,10 @@ Edit `labs/04/scripts/observe_otf.py`:
   - `data/lab04/streaming/` -- 1420.0 / 1421.0 MHz, sample rate 2.56 MHz,
     Stokes I = corr00 + corr11
   - `data/lab04/main/`      -- 1419.86 / 1421.14 MHz, sample rate 3.2 MHz,
-    Stokes I = corr11 only (pol 0 has bad noise-diode coupling at 3.2 MHz)
+    Stokes I = corr00 + corr11. The known pol-0 noise-diode coupling
+    issue at 3.2 MHz affects T_cal accuracy only; the dimensionless
+    ratio R = (I_LO1 - I_LO2)/I_LO2 carries no T_cal dependence, so
+    both pols are summed for ~sqrt(2) SNR gain.
 - Edge trim 256 kHz each side; the post-trim overlap defines the LSR
   velocity grid (`v_lsr_overlap`)
 - R = (I_LO1 - I_LO2) / I_LO2, averaged over surviving dump pairs

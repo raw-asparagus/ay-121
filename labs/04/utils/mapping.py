@@ -55,6 +55,46 @@ def compute_cell_W(
     return np.array(gl, dtype=float), np.array(gb, dtype=float), np.array(vals)
 
 
+def assemble_W_R_arrays(
+    cell_combined: dict,
+    recal_cells: dict,
+    qa_flagged_set: set,
+    dv_kms: float,
+) -> dict:
+    """Stack science + recal cells into flat arrays for Mollweide plotting.
+
+    Science cells in ``qa_flagged_set`` are excluded; recal cells (already
+    aggregated across visits and sessions) are appended after the science
+    cells.  ``W_R = sum(R) * dv_kms`` (NaNs propagate) for science cells;
+    recal cells carry a pre-computed ``W_R``.
+
+    Returns
+    -------
+    dict
+        ``{'gl', 'gb', 'W_R', 'valid', 'n_sci', 'n_recal'}`` -- the first
+        three are 1-D arrays with science cells followed by recal cells.
+    """
+    clean_keys = [k for k in cell_combined if k not in qa_flagged_set]
+    gl_sci = np.array([k[0] for k in clean_keys])
+    gb_sci = np.array([k[1] for k in clean_keys])
+    R_stack = np.array([cell_combined[k]['R'] for k in clean_keys])
+    W_R_sci = np.nansum(R_stack, axis=1) * dv_kms
+
+    gl_rec = np.array([c['gl'] for c in recal_cells.values()])
+    gb_rec = np.array([c['gb'] for c in recal_cells.values()])
+    W_R_rec = np.array([c['W_R'] for c in recal_cells.values()])
+
+    gl = np.concatenate([gl_sci, gl_rec])
+    gb = np.concatenate([gb_sci, gb_rec])
+    W_R = np.concatenate([W_R_sci, W_R_rec])
+    return {
+        'gl': gl, 'gb': gb, 'W_R': W_R,
+        'valid': np.isfinite(W_R),
+        'n_sci': np.isfinite(W_R_sci).sum(),
+        'n_recal': np.isfinite(W_R_rec).sum(),
+    }
+
+
 def build_heatmap(
     gl: np.ndarray,
     gb: np.ndarray,

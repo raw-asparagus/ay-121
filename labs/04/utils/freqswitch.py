@@ -155,7 +155,7 @@ def build_overlap_grid(
     overlap_mask = (f_sky1 >= f_overlap_lo) & (f_sky1 <= f_overlap_hi)
     f_overlap = f_sky1[overlap_mask]
     v_overlap = c_kms * (1 - f_overlap / hi_rest_mhz)
-    dv_kms = float(np.abs(np.median(np.diff(v_overlap))))
+    dv_kms = np.abs(np.median(np.diff(v_overlap)))
     return {
         'f_bb_mhz': f_bb_mhz,
         'overlap_mask': overlap_mask,
@@ -226,11 +226,11 @@ def build_lsr_pairs(
     session_cell_vcorr = {}
     for key, group in obs_dumps_by_cell.items():
         r0 = group[0]
-        mean_t = float(np.mean([r['time'] for r in group]))
+        mean_t = np.mean([r['time'] for r in group])
         session_cell_vcorr[key] = vlsr_correction_fn(r0['ra'], r0['dec'], mean_t)
 
     vcorrs = list(session_cell_vcorr.values())
-    mean_vcorr = float(np.mean(vcorrs)) if vcorrs else 0.0
+    mean_vcorr = np.mean(vcorrs) if vcorrs else 0.0
     v_lsr_overlap = v_overlap + mean_vcorr
     v_lsr_inc = v_lsr_overlap[::-1]
 
@@ -257,3 +257,170 @@ def build_lsr_pairs(
             })
 
     return dict(cell_pairs), dict(obs_dumps_by_cell), v_lsr_overlap, mean_vcorr
+
+
+# --- Recal-pointing reduction ------------------------------------------
+
+def build_recal_visits(
+    records: list[dict],
+    *,
+    lo1: float,
+    lo2: float,
+    overlap_mask: np.ndarray,
+    v_overlap: np.ndarray,
+    v_lsr_overlap: np.ndarray,
+    vlsr_correction_fn,
+    visit_gap_sec: float = 300.0,
+) -> dict:
+    """Cluster recal dumps into visits and reduce each visit to LSR R per pol.
+
+    The recal targets sit at fixed (RA, Dec) and are visited periodically
+    (every ``recal_every_n_cells`` survey cells in the observation
+    schedule).  Within one session the dumps from a single visit are
+    contiguous in time; visits are separated by long gaps spent on
+    science cells.
+
+    Parameters
+    ----------
+    records
+        Recal dumps from :func:`utils.io.load_recal_dumps` (preprocessed:
+        fftshift + RFI applied to ``corr00`` and ``corr11``).
+    lo1, lo2
+        LO frequencies (MHz).  Each visit must pair LO1 and LO2 noise-off
+        dumps to compute R.
+    overlap_mask, v_overlap
+        Topocentric overlap channel selector and velocity grid, from
+        :func:`build_overlap_grid`.
+    v_lsr_overlap
+        LSR-corrected velocity grid produced by :func:`build_lsr_pairs`
+        for the science cells.  Recal visits are interpolated onto the
+        same grid so the spectra are directly comparable to science.
+    vlsr_correction_fn
+        ``v_corr = f(ra_deg, dec_deg, unix_time)`` such that
+        ``v_LSR = v_topo + v_corr``.
+    visit_gap_sec
+        Time gap (seconds) above which consecutive dumps are split into
+        separate visits.  Default 300 s comfortably exceeds the per-visit
+        cadence (~5.25 s/dump * 12 dumps ~= 1 min) and stays well below
+        the inter-visit interval.
+
+    Returns
+    -------
+    dict
+        Mapping ``(session, target_id) -> list of visit dicts`` with keys
+        ``t_mid``, ``alt_mean``, ``n_pairs``, ``gl``, ``gb``,
+        ``R_lsr`` (Stokes-I R = (I_LO1 - I_LO2)/I_LO2 with
+        I = corr00 + corr11; this is the canonical recal spectrum),
+        plus ``R_lsr_pol0`` and ``R_lsr_pol1`` for diagnostic comparison.
+    """
+    from collections import defaultdict
+
+    v_lsr_inc = v_lsr_overlap[::-1]
+
+    by_st: dict = defaultdict(list)
+    for r in records:
+        by_st[(r['session'], r['target_id'])].append(r)
+
+    visits_by_st: dict = {}
+    for key, dumps in by_st.items():
+        dumps.sort(key=lambda d: d['time'])
+        if not dumps:
+            continue
+
+        clusters: list[list[dict]] = [[dumps[0]]]
+        for d in dumps[1:]:
+            if d['time'] - clusters[-1][-1]['time'] > visit_gap_sec:
+                clusters.append([d])
+            else:
+                clusters[-1].append(d)
+
+        visits: list[dict] = []
+        for cluster in clusters:
+            obs = [d for d in cluster if not d['noise_on']]
+            d1 = [d for d in obs if d['lo_mhz'] == lo1]
+            d2 = [d for d in obs if d['lo_mhz'] == lo2]
+            n_p = min(len(d1), len(d2))
+            if n_p == 0:
+                continue
+
+            t_mid = np.mean([d['time'] for d in cluster])
+            alt_mean = np.mean([d['alt'] for d in cluster])
+            ra0, dec0 = obs[0]['ra'], obs[0]['dec']
+            v_corr = vlsr_correction_fn(ra0, dec0, t_mid)
+            v_visit_topo = v_overlap + v_corr
+
+            visit = {
+                't_mid': t_mid,
+                'alt_mean': alt_mean,
+                'n_pairs': n_p,
+                'gl': obs[0]['gl'],
+                'gb': obs[0]['gb'],
+            }
+
+            for pol_key, out_key in (('corr00', 'R_lsr_pol0'),
+                                     ('corr11', 'R_lsr_pol1'),
+                                     ('stokes_I', 'R_lsr')):
+                I1 = np.array([d[pol_key] for d in d1[:n_p]])
+                I2 = np.array([d[pol_key] for d in d2[:n_p]])
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    R_pairs = (I1 - I2) / I2
+                R_pairs_ov = R_pairs[:, overlap_mask]
+                R_topo_mean = np.nanmean(R_pairs_ov, axis=0)
+                visit[out_key] = _interp_to_lsr_inc(
+                    R_topo_mean, v_visit_topo, v_lsr_inc,
+                )
+
+            visits.append(visit)
+
+        if visits:
+            visits_by_st[key] = visits
+
+    return visits_by_st
+
+
+def aggregate_recal_visits(
+    recal_visits: dict,
+    dv_kms: float,
+) -> dict:
+    """Pool visits across all sessions per ``target_id`` into one cell entry.
+
+    Output mirrors ``cell_combined``: each target becomes a single
+    (gl, gb) cell whose ``R`` is the visit-mean Stokes-I spectrum
+    (matching the science pipeline), with per-pol means retained
+    alongside for diagnostic comparison.
+
+    Returns
+    -------
+    dict
+        ``target_id -> {'gl', 'gb', 'R', 'R_pol0', 'R_pol1', 'n_visits',
+        'n_sessions', 'W_R'}``.  ``W_R`` is the velocity-integrated
+        Stokes-I ratio in km/s, directly comparable to the science cells'
+        ``W_R``.
+    """
+    from collections import defaultdict
+
+    by_tgt: dict = defaultdict(list)
+    sessions_by_tgt: dict = defaultdict(set)
+    for (sess, tgt), visits in recal_visits.items():
+        for v in visits:
+            by_tgt[tgt].append(v)
+            sessions_by_tgt[tgt].add(sess)
+
+    cells: dict = {}
+    for tgt, visits in by_tgt.items():
+        if not visits:
+            continue
+        R_I = np.nanmean([v['R_lsr'] for v in visits], axis=0)
+        R_pol0 = np.nanmean([v['R_lsr_pol0'] for v in visits], axis=0)
+        R_pol1 = np.nanmean([v['R_lsr_pol1'] for v in visits], axis=0)
+        cells[tgt] = {
+            'gl': visits[0]['gl'],
+            'gb': visits[0]['gb'],
+            'R': R_I,
+            'R_pol0': R_pol0,
+            'R_pol1': R_pol1,
+            'n_visits': len(visits),
+            'n_sessions': len(sessions_by_tgt[tgt]),
+            'W_R': np.nansum(R_I) * dv_kms,
+        }
+    return cells

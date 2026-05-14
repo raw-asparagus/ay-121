@@ -37,8 +37,6 @@ from scipy.signal import find_peaks
 
 def weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
     """Weighted median of *values* with positive *weights*."""
-    values = np.asarray(values, dtype=float)
-    weights = np.asarray(weights, dtype=float)
     valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0)
     values = values[valid]
     weights = weights[valid]
@@ -49,7 +47,7 @@ def weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
     weights = weights[order]
     cdf = np.cumsum(weights)
     cutoff = 0.5 * cdf[-1]
-    return float(values[np.searchsorted(cdf, cutoff)])
+    return values[np.searchsorted(cdf, cutoff)]
 
 
 def weighted_mad(
@@ -58,8 +56,6 @@ def weighted_mad(
     center: float | None = None,
 ) -> float:
     """Weighted median absolute deviation."""
-    values = np.asarray(values, dtype=float)
-    weights = np.asarray(weights, dtype=float)
     valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0)
     values = values[valid]
     weights = weights[valid]
@@ -74,7 +70,7 @@ def weighted_mad(
 
 def beam_overlap_weight(sep_deg: float, hpbw_deg: float) -> float:
     """Normalized overlap of two identical Gaussian beams."""
-    return float(np.exp(-2.0 * np.log(2.0) * (sep_deg / hpbw_deg) ** 2))
+    return np.exp(-2.0 * np.log(2.0) * (sep_deg / hpbw_deg) ** 2)
 
 
 def local_tangent_offsets(
@@ -85,8 +81,8 @@ def local_tangent_offsets(
     db = gb1 - gb0
     x = dl * np.cos(np.deg2rad(0.5 * (gb0 + gb1)))
     y = db
-    sep = float(np.hypot(x, y))
-    return float(x), float(y), sep
+    sep = np.hypot(x, y)
+    return x, y, sep
 
 
 # -- Local plane fit ------------------------------------------------------
@@ -126,9 +122,9 @@ def fit_weighted_local_plane(
     if len(values) < 3:
         return np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
 
-    design = np.asarray(rows, dtype=float)
-    values = np.asarray(values, dtype=float)
-    weights = np.asarray(weights, dtype=float)
+    design = np.asarray(rows)
+    values = np.asarray(values)
+    weights = np.asarray(weights)
     weighted_design = design * np.sqrt(weights)[:, None]
     if np.linalg.matrix_rank(weighted_design) < 3:
         return np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
@@ -165,9 +161,11 @@ def compute_cell_metrics(
     Parameters
     ----------
     cell_results_combined : dict
-        ``(gl, gb) -> {'R_overlap': array, 'n_pairs': int, ...}``
+        ``(gl, gb) -> {'R': array, 'n_pairs': int, ...}``.  ``R`` is the
+        per-cell overlap-grid spectrum on the shared LSR axis (the canonical
+        output of :func:`combine_viable_pairs`).
     v_lsr_overlap : 1-D array
-        LSR velocity grid matching ``R_overlap``.
+        LSR velocity grid matching ``R``.
     dv_kms : float
         Channel width in km/s.
 
@@ -179,9 +177,9 @@ def compute_cell_metrics(
     cell_metrics: dict[tuple, dict] = {}
 
     for (gl, gb), cr in cell_results_combined.items():
-        R = cr['R_overlap']
+        R = cr['R']
         finite = np.isfinite(R)
-        n_valid_ch = int(np.count_nonzero(finite))
+        n_valid_ch = np.count_nonzero(finite)
         if n_valid_ch < min_valid_ch:
             continue
 
@@ -192,9 +190,9 @@ def compute_cell_metrics(
             R_work[~finite] = np.interp(
                 chans[~finite], chans[finite], R_work[finite],
             )
-            W = float(np.sum(R_work) * dv_kms)
+            W = np.sum(R_work) * dv_kms
         elif n_valid_ch == 1:
-            W = float(R_work[finite][0] * dv_kms * R_work.size)
+            W = R_work[finite][0] * dv_kms * R_work.size
         else:
             W = np.nan
 
@@ -203,7 +201,7 @@ def compute_cell_metrics(
         noise_vals = R[noise_mask]
         noise_vals = noise_vals[np.isfinite(noise_vals)]
         noise_rms = (
-            float(np.std(noise_vals)) if noise_vals.size > min_noise_ch else np.nan
+            np.std(noise_vals) if noise_vals.size > min_noise_ch else np.nan
         )
 
         # Peak detection in signal window
@@ -227,9 +225,10 @@ def compute_cell_metrics(
                 sig_idx[~sig_valid], sig_idx[sig_valid], R_sig[sig_valid],
             )
 
-            kernel = np.ones(smooth_kernel) / float(smooth_kernel)
+            kernel = np.ones(smooth_kernel) / smooth_kernel
             R_smooth = np.convolve(R_fill, kernel, mode='same')
 
+            # find_peaks requires a Python int for `distance`.
             distance = max(1, int(round(peak_min_sep_kms / dv_kms)))
             prominence = (
                 peak_prom_nsigma * noise_rms
@@ -243,21 +242,21 @@ def compute_cell_metrics(
 
             if peak_count > 0:
                 order = np.argsort(props['prominences'])[::-1]
-                best = int(order[0])
-                peak_idx = int(peaks[best])
-                peak_R = float(R_fill[peak_idx])
-                peak_v = float(v_sig[peak_idx])
-                peak_prom = float(props['prominences'][best])
+                best = order[0]
+                peak_idx = peaks[best]
+                peak_R = R_fill[peak_idx]
+                peak_v = v_sig[peak_idx]
+                peak_prom = props['prominences'][best]
                 if peak_count > 1:
-                    second = int(order[1])
-                    peak_idx_2 = int(peaks[second])
-                    peak_R_2nd = float(R_fill[peak_idx_2])
-                    peak_v_2nd = float(v_sig[peak_idx_2])
-                    peak_prom_2nd = float(props['prominences'][second])
+                    second = order[1]
+                    peak_idx_2 = peaks[second]
+                    peak_R_2nd = R_fill[peak_idx_2]
+                    peak_v_2nd = v_sig[peak_idx_2]
+                    peak_prom_2nd = props['prominences'][second]
             else:
-                peak_idx = int(np.nanargmax(R_fill))
-                peak_R = float(R_fill[peak_idx])
-                peak_v = float(v_sig[peak_idx])
+                peak_idx = np.nanargmax(R_fill)
+                peak_R = R_fill[peak_idx]
+                peak_v = v_sig[peak_idx]
 
         snr = (
             peak_R / noise_rms
@@ -444,13 +443,13 @@ def neighbor_qa(
         )
 
         # Flags
-        cell['W_flag'] = bool(
+        cell['W_flag'] = (
             np.isfinite(cell['W_frac_resid'])
             and abs(cell['W_frac_resid']) > w_frac_thresh
             and np.isfinite(cell['W_z'])
             and abs(cell['W_z']) > w_z_thresh
         )
-        primary_fails = bool(
+        primary_fails = (
             np.isfinite(cell['peak_v_abs_resid'])
             and cell['peak_v_abs_resid'] > peak_v_abs_thresh
             and np.isfinite(cell['peak_v_z'])
@@ -563,7 +562,7 @@ def flag_outlier_pairs(
                     'gb': gb,
                     'session': p['session'],
                     'pair_idx': p['pair_idx'],
-                    'deviant_frac': float(frac),
+                    'deviant_frac': frac,
                 })
             else:
                 viable.append(p)

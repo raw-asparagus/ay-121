@@ -115,7 +115,7 @@ def flag_rfi_channels(spectrum: np.ndarray, *, window: int,
     sigma = mad / 0.6745
     finite = np.isfinite(spectrum)
     bad = (np.abs(resid) > sigma_thresh * sigma) & finite
-    n_bad = int(np.sum(bad))
+    n_bad = np.sum(bad)
     if n_bad > 0:
         spectrum[bad] = np.nan
     return n_bad
@@ -124,38 +124,44 @@ def flag_rfi_channels(spectrum: np.ndarray, *, window: int,
 def preprocess_dumps(
     records: list[dict],
     *,
-    pol_key: str = 'corr11',
     rfi_window: int,
     rfi_sigma: float,
     rfi_degree: int,
     rfi_sample_frac: float,
     rfi_extrema_order: int,
 ) -> int:
-    """In-place fftshift, Stokes-I aliasing, and RFI flagging.
+    """In-place fftshift + per-pol RFI flag + Stokes-I sum.
 
-    Applies ``np.fft.fftshift`` to ``corr00`` and ``corr11`` so baseband
-    indices run lowest-to-highest, aliases the selected polarization to
-    ``stokes_I``, and then runs :func:`flag_rfi_channels` on each dump.
-    Pol 0 has unreliable noise-diode coupling at 3.2 MHz on the main
-    dataset, so the default selects pol 1.
+    For each record: ``np.fft.fftshift`` ``corr00`` and ``corr11`` so
+    baseband indices run lowest-to-highest, flag RFI on each pol
+    independently with :func:`flag_rfi_channels`, then set
+    ``stokes_I = corr00 + corr11`` -- the true total-intensity Stokes I
+    for two linear-feed auto-correlations.  HI is unpolarised, so summing
+    gains sqrt(2) in SNR over a single pol; channels NaN in either pol
+    propagate to NaN in the sum (which is correct -- a half-flagged
+    channel is biased low).
 
-    Returns the total number of channels flagged across all dumps.
+    The cal-side concern about pol 0 at 3.2 MHz is a T_cal accuracy
+    issue; it does not affect the dimensionless frequency-switched ratio
+    R that this pipeline produces, so both pols feed Stokes I.
+
+    Returns the total number of channels flagged across both pols.
     """
+    total = 0
     for r in records:
         r['corr00'] = np.fft.fftshift(r['corr00'])
         r['corr11'] = np.fft.fftshift(r['corr11'])
-        r['stokes_I'] = r[pol_key]
-    return sum(
-        flag_rfi_channels(
-            r['stokes_I'],
-            window=rfi_window,
-            sigma_thresh=rfi_sigma,
-            degree=rfi_degree,
-            sample_frac=rfi_sample_frac,
-            extrema_order=rfi_extrema_order,
-        )
-        for r in records
-    )
+        for spec_key in ('corr00', 'corr11'):
+            total += flag_rfi_channels(
+                r[spec_key],
+                window=rfi_window,
+                sigma_thresh=rfi_sigma,
+                degree=rfi_degree,
+                sample_frac=rfi_sample_frac,
+                extrema_order=rfi_extrema_order,
+            )
+        r['stokes_I'] = r['corr00'] + r['corr11']
+    return total
 
 
 def flag_outlier_dumps(records: list[dict],

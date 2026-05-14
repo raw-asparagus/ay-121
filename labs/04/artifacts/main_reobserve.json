@@ -1,8 +1,58 @@
 [
   {
+    "l": 87.98,
+    "b": -2,
+    "reason": "insufficient_pairs(n=2)"
+  },
+  {
+    "l": 112.0,
+    "b": -2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 118.0,
+    "b": -2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 120.0,
+    "b": -2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 112.0,
+    "b": 0,
+    "reason": "peak_v"
+  },
+  {
+    "l": 122.0,
+    "b": 0,
+    "reason": "peak_v"
+  },
+  {
+    "l": 124.0,
+    "b": 0,
+    "reason": "peak_v"
+  },
+  {
+    "l": 118.0,
+    "b": 2,
+    "reason": "peak_v"
+  },
+  {
+    "l": 120.0,
+    "b": 2,
+    "reason": "peak_v"
+  },
+  {
     "l": 238.65,
     "b": 6,
     "reason": "peak_v"
+  },
+  {
+    "l": 226.78,
+    "b": 68,
+    "reason": "W"
   },
   {
     "l": 231.1,

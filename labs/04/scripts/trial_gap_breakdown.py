@@ -45,7 +45,7 @@ TRACK_INTERVAL_S = 10.0
 # what we read, not absolute gap.  Set TRIAL_CAPTURE_SEC=5.36 to match field.
 
 
-EVENTS: list[tuple[float, str, str]] = []  # (t, cell_tag, label)
+EVENTS = []  # list of (t, cell_tag, label)
 _lock = threading.Lock()
 
 
@@ -107,7 +107,7 @@ class FakeTelescope:
         self.alt = alt
         self.az = az
 
-    def get_pointing(self) -> tuple[float, float]:
+    def get_pointing(self):
         return self.alt, self.az
 
 
@@ -246,7 +246,7 @@ class LoggingSDR:
 # Cell construction
 # ---------------------------------------------------------------------------
 
-def make_cells(n: int) -> list[Cell]:
+def make_cells(n):
     """N obs cells offset by ~2 deg each (brick interleave proxy)."""
     cells = []
     alt = 40.0
@@ -273,7 +273,7 @@ def make_cells(n: int) -> list[Cell]:
 # Driver
 # ---------------------------------------------------------------------------
 
-def _make_real_cells(telescope, n: int) -> list[Cell]:
+def _make_real_cells(telescope, n):
     """Build N cells stepping ~2 deg in az from the current dish pointing.
 
     Keeps inside Leuschner limits (alt 17-83, az 7-348) so the trial is
@@ -395,7 +395,7 @@ def main() -> None:
           f'RETUNE_SEC={RETUNE_SEC}  SLEW_RATE={SLEW_RATE_DEG_S} deg/s')
 
     # Group events by cell.
-    by_cell: dict[str, list[tuple[float, str]]] = {}
+    by_cell = {}
     for t, tag, lbl in EVENTS:
         by_cell.setdefault(tag, []).append((t - t0, lbl))
 
@@ -420,7 +420,7 @@ def main() -> None:
         for ts, lbl in by_cell[tag]:
             evs.setdefault(lbl, ts)
         # Find phase markers (prefix match).
-        def find(prefix: str) -> float | None:
+        def find(prefix):
             for lbl, ts in evs.items():
                 if lbl.startswith(prefix):
                     return ts

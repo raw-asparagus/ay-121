@@ -507,6 +507,13 @@ def plan_phase(phase: str, cfg: SurveyConfig, cell_total_time_sec: float):
         ('col l- b-', lambda cs: _sort_column_major(cs, False, False)),
     ]
 
+    # The initial recal (always served first when recal is enabled) eats
+    # ~1 cell-time before survey cell #0 is reached.  Bias the forward-sim
+    # by one slot so cell #0's projected observation time matches reality
+    # -- without this, cells at the alt/az limit get kept and then all
+    # silently skip at runtime.
+    initial_recal_offset = 1 if cfg.recal_enable else 0
+
     plans = []
     for side, side_cells in [('rising', rising), ('setting', setting)]:
         if not side_cells:
@@ -515,7 +522,7 @@ def plan_phase(phase: str, cfg: SurveyConfig, cell_total_time_sec: float):
             ordered = sort_fn(side_cells)
             kept = filter_cells_forward_simulated(
                 ordered, cfg, cell_total_time_sec,
-                index_offset=0, unix_t=now,
+                index_offset=initial_recal_offset, unix_t=now,
             )
             plans.append((side, name, kept))
 
@@ -591,6 +598,7 @@ class SurveyScheduler:
         since_recal = cfg.recal_every_n_cells if cfg.recal_enable else 0
         final_recal_pending = cfg.recal_enable
         idx = 0
+        skip_log: list[str] = []  # accumulated skip reasons for this pass
 
         if cell_list:
             _, _, cl, cb = cell_list[0]
@@ -621,6 +629,11 @@ class SurveyScheduler:
 
             # 2) Out of survey cells?
             if idx >= len(cell_list):
+                if skip_log:
+                    print(f'  [scan] Pass summary: {observed_this_pass} observed, '
+                          f'{len(skip_log)} skipped (first few: '
+                          f'{"; ".join(skip_log[:5])})')
+                    skip_log = []
                 if skipped and observed_this_pass > 0:
                     cell_list = skipped
                     skipped = []
@@ -651,6 +664,12 @@ class SurveyScheduler:
                 lat=LEO_LAT_DEG, lon=LEO_LON_DEG, obs_alt=LEO_OBS_ALT_M,
             )
             if not self._in_limits(alt, az):
+                reasons = []
+                if not (cfg.min_alt_deg <= alt <= cfg.max_alt_deg):
+                    reasons.append(f'alt={alt:.1f}')
+                if not (cfg.az_min <= az <= cfg.az_max):
+                    reasons.append(f'az={az:.1f}')
+                skip_log.append(f'l={cell_l},b={cell_b} ({",".join(reasons)})')
                 skipped.append(cell_list[idx])
                 idx += 1
                 continue

@@ -281,12 +281,18 @@ class SurveyCoordinator:
 
         stop = threading.Event()
         printed = threading.Event()
+        warned: list[str] = []  # one-shot error log
 
         def watch() -> None:
             while not stop.wait(poll_sec):
                 try:
                     p_alt, p_az = get_pointing()
-                except (OSError, TimeoutError, ValueError, AssertionError):
+                except (OSError, TimeoutError, ValueError, AssertionError) as exc:
+                    if not warned:
+                        warned.append('x')
+                        print(f'  [pointing] get_pointing() failing -- live '
+                              f'display disabled this slew ({type(exc).__name__}: {exc})',
+                              flush=True)
                     continue
                 d_alt = p_alt - alt
                 d_az = p_az - az
@@ -313,19 +319,37 @@ class SurveyCoordinator:
         if not cell.schedule:
             return
 
-        # Pre-arm: start LO PLL settle and diode warm-up while the dish slews.
+        # Kick off LO PLL settle + diode warm-up in a side thread so they
+        # run *during* the slew, not before it.  Joined below before the
+        # first capture, so the schedule still starts from a fully settled
+        # state.
         first_lo, first_noise_on = cell.schedule[0]
-        try:
-            self._sdr.prearm(first_lo, first_noise_on)
-        except Exception as exc:
-            print(f'  [coordinator] prearm failed: {exc}')
+        prearm_exc: list[BaseException] = []
+
+        def _prearm() -> None:
+            try:
+                self._sdr.prearm(first_lo, first_noise_on)
+            except BaseException as exc:  # noqa: BLE001 - re-raised via list below
+                prearm_exc.append(exc)
+
+        prearm_thread = threading.Thread(
+            target=_prearm, name='sdr-prearm', daemon=True,
+        )
+        prearm_thread.start()
 
         # Slew (blocking) with live pointing monitor.
         try:
             self._slew_with_monitor(p.alt_deg, p.az_deg)
         except Exception as exc:
+            prearm_thread.join()
             print(f'  [coordinator] slew failed for {p.target_name}: {exc}')
             return
+
+        # Ensure prearm finished before the first capture starts so the
+        # diode/LO transient cannot contaminate dump 0.
+        prearm_thread.join()
+        if prearm_exc:
+            print(f'  [coordinator] prearm failed: {prearm_exc[0]}')
 
         # Sidereal tracking during the cell (only if scheduler provided a recompute).
         tracker: TrackingThread | None = None

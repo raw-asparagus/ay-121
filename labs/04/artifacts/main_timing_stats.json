@@ -1,0 +1,22 @@
+{
+  "generated_at": 1778725605.5604115,
+  "n_sessions": 0,
+  "n_cells_observed": 0,
+  "intra_cell_cadence_sec": {
+    "mean": 6.5,
+    "p50": 6.0,
+    "p95": 11.0
+  },
+  "slew_gap_sec": {
+    "mean": 40.0,
+    "p50": 36.0,
+    "p95": 57.0
+  },
+  "cell_total_time_sec": {
+    "mean": 95.0,
+    "p50": 88.0,
+    "p95": 140.0
+  },
+  "duty_cycle": 0.55,
+  "n_sessions_skipped_prerewrite": 29
+}

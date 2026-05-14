@@ -88,8 +88,19 @@ def _quantiles(values: list[float]) -> dict:
     }
 
 
+#  Pre-rewrite captures used NSAMPLES=32768 -> ~13 s intra-cell cadence;
+#  post-rewrite uses NSAMPLES=16384 -> ~6 s.  Sessions whose median intra-cell
+#  gap exceeds this threshold are dropped from the stats so the forecast
+#  reflects only the current pipeline.  Auto-segments without a date cutoff.
+_POSTREWRITE_MAX_INTRA_CELL_SEC = 8.0
+
+
 def compute(archive_dir) -> dict:
-    """Walk ``archive_dir/session_*/<obs|cal>_*/*.npz`` filenames, compute stats."""
+    """Walk ``archive_dir/session_*/<obs|cal>_*/*.npz`` filenames, compute stats.
+
+    Sessions are filtered to the post-rewrite pipeline by per-session
+    median intra-cell cadence (see ``_POSTREWRITE_MAX_INTRA_CELL_SEC``).
+    """
     archive_path = Path(archive_dir)
     sessions = sorted(p for p in archive_path.glob('session_*') if p.is_dir())
 
@@ -97,6 +108,8 @@ def compute(archive_dir) -> dict:
     slew_gap: list[float] = []
     cell_total: list[float] = []
     n_cells = 0
+    n_sessions_used = 0
+    n_sessions_skipped = 0
 
     for session_dir in sessions:
         dumps: list[tuple[str, float]] = []
@@ -108,20 +121,40 @@ def compute(archive_dir) -> dict:
         if not dumps:
             continue
 
+        # First pass: collect this session's intra-cell gaps and decide
+        # whether it's a post-rewrite session.
+        s_intra: list[float] = []
+        s_slew: list[float] = []
+        s_cell_total: list[float] = []
+        s_n_cells = 1
         prev_target, prev_t = dumps[0]
         cell_start = prev_t
-        n_cells += 1
-
         for target, t in dumps[1:]:
             gap = t - prev_t
             if target == prev_target:
-                intra_cell.append(gap)
+                s_intra.append(gap)
             else:
-                slew_gap.append(gap)
-                cell_total.append((prev_t - cell_start) + gap)
+                s_slew.append(gap)
+                s_cell_total.append((prev_t - cell_start) + gap)
                 cell_start = t
-                n_cells += 1
+                s_n_cells += 1
             prev_target, prev_t = target, t
+
+        if not s_intra:
+            # No multi-dump cells -- can't classify; skip conservatively.
+            n_sessions_skipped += 1
+            continue
+
+        med = float(np.percentile(s_intra, 50))
+        if med > _POSTREWRITE_MAX_INTRA_CELL_SEC:
+            n_sessions_skipped += 1
+            continue
+
+        intra_cell.extend(s_intra)
+        slew_gap.extend(s_slew)
+        cell_total.extend(s_cell_total)
+        n_cells += s_n_cells
+        n_sessions_used += 1
 
     # End-to-end duty cycle: on-source integration / total wallclock per cell
     # (includes slew + dump overhead).  This is the metric that drives
@@ -134,9 +167,19 @@ def compute(archive_dir) -> dict:
     else:
         duty = DEFAULTS['duty_cycle']
 
+    # If no post-rewrite sessions were usable, fall back to DEFAULTS rather
+    # than emit NaN quantiles (which would break the planner downstream).
+    if n_sessions_used == 0:
+        out = dict(DEFAULTS)
+        out['generated_at'] = time.time()
+        out['n_sessions'] = 0
+        out['n_sessions_skipped_prerewrite'] = n_sessions_skipped
+        return out
+
     return {
         'generated_at': time.time(),
-        'n_sessions': len(sessions),
+        'n_sessions': n_sessions_used,
+        'n_sessions_skipped_prerewrite': n_sessions_skipped,
         'n_cells_observed': n_cells,
         'intra_cell_cadence_sec': _quantiles(intra_cell),
         'slew_gap_sec': _quantiles(slew_gap),

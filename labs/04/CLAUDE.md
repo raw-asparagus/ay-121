@@ -67,7 +67,7 @@ All plans must satisfy:
 3. **Rising or setting only** — pick the side with more accessible cells
 4. **2 deg grid spacing** — Nyquist sampling for 3.4 deg HPBW beam
 5. **Manifest-aware** — skip complete cells, flag cells needing extra data
-6. **Timing** — use 20 s/dump conservative cadence (measured: 17 s pipelined)
+6. **Timing** — main dataset measured ~6 s/dump cadence post-rewrite (10 dumps/cell ~60 s capture); streaming dataset historical ~17 s/dump
 7. **Sky rotation** — simulate timing sequentially; cells observed hours into
    the run may have rotated out of limits
 
@@ -206,22 +206,39 @@ T_sys/gain dictionaries).
 ## Hardware parameters
 
 - Telescope: Leuschner 4.5m dish, HPBW = 3.4 deg
-- Receiver: dual-polarization RTL-SDR, 2.56 MHz bandwidth, 1024 channels
-- LO frequencies: 1420.0 / 1421.0 MHz (frequency switching)
-- FFT: NFFT=1024, NBLOCKS=1025 (block 0 discarded), NSAMPLES=32768
+- Receiver: dual-polarization RTL-SDR, 1024 channels
+- Streaming dataset: 2.56 MHz bandwidth, NSAMPLES=32768; main dataset: 3.2 MHz, NSAMPLES=16384
+- LO frequencies: streaming 1420.0/1421.0 MHz; main 1419.86/1421.14 MHz (frequency switching)
+- FFT: NFFT=1024, NBLOCKS=1025 (block 0 discarded)
 - Alt limits: 17 - 83 deg
 - Az limits: 7 - 348 deg (exclusion near north)
 - Noise diode: T_cal = 58 K (pol 0), 79 K (pol 1), average 68.5 K
-- Dump cadence: ~17 s (pipelined reader)
-- Integration per dump: 13.1 s (1025 * 32768 / 2.56e6)
-- Duty cycle: ~77% (pipelined), ~44% (sequential)
+- Integration per dump: 13.1 s streaming (32768 / 2.56e6 * 1025); 5.25 s main (16384 / 3.2e6 * 1025)
+- Dump cadence (main, post-rewrite): ~6 s (pipelined within cell, no priming between cells)
+- Duty cycle (main): ~0.55 (capture-bound; slew dominates the gap budget)
 
-## Pipelined reader
+## SDR pipeline (main dataset)
 
-`ugradiolab/capture/readers.py` contains `_PipelinedSDR` which overlaps
-FFT/correlation of the previous capture with USB data transfer of the next
-capture. This improved duty cycle from 44% to 77% (cadence 29s -> 17s).
-The bottleneck is now LO frequency switching (~2-3s per dump).
+The galactic-plane / NPS surveys run through a synchronous coordinator
+in `ugradiolab/capture/coordinator.py` driving `SDRSession`
+(`ugradiolab/capture/sdr_session.py`).
+
+* `SDRSession.run_schedule(schedule)` is a generator that yields one
+  correlated dump per `(lo_mhz, noise_on)` slot. FFT/correlation of dump
+  N runs in a background thread while USB capture of dump N+1 is in
+  flight. The schedule drains synchronously, so no capture or
+  correlation carries between schedules -- there is no priming penalty
+  at cell boundaries.
+* `SurveyCoordinator` runs one cell at a time: prearm the SDR's first
+  LO + diode state during the slew, blocking `telescope.point(wait=True)`,
+  start a sidereal `TrackingThread`, iterate `run_schedule`, hand each
+  dump to a `WriterPool`, repeat.
+* `SurveyScheduler` (in `labs/04/scripts/main/_survey.py`) is a generator
+  yielding `Cell` objects with recal injection, retry-pass, and final
+  recal logic. No cross-thread events.
+
+The streaming-pipeline driver `ugradiolab/capture/streaming.py` and
+`make_snap_reader` are kept for `labs/02` and `labs/03`.
 
 ## SNR guidelines
 

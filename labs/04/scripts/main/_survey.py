@@ -76,7 +76,7 @@ class SurveyConfig:
     f1_mhz: float = 1419.86
     f2_mhz: float = 1421.14
     sample_rate: float = 3.2e6
-    nsamples: int = 32768
+    nsamples: int = 16384
     nblocks: int = 1025
     nfft: int = 1024
 

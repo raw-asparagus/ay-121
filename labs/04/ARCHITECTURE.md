@@ -274,15 +274,17 @@ integration time tables, SNR vs smoothing plots
 | Parameter | Value |
 |-----------|-------|
 | Telescope | Leuschner 4.5 m, HPBW = 3.4 deg |
-| Receiver | Dual-pol RTL-SDR, 2.56 MHz BW, 1024 channels |
-| LO frequencies | 1420.0 / 1421.0 MHz (frequency switching) |
-| FFT | NFFT=1024, NBLOCKS=1025 (block 0 discarded), NSAMPLES=32768 |
+| Receiver | Dual-pol RTL-SDR, 1024 channels |
+| Bandwidth | 2.56 MHz (streaming dataset) / 3.2 MHz (main dataset) |
+| LO frequencies | 1420.0/1421.0 MHz streaming; 1419.86/1421.14 MHz main |
+| FFT | NFFT=1024, NBLOCKS=1025 (block 0 discarded) |
+| NSAMPLES | 32768 streaming; 16384 main (halved for faster cadence) |
 | Alt limits | 17-83 deg |
 | Az limits | 7-348 deg (exclusion near north) |
-| Noise diode | T_cal = 79 K (pol 0), 58 K (pol 1), mean 68.5 K |
-| Integration per dump | 13.1 s (1025 * 32768 / 2.56e6) |
-| Dump cadence | ~17 s (pipelined) |
-| Duty cycle | ~77% (pipelined) |
+| Noise diode | T_cal = 58 K (pol 0), 79 K (pol 1), mean 68.5 K |
+| Integration per dump | 13.1 s streaming (32768 / 2.56e6 * 1025); 5.25 s main (16384 / 3.2e6 * 1025) |
+| Dump cadence (main) | ~6 s (SDRSession pipelined within cell, no prime at boundary) |
+| Duty cycle (main) | ~0.55 (capture-bound; slew dominates gap budget) |
 
 ## Derived system parameters
 

@@ -55,8 +55,9 @@ CONFIG = SurveyConfig(
     b_step=2,
     physical_spacing_deg=2.0,
 
+    # ABBA ABBA ABBA: 4 cal then 8 obs.
     cal_dumps_per_lo=2,
-    obs_dumps_per_lo=3,
+    obs_dumps_per_lo=4,
 
     recal_enable=True,
     recal_targets=(

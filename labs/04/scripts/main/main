@@ -64,9 +64,11 @@ CONFIG = SurveyConfig(
     b_step=2,
     physical_spacing_deg=2.0,
 
-    # Per-pointing dump schedule (plane is bright: T_B ~ 50-150 K).
+    # Per-pointing dump schedule (ABBA ABBA ABBA across cal+obs):
+    #   CAL-A, CAL-B, CAL-B, CAL-A,
+    #   OBS-A, OBS-B, OBS-B, OBS-A, OBS-A, OBS-B, OBS-B, OBS-A
     cal_dumps_per_lo=2,    # 4 cal total
-    obs_dumps_per_lo=3,    # 6 obs total
+    obs_dumps_per_lo=4,    # 8 obs total
 
     # Periodic recal drift check.  See _survey.py for target geometry rationale
     # (Dec=+72 pair chosen so at least one is observable at any LST).

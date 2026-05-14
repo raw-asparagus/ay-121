@@ -46,18 +46,20 @@ _DUMP_RE = re.compile(
     r'^(?:obs|cal)_(.+?)_(-?\d+)_(\d{8}_\d{6})\.npz$'
 )
 
-# Capture duration assuming the radio defaults: NBLOCKS=1025, NSAMPLES=32768,
+# Capture duration assuming the radio defaults: NBLOCKS=1025, NSAMPLES=16384,
 # SAMPLE_RATE=3.2 MHz.  Used only to derive a rough duty cycle from cadence.
-_NOMINAL_CAPTURE_SEC = (1025 * 32768) / 3.2e6  # ~10.49 s
+_NOMINAL_CAPTURE_SEC = (1025 * 16384) / 3.2e6  # ~5.25 s
 
+# Priors used until enough new sessions land for compute() to overwrite them.
+# Halved-capture regime: ~5 s per dump capture, slew time unchanged.
 DEFAULTS = {
     'generated_at': 0.0,
     'n_sessions': 0,
     'n_cells_observed': 0,
-    'intra_cell_cadence_sec': {'mean': 12.4, 'p50': 11.0, 'p95': 20.0},
+    'intra_cell_cadence_sec': {'mean':  6.5, 'p50':  6.0, 'p95': 11.0},
     'slew_gap_sec':           {'mean': 40.0, 'p50': 36.0, 'p95': 57.0},
-    'cell_total_time_sec':    {'mean': 125.0, 'p50': 114.0, 'p95': 187.0},
-    'duty_cycle': 0.67,
+    'cell_total_time_sec':    {'mean': 95.0, 'p50': 88.0, 'p95': 140.0},
+    'duty_cycle': 0.55,
 }
 
 

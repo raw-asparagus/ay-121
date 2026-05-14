@@ -245,6 +245,69 @@ class SurveyCoordinator:
     # Per-cell sequence
     # ------------------------------------------------------------------
 
+    def _slew_with_monitor(
+        self,
+        alt: float,
+        az: float,
+        poll_sec: float = 0.5,
+        min_slew_deg: float = 1.0,
+    ) -> None:
+        """Run blocking ``point(alt, az, wait=True)`` while a watcher thread
+        prints live dish coordinates.
+
+        Tracking nudges (current position already within ``min_slew_deg`` on
+        both axes) skip the watcher so the log only shows real slews.  The
+        watcher uses fresh sockets so it doesn't interfere with the in-flight
+        ``wait``.
+        """
+        get_pointing = getattr(self._telescope, 'get_pointing', None)
+        if get_pointing is None:
+            self._telescope.point(alt, az, wait=True)
+            return
+
+        try:
+            cur_alt, cur_az = get_pointing()
+        except (OSError, TimeoutError, ValueError, AssertionError):
+            cur_alt = cur_az = None
+
+        is_tracking_nudge = (
+            cur_alt is not None
+            and abs(cur_alt - alt) < min_slew_deg
+            and abs(cur_az - az) < min_slew_deg
+        )
+        if is_tracking_nudge:
+            self._telescope.point(alt, az, wait=True)
+            return
+
+        stop = threading.Event()
+        printed = threading.Event()
+
+        def watch() -> None:
+            while not stop.wait(poll_sec):
+                try:
+                    p_alt, p_az = get_pointing()
+                except (OSError, TimeoutError, ValueError, AssertionError):
+                    continue
+                d_alt = p_alt - alt
+                d_az = p_az - az
+                print(
+                    f'\r  [pointing] slew -> alt={alt:6.2f} az={az:6.2f} | '
+                    f'now alt={p_alt:6.2f} az={p_az:6.2f} | '
+                    f'd_alt={d_alt:+6.2f} d_az={d_az:+6.2f}   ',
+                    end='', flush=True,
+                )
+                printed.set()
+
+        watcher = threading.Thread(target=watch, name='slew-monitor', daemon=True)
+        watcher.start()
+        try:
+            self._telescope.point(alt, az, wait=True)
+        finally:
+            stop.set()
+            watcher.join(timeout=poll_sec * 4)
+            if printed.is_set():
+                print()
+
     def _run_cell(self, cell: Cell) -> None:
         p = cell.pointing
         if not cell.schedule:
@@ -257,9 +320,9 @@ class SurveyCoordinator:
         except Exception as exc:
             print(f'  [coordinator] prearm failed: {exc}')
 
-        # Slew (blocking).
+        # Slew (blocking) with live pointing monitor.
         try:
-            self._telescope.point(p.alt_deg, p.az_deg, wait=True)
+            self._slew_with_monitor(p.alt_deg, p.az_deg)
         except Exception as exc:
             print(f'  [coordinator] slew failed for {p.target_name}: {exc}')
             return

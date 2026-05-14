@@ -17,14 +17,17 @@ fmt_elapsed() {
 T0=$(date +%s)
 echo "=== Launch: $(date -u +'%Y-%m-%dT%H:%M:%SZ') (t=0) ==="
 
-# Stage 1: NPS run, capped to ~1h23m so we hand off to the galactic-plane
-# loop just as l=5.37, b=+6 (galactic-centre-ish, dec=-21 deg) rises above
-# the 17 deg alt limit at Leuschner.  nps.py runs main() once and exits;
-# `timeout` enforces the cap if main() hasn't returned by then.
+# Stage 1: NPS run, capped at ~7 h so the galactic-plane loop launches
+# when the planner's preferred start has rotated to the low-l edge
+# (l ~ -8, b = +2) -- the opposite end of the survey from the typical
+# mid-l (l ~ 95) start.  This maximises forecast cell coverage for the
+# subsequent main run (~137 cells vs ~109 at the previous 4.5 h cap).
+# nps.py runs main() once and exits; `timeout` enforces the cap if main()
+# hasn't returned by then.
 T1=$(date +%s)
-echo "=== Stage 1: NPS (up to ~1h23m, until l=5.37 b=6 rises) ==="
+echo "=== Stage 1: NPS (up to ~7 h, until gal-plane low-l edge rises) ==="
 echo "  start:  $(date -u -d "@$T1" +'%Y-%m-%dT%H:%M:%SZ')  (t+$(fmt_elapsed $((T1-T0))))"
-timeout 16200 env PYTHONPATH=../.. python3 scripts/main/nps.py
+timeout 25200 env PYTHONPATH=../.. python3 scripts/main/nps.py
 T1_END=$(date +%s)
 echo "  finish: $(date -u -d "@$T1_END" +'%Y-%m-%dT%H:%M:%SZ')  (t+$(fmt_elapsed $((T1_END-T0))), stage 1 took $(fmt_elapsed $((T1_END-T1))))"
 

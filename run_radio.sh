@@ -23,7 +23,7 @@ while kill -0 $OBSERVER_PID 2>/dev/null; do
     # echo "Other Python processes detected: $OTHER_PY_COUNT"
 
     # You wanted "2 or more", so we trigger if count is GREATER THAN 0
-    if [ "$OTHER_PY_COUNT" -gt 0 ]; then
+    if [ "$OTHER_PY_COUNT" -gt 1 ]; then
         echo "Threshold exceeded ($OTHER_PY_COUNT processes). Shutting down observer..."
         kill $OBSERVER_PID
         exit 0

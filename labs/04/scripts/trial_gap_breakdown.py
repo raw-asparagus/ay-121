@@ -163,15 +163,7 @@ class TrialSDRSession(SDRSession):
         tag = self.cell_tag
         if self.real:
             log(tag, 'correlate.submit')
-            fut = super()._submit_correlate(data, t, lo, noise_on)
-            real_set = fut.set_result
-
-            def _wrap_set(value):
-                log(tag, 'correlate.done')
-                real_set(value)
-
-            fut.set_result = _wrap_set  # type: ignore[assignment]
-            return fut
+            return super()._submit_correlate(data, t, lo, noise_on)
 
         fut = _Future()
 

@@ -315,7 +315,7 @@ def neighbor_qa(
         (``W_flag``, ``peak_v_flag``, ``W_frac_resid``, etc.).
     """
     cell_keys = list(cell_metrics.keys())
-    cell_coords = np.array(cell_keys, dtype=float)
+    cell_coords = np.array(cell_keys)
     neighbor_cells: list[dict] = []
 
     # Precompute the full N x N separation matrix once. The per-row math is

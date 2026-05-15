@@ -68,8 +68,6 @@ def compute_R_for_dumps(
 
         if lsr_correct:
             R_sess = np.nanmean(R_pairs, axis=0)
-            if np.ndim(R_sess) == 0:
-                continue
             v_corr = np.mean([r['v_corr_lsr'] for r in d1[:n_p] + d2[:n_p]])
             v_sess_lsr = v_overlap + v_corr
             R_ov = R_sess[overlap_mask]
@@ -78,7 +76,7 @@ def compute_R_for_dumps(
                 left=np.nan, right=np.nan,
             )[::-1]
             R_all.append(R_interp)
-            session_labels.append(str(sess_label))
+            session_labels.append(sess_label)
             pairs_per_session.append(n_p)
         else:
             R_all.append(R_pairs)
@@ -93,7 +91,7 @@ def compute_R_for_dumps(
 
     if lsr_correct:
         R_mean = np.nanmean(R_all, axis=0)
-        result = {
+        return {
             'R_overlap': R_mean,
             'n_pairs': total_pairs, 'ra': mean_ra, 'dec': mean_dec,
             'n_sessions': len(R_all),
@@ -101,16 +99,12 @@ def compute_R_for_dumps(
             'session_labels': session_labels,
             'pairs_per_session': pairs_per_session,
         }
-        return result
-    else:
-        R_cat = np.concatenate(R_all, axis=0)
-        R_mean = np.nanmean(R_cat, axis=0)
-        if np.ndim(R_mean) == 0:
-            return None
-        return {
-            'R_mean': R_mean, 'R_overlap': R_mean[overlap_mask],
-            'n_pairs': total_pairs, 'ra': mean_ra, 'dec': mean_dec,
-        }
+    R_cat = np.concatenate(R_all, axis=0)
+    R_mean = np.nanmean(R_cat, axis=0)
+    return {
+        'R_mean': R_mean, 'R_overlap': R_mean[overlap_mask],
+        'n_pairs': total_pairs, 'ra': mean_ra, 'dec': mean_dec,
+    }
 
 
 # --- Lab 4 main-pipeline helpers -----------------------------------------
@@ -219,7 +213,7 @@ def build_lsr_pairs(
 
     obs_dumps_by_cell: dict = defaultdict(list)
     for r in records:
-        if r.get('gl') is None or r['noise_on']:
+        if r['noise_on']:
             continue
         obs_dumps_by_cell[(r['session'], r['gl'], r['gb'])].append(r)
 

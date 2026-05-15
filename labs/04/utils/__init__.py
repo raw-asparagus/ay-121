@@ -8,7 +8,7 @@ from .freqswitch import (
     build_recal_visits,
     aggregate_recal_visits,
 )
-from .mapping import compute_cell_W, build_heatmap, assemble_W_R_arrays
+from .mapping import compute_cell_W, build_heatmap, assemble_W_R_arrays, compute_lv_strip
 from .qa import (
     compute_cell_metrics,
     neighbor_qa,

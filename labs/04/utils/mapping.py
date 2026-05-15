@@ -52,7 +52,7 @@ def compute_cell_W(
         else:
             W = np.nan
         vals.append(W)
-    return np.array(gl, dtype=float), np.array(gb, dtype=float), np.array(vals)
+    return np.array(gl), np.array(gb), np.array(vals)
 
 
 def assemble_W_R_arrays(
@@ -95,6 +95,81 @@ def assemble_W_R_arrays(
     }
 
 
+def compute_lv_strip(
+    cell_combined: dict,
+    excluded: set,
+    *,
+    b_max_deg: float,
+    dl_fine_deg: float,
+    hpbw_deg: float,
+    cutoff_hpbw: float = 1.5,
+    keep_near_hpbw: float = 1.0,
+    min_weight: float = 0.1,
+    spectrum_key: str = 'R',
+) -> dict:
+    """Beam-weighted (l, v) resampling of the b ~ 0 strip.
+
+    For each cell in ``cell_combined`` with ``|b| <= b_max_deg`` and not in
+    ``excluded``, accumulate its spectrum onto a fine longitude grid with
+    Gaussian beam weights (sigma = HPBW / 2.355) and a hard cutoff at
+    ``cutoff_hpbw * hpbw_deg``. Pixels with no cell within
+    ``keep_near_hpbw * hpbw_deg`` are masked, which blanks unobserved
+    longitudes without explicit segment bookkeeping.
+
+    Returns
+    -------
+    dict
+        ``{'l_fine', 'lv_image', 'sigma_deg', 'n_cells', 'n_populated'}``.
+        ``lv_image`` is shape ``(nv, M)`` with NaNs where weight is below
+        ``min_weight`` or no cell is within ``keep_near_hpbw * hpbw_deg``.
+    """
+    keys = [k for k in cell_combined
+            if abs(k[1]) <= b_max_deg and k not in excluded]
+    if not keys:
+        return {'l_fine': np.array([]), 'lv_image': np.zeros((0, 0)),
+                'sigma_deg': hpbw_deg / (2.0 * np.sqrt(2.0 * np.log(2.0))),
+                'n_cells': 0, 'n_populated': 0}
+
+    gl = np.array([k[0] for k in keys])
+    gb = np.array([k[1] for k in keys])
+    spec = np.array([cell_combined[k][spectrum_key] for k in keys])  # (N, nv)
+    gl_w = ((gl + 180.0) % 360.0) - 180.0
+
+    l_lo = np.floor(gl_w.min() / dl_fine_deg) * dl_fine_deg
+    l_hi = np.ceil(gl_w.max() / dl_fine_deg) * dl_fine_deg
+    l_fine = np.arange(l_lo, l_hi + dl_fine_deg, dl_fine_deg)
+
+    sigma_deg = hpbw_deg / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+    sigma_rad = np.deg2rad(sigma_deg)
+    cutoff_rad = np.deg2rad(cutoff_hpbw * hpbw_deg)
+    near_rad = np.deg2rad(keep_near_hpbw * hpbw_deg)
+
+    G_l = np.deg2rad(l_fine)[:, None]
+    P_l = np.deg2rad(gl_w)[None, :]
+    P_b = np.deg2rad(gb)[None, :]
+    cosang = np.clip(np.cos(P_b) * np.cos(G_l - P_l), -1.0, 1.0)
+    theta = np.arccos(cosang)
+    w = np.exp(-0.5 * (theta / sigma_rad) ** 2)
+    w[theta > cutoff_rad] = 0.0
+
+    finite = np.isfinite(spec)
+    spec_safe = np.where(finite, spec, 0.0)
+    w_S = w @ finite
+    with np.errstate(invalid='ignore', divide='ignore'):
+        lv_image = np.where(w_S > min_weight, (w @ spec_safe) / w_S, np.nan).T
+
+    no_near = theta.min(axis=1) > near_rad
+    lv_image[:, no_near] = np.nan
+
+    return {
+        'l_fine': l_fine,
+        'lv_image': lv_image,
+        'sigma_deg': sigma_deg,
+        'n_cells': len(keys),
+        'n_populated': int(np.isfinite(lv_image).any(axis=0).sum()),
+    }
+
+
 def build_heatmap(
     gl: np.ndarray,
     gb: np.ndarray,
@@ -126,5 +201,5 @@ def build_heatmap(
     li = np.searchsorted(l_unique, gl_int)
     bi = np.searchsorted(b_unique, gb_int)
     in_bounds = (li >= 0) & (li < len(l_unique)) & (bi >= 0) & (bi < len(b_unique))
-    map_val[bi[in_bounds], li[in_bounds]] = np.asarray(vals)[in_bounds]
+    map_val[bi[in_bounds], li[in_bounds]] = vals[in_bounds]
     return map_val, l_unique, b_unique

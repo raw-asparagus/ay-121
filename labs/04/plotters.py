@@ -156,37 +156,37 @@ def beam_outline_polys(
 # Mollweide accessibility overlay
 # ---------------------------------------------------------------------------
 
-def add_never_observable_overlay(
-    ax: plt.Axes,
+def never_observable_mask(
+    l_deg: np.ndarray,
+    b_deg: np.ndarray,
     *,
-    center_l: float = MOLL_CENTER_L,
     latitude_deg: float = LEO_LAT_DEG,
     min_alt_deg: float = MIN_ALT_DEG,
     max_alt_deg: float = MAX_ALT_DEG,
     az_min_deg: float = AZ_MIN_DEG,
     az_max_deg: float = AZ_MAX_DEG,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Draw the never-observable galactic region on a Mollweide axis."""
-    l_dense = np.arange(-179.5, 180.5, 1.0)
-    b_dense = np.arange(-89.5, 90.5, 1.0)
-    L_dense, B_dense = np.meshgrid(l_dense, b_dense)
+    ha_step_deg: float = 1.0,
+) -> np.ndarray:
+    """Boolean mask: True where (l, b) is never observable from Leuschner.
 
-    L_true = (L_dense + center_l) % 360
-    gc_grid = ac.SkyCoord(
-        l=L_true.ravel() * u.deg,
-        b=B_dense.ravel() * u.deg,
-        frame="galactic",
-    )
-    dec_rad = np.deg2rad(gc_grid.transform_to(ac.ICRS()).dec.deg).reshape(L_dense.shape)
+    ``l_deg`` and ``b_deg`` are broadcastable galactic-coordinate arrays
+    (any shape). The hour-angle sweep at 1 deg resolution is enough for
+    sub-degree mask boundaries.
+    """
+    l_arr = np.asarray(l_deg, dtype=float)
+    b_arr = np.broadcast_to(np.asarray(b_deg, dtype=float), l_arr.shape)
+    gc = ac.SkyCoord(l=l_arr.ravel() * u.deg, b=b_arr.ravel() * u.deg,
+                     frame="galactic")
+    dec_rad = np.deg2rad(gc.transform_to(ac.ICRS()).dec.deg).reshape(l_arr.shape)
     lat_rad = np.deg2rad(latitude_deg)
 
-    ha_steps = np.deg2rad(np.arange(0.0, 360.0, 1.0))
+    ha_steps = np.deg2rad(np.arange(0.0, 360.0, ha_step_deg))
     alt_lo_r = np.deg2rad(min_alt_deg)
     alt_hi_r = np.deg2rad(max_alt_deg)
     az_lo_r = np.deg2rad(az_min_deg)
     az_hi_r = np.deg2rad(az_max_deg)
 
-    observable = np.zeros(L_dense.shape, dtype=bool)
+    observable = np.zeros(l_arr.shape, dtype=bool)
     for ha in ha_steps:
         sin_alt = (
             np.sin(lat_rad) * np.sin(dec_rad)
@@ -205,8 +205,31 @@ def add_never_observable_overlay(
             & (az >= az_lo_r)
             & (az <= az_hi_r)
         )
+    return ~observable
 
-    inacc_mask = ~observable
+
+def add_never_observable_overlay(
+    ax: plt.Axes,
+    *,
+    center_l: float = MOLL_CENTER_L,
+    latitude_deg: float = LEO_LAT_DEG,
+    min_alt_deg: float = MIN_ALT_DEG,
+    max_alt_deg: float = MAX_ALT_DEG,
+    az_min_deg: float = AZ_MIN_DEG,
+    az_max_deg: float = AZ_MAX_DEG,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Draw the never-observable galactic region on a Mollweide axis."""
+    l_dense = np.arange(-179.5, 180.5, 1.0)
+    b_dense = np.arange(-89.5, 90.5, 1.0)
+    L_dense, B_dense = np.meshgrid(l_dense, b_dense)
+
+    L_true = (L_dense + center_l) % 360
+    inacc_mask = never_observable_mask(
+        L_true, B_dense,
+        latitude_deg=latitude_deg,
+        min_alt_deg=min_alt_deg, max_alt_deg=max_alt_deg,
+        az_min_deg=az_min_deg, az_max_deg=az_max_deg,
+    )
 
     with mpl.rc_context({"hatch.color": "red", "hatch.linewidth": 0.5}):
         ax.contourf(
@@ -582,6 +605,87 @@ def plot_survey_mollweide_gridded(
 
     if title:
         ax.set_title(title, fontsize=EMPHASIS_SIZE)
+    return fig, ax
+
+
+# ---------------------------------------------------------------------------
+# l-v strip
+# ---------------------------------------------------------------------------
+
+def plot_lv_strip(
+    l_fine: np.ndarray,
+    v_axis: np.ndarray,
+    lv_image: np.ndarray,
+    *,
+    title: str,
+    cbar_label: str,
+    cmap: str = "inferno",
+    v_lim: tuple[float, float] = (-150.0, 130.0),
+    b_overlay_deg: float = 0.0,
+) -> tuple[plt.Figure, plt.Axes]:
+    """Plot a beam-weighted l-v image with never-observable overlay.
+
+    ``lv_image`` has shape ``(nv, M)`` matching ``len(v_axis)`` and
+    ``len(l_fine)``. NaN pixels are rendered transparent. The horizon
+    mask is computed at ``b_overlay_deg`` so the overlay matches the
+    strip's effective latitude.
+    """
+    dl = float(l_fine[1] - l_fine[0])
+    v_step = float(v_axis[1] - v_axis[0])
+    v_edges = np.concatenate([
+        [v_axis[0] - 0.5 * v_step],
+        0.5 * (v_axis[:-1] + v_axis[1:]),
+        [v_axis[-1] + 0.5 * v_step],
+    ])
+    l_edges = np.concatenate([
+        [l_fine[0] - 0.5 * dl],
+        0.5 * (l_fine[:-1] + l_fine[1:]),
+        [l_fine[-1] + 0.5 * dl],
+    ])
+
+    finite_vals = lv_image[np.isfinite(lv_image)]
+    vmin = max(0.0, np.nanpercentile(finite_vals, 1)) if finite_vals.size else 0.0
+    vmax = np.nanpercentile(finite_vals, 99) if finite_vals.size else 1.0
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+    pcm = ax.pcolormesh(l_edges, v_edges, lv_image,
+                        cmap=cmap, vmin=vmin, vmax=vmax, shading="flat")
+
+    # Never-observable wedge at this latitude (1-D slice).
+    inacc = never_observable_mask(l_fine.astype(float) % 360.0,
+                                  np.full_like(l_fine, b_overlay_deg, dtype=float))
+    runs = []
+    k = 0
+    while k < len(l_fine):
+        if inacc[k]:
+            k0 = k
+            while k < len(l_fine) and inacc[k]:
+                k += 1
+            runs.append((l_edges[k0], l_edges[k]))
+        else:
+            k += 1
+    first_patch = True
+    for l0, l1 in runs:
+        label = "Never observable" if first_patch else None
+        ax.fill_between([l0, l1], v_lim[0], v_lim[1],
+                        color="red", alpha=0.08, zorder=3)
+        with mpl.rc_context({"hatch.color": "red", "hatch.linewidth": 0.5}):
+            ax.fill_between([l0, l1], v_lim[0], v_lim[1],
+                            facecolor="none", edgecolor="red", linewidth=0,
+                            hatch="///", alpha=0.4, zorder=4, label=label)
+        first_patch = False
+
+    ax.set_xlabel(r"Galactic longitude $\ell$ [deg]", fontsize=LABEL_SIZE)
+    ax.set_ylabel(r"$v_{\rm LSR}$ [km s$^{-1}$]", fontsize=LABEL_SIZE)
+    ax.set_ylim(v_lim)
+    ax.invert_xaxis()
+    if title:
+        ax.set_title(title, fontsize=EMPHASIS_SIZE)
+    if runs:
+        ax.legend(loc="upper right", fontsize=LEGEND_SIZE, framealpha=0.9)
+    cbar = fig.colorbar(pcm, ax=ax, pad=0.02)
+    cbar.set_label(cbar_label)
+    plt.tight_layout()
     return fig, ax
 
 

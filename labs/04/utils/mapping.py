@@ -133,10 +133,12 @@ def compute_lv_strip(
     gl = np.array([k[0] for k in keys])
     gb = np.array([k[1] for k in keys])
     spec = np.array([cell_combined[k][spectrum_key] for k in keys])  # (N, nv)
-    gl_w = ((gl + 180.0) % 360.0) - 180.0
+    # Wrap into (-90, 270] so the survey footprint (l = -10 .. 250) sits
+    # contiguously inside the standard galactic-plane plot range.
+    gl_w = ((gl + 90.0) % 360.0) - 90.0
 
-    l_lo = np.floor(gl_w.min() / dl_fine_deg) * dl_fine_deg
-    l_hi = np.ceil(gl_w.max() / dl_fine_deg) * dl_fine_deg
+    l_lo = -90.0
+    l_hi = 270.0
     l_fine = np.arange(l_lo, l_hi + dl_fine_deg, dl_fine_deg)
 
     sigma_deg = hpbw_deg / (2.0 * np.sqrt(2.0 * np.log(2.0)))
@@ -166,7 +168,7 @@ def compute_lv_strip(
         'lv_image': lv_image,
         'sigma_deg': sigma_deg,
         'n_cells': len(keys),
-        'n_populated': int(np.isfinite(lv_image).any(axis=0).sum()),
+        'n_populated': np.isfinite(lv_image).any(axis=0).sum(),
     }
 
 

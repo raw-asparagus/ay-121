@@ -42,13 +42,13 @@ CONFIG = SurveyConfig(
     az_max=348.0,
     track_interval_s=10.0,
 
-    # Full-sky scan, anchored on main's l_center for brick-interleave
-    # consistency.  Forward-sim filter drops unreachable cells at runtime.
+    # NPS shape: l 210-380 (wraps through 360), b 0-70.  Anchor matches
+    # main so the brick interleave aligns across surveys.
     l_center=120.0,
-    l_min=-60.0,
-    l_max=300.0,
-    b_min=-20,
-    b_max=20,
+    l_min=210.0,
+    l_max=380.0,
+    b_min=0,
+    b_max=70,
     b_step=2,
     physical_spacing_deg=2.0,
 

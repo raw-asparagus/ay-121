@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import astropy.coordinates as ac
 import astropy.units as u
+
+from .cache import _memory
 
 
 RECAL_CELL_PREFIXES = ('obs_recal_', 'cal_recal_')
@@ -26,6 +29,11 @@ _SCALAR_FIELDS = (
     ('dec', 'dec_deg', float),
 )
 
+# Threads for parallel np.load.  np.load releases the GIL during disk I/O,
+# so a modest pool gives a near-linear speedup on warm cache without
+# overwhelming the storage backend.
+_LOAD_WORKERS = 16
+
 
 def _load_dump(path, survey: str, session_id: str) -> dict:
     """Load a single .npz dump into a record dict (no galactic coords yet)."""
@@ -43,12 +51,29 @@ def _load_dump(path, survey: str, session_id: str) -> dict:
     return rec
 
 
+def _load_dumps_parallel(jobs: list[tuple]) -> list[dict]:
+    """Run :func:`_load_dump` over ``jobs`` (path, survey, session_id) in a thread pool."""
+    if not jobs:
+        return []
+    with ThreadPoolExecutor(max_workers=_LOAD_WORKERS) as ex:
+        return list(ex.map(lambda a: _load_dump(*a), jobs))
+
+
 def _assign_galactic(records: list[dict]) -> None:
-    """Set 'gl' (2 dp) and 'gb' (integer deg) on each record from RA/Dec."""
-    for r in records:
-        c = ac.SkyCoord(ra=r['ra'] * u.deg, dec=r['dec'] * u.deg, frame='icrs')
-        r['gl'] = round(c.galactic.l.deg, 2)
-        r['gb'] = round(c.galactic.b.deg)
+    """Set 'gl' (2 dp) and 'gb' (integer deg) on each record from RA/Dec.
+
+    Single vectorized SkyCoord transform instead of per-record construction.
+    """
+    if not records:
+        return
+    ra = np.fromiter((r['ra'] for r in records), dtype=np.float64, count=len(records))
+    dec = np.fromiter((r['dec'] for r in records), dtype=np.float64, count=len(records))
+    gal = ac.SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame='icrs').galactic
+    gl = np.round(gal.l.deg, 2)
+    gb = np.round(gal.b.deg).astype(int)
+    for r, l_val, b_val in zip(records, gl, gb):
+        r['gl'] = float(l_val)
+        r['gb'] = int(b_val)
 
 
 def _strip_obscal_prefix(target: str) -> str:
@@ -56,6 +81,47 @@ def _strip_obscal_prefix(target: str) -> str:
     if target.startswith(('obs_', 'cal_')):
         return target[4:]
     return target
+
+
+def _collect_dump_jobs(
+    data_dirs: list[Path],
+    *,
+    want_recal: bool,
+) -> list[tuple]:
+    """Walk ``data_dirs`` and return (path, survey, session_id) jobs.
+
+    If ``want_recal`` is False, recal cells are skipped.  If True, only recal
+    cells are kept.
+    """
+    jobs: list[tuple] = []
+    for data_dir in data_dirs:
+        survey = data_dir.name
+        for session_dir in sorted(data_dir.glob('session_*')):
+            session_id = f'{survey}/{session_dir.name}'
+            cell_dirs = (sorted(session_dir.glob('obs_*'))
+                         + sorted(session_dir.glob('cal_*')))
+            for cell_dir in cell_dirs:
+                is_recal = cell_dir.name.startswith(RECAL_CELL_PREFIXES)
+                if want_recal != is_recal:
+                    continue
+                for p in sorted(cell_dir.glob('*.npz')):
+                    jobs.append((p, survey, session_id))
+    return jobs
+
+
+def _fingerprint_jobs(jobs: list[tuple]) -> tuple:
+    """Cache key derived from each .npz path and its mtime.
+
+    Invalidates the cache whenever a file is added, removed, or rewritten.
+    """
+    return tuple((str(p), p.stat().st_mtime_ns) for p, *_ in jobs)
+
+
+@_memory.cache(ignore=['jobs'])
+def _load_session_dumps_cached(fingerprint: tuple, jobs: list[tuple]) -> list[dict]:
+    records = _load_dumps_parallel(jobs)
+    _assign_galactic(records)
+    return records
 
 
 def load_session_dumps(
@@ -69,20 +135,26 @@ def load_session_dumps(
     galactic (l, b) of the pointing (rounded to integer b, two decimals on l).
     Recal-drift cells are skipped by default; load them via
     :func:`load_recal_dumps` if needed.
-    """
-    records: list[dict] = []
-    for data_dir in data_dirs:
-        survey = data_dir.name
-        for session_dir in sorted(data_dir.glob('session_*')):
-            session_id = f'{survey}/{session_dir.name}'
-            cell_dirs = (sorted(session_dir.glob('obs_*'))
-                         + sorted(session_dir.glob('cal_*')))
-            for cell_dir in cell_dirs:
-                if skip_recal and cell_dir.name.startswith(RECAL_CELL_PREFIXES):
-                    continue
-                for p in sorted(cell_dir.glob('*.npz')):
-                    records.append(_load_dump(p, survey, session_id))
 
+    Results are cached on disk via :mod:`joblib`; the cache key includes each
+    file path and its mtime, so adding/removing/rewriting a dump invalidates
+    the relevant entry automatically.
+    """
+    if not skip_recal:
+        raise NotImplementedError(
+            "skip_recal=False is not supported; use load_recal_dumps() to load "
+            "recal-pointing dumps separately."
+        )
+    jobs = _collect_dump_jobs(data_dirs, want_recal=False)
+    fingerprint = _fingerprint_jobs(jobs)
+    return _load_session_dumps_cached(fingerprint, jobs)
+
+
+@_memory.cache(ignore=['jobs'])
+def _load_recal_dumps_cached(fingerprint: tuple, jobs: list[tuple]) -> list[dict]:
+    records = _load_dumps_parallel(jobs)
+    for r in records:
+        r['target_id'] = _strip_obscal_prefix(r['target'])
     _assign_galactic(records)
     return records
 
@@ -97,23 +169,9 @@ def load_recal_dumps(data_dirs: list[Path]) -> list[dict]:
     prefix so noise-on and noise-off dumps from the same target collapse to
     one key for visit clustering.
     """
-    records: list[dict] = []
-    for data_dir in data_dirs:
-        survey = data_dir.name
-        for session_dir in sorted(data_dir.glob('session_*')):
-            session_id = f'{survey}/{session_dir.name}'
-            cell_dirs = (sorted(session_dir.glob('obs_*'))
-                         + sorted(session_dir.glob('cal_*')))
-            for cell_dir in cell_dirs:
-                if not cell_dir.name.startswith(RECAL_CELL_PREFIXES):
-                    continue
-                for p in sorted(cell_dir.glob('*.npz')):
-                    rec = _load_dump(p, survey, session_id)
-                    rec['target_id'] = _strip_obscal_prefix(rec['target'])
-                    records.append(rec)
-
-    _assign_galactic(records)
-    return records
+    jobs = _collect_dump_jobs(data_dirs, want_recal=True)
+    fingerprint = _fingerprint_jobs(jobs)
+    return _load_recal_dumps_cached(fingerprint, jobs)
 
 
 def build_session_summary(
@@ -126,24 +184,45 @@ def build_session_summary(
     def _utc(ts: float) -> str:
         return dt.datetime.fromtimestamp(ts, dt.UTC).strftime('%Y-%m-%d %H:%M')
 
-    sessions = sorted({r['session'] for r in records})
-    rows = []
-    for s in sessions:
-        sr = [r for r in records if r['session'] == s]
-        if not sr:
-            continue
-        n_cells = len({(r['gl'], r['gb']) for r in sr if not r['noise_on']})
-        times = [r['time'] for r in sr]
-        t0, t1 = min(times), max(times)
+    if not records:
+        return pd.DataFrame(columns=[
+            'Session', 'UTC Start', 'UTC End', 'Wall (min)',
+            'Obs. Cells', 'Dumps', 'Duty %',
+        ])
+
+    df = pd.DataFrame({
+        'session': [r['session'] for r in records],
+        'time': [r['time'] for r in records],
+        'gl': [r['gl'] for r in records],
+        'gb': [r['gb'] for r in records],
+        'noise_on': [r['noise_on'] for r in records],
+    })
+
+    def _agg(g: pd.DataFrame) -> pd.Series:
+        t0, t1 = g['time'].min(), g['time'].max()
         wall_s = t1 - t0
-        duty_pct = (int_time_s * len(sr) / wall_s) * 100 if wall_s > 0 else float('nan')
-        rows.append({
-            'Session': s,
+        n = len(g)
+        duty_pct = (int_time_s * n / wall_s) * 100 if wall_s > 0 else float('nan')
+        sci = g[~g['noise_on']]
+        n_cells = len({(gl, gb) for gl, gb in zip(sci['gl'], sci['gb'])})
+        return pd.Series({
+            't_start': t0,
+            't_end': t1,
             'UTC Start': _utc(t0),
             'UTC End': _utc(t1),
             'Wall (min)': round(wall_s / 60, 1),
             'Obs. Cells': n_cells,
-            'Dumps': len(sr),
+            'Dumps': n,
             'Duty %': round(duty_pct, 1),
         })
-    return pd.DataFrame(rows)
+
+    summary = (
+        df.groupby('session', sort=False)
+          .apply(_agg, include_groups=False)
+          .reset_index()
+          .rename(columns={'session': 'Session'})
+          .sort_values(['t_start', 't_end'])
+          .reset_index(drop=True)
+    )
+    return summary[['Session', 'UTC Start', 'UTC End', 'Wall (min)',
+                    'Obs. Cells', 'Dumps', 'Duty %']]

@@ -1,0 +1,530 @@
+{
+  "generated_at_utc": "2026-05-19T22:59:42+00:00",
+  "source_notebook": "main_scan_load.ipynb",
+  "current_lo_pair_mhz": [
+    1419.86,
+    1421.14
+  ],
+  "delta_lo_mhz": 1.2800000000002,
+  "lower_pair_mhz": [
+    1418.58,
+    1419.86
+  ],
+  "higher_pair_mhz": [
+    1421.14,
+    1422.42
+  ],
+  "detection": {
+    "edge_kms": 15.0,
+    "sigma_thresh": 5.0
+  },
+  "cells": [
+    {
+      "gl": 15.75,
+      "gb": 4.0,
+      "edge": "high",
+      "edge_max_sigma": 5.272725471201328,
+      "edge_max_v_kms": 118.96725442346383,
+      "abs_b": 4.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 5.37,
+      "gb": -6.0,
+      "edge": "high",
+      "edge_max_sigma": 11.925697992547011,
+      "edge_max_v_kms": 118.30768835929891,
+      "abs_b": 6.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 13.42,
+      "gb": -6.0,
+      "edge": "high",
+      "edge_max_sigma": 5.429485082129475,
+      "edge_max_v_kms": 122.26508474442159,
+      "abs_b": 6.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 5.5,
+      "gb": -12.0,
+      "edge": "high",
+      "edge_max_sigma": 8.071352840786144,
+      "edge_max_v_kms": 118.30768835929891,
+      "abs_b": 12.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 9.59,
+      "gb": -12.0,
+      "edge": "high",
+      "edge_max_sigma": 6.153138440616308,
+      "edge_max_v_kms": 120.28638655189353,
+      "abs_b": 12.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 11.63,
+      "gb": -12.0,
+      "edge": "high",
+      "edge_max_sigma": 7.610260754982878,
+      "edge_max_v_kms": 120.94595261605845,
+      "abs_b": 12.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 19.81,
+      "gb": -12.0,
+      "edge": "high",
+      "edge_max_sigma": 5.262865924377151,
+      "edge_max_v_kms": 124.2437829370162,
+      "abs_b": 12.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 40.26,
+      "gb": -12.0,
+      "edge": "high",
+      "edge_max_sigma": 6.575382580738248,
+      "edge_max_v_kms": 128.20117932217218,
+      "abs_b": 12.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 21.06,
+      "gb": -14.0,
+      "edge": "high",
+      "edge_max_sigma": 6.655995109397713,
+      "edge_max_v_kms": 124.2437829370162,
+      "abs_b": 14.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 25.18,
+      "gb": 14.0,
+      "edge": "high",
+      "edge_max_sigma": 5.076457419995879,
+      "edge_max_v_kms": 116.98855623093577,
+      "abs_b": 14.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 33.43,
+      "gb": 14.0,
+      "edge": "high",
+      "edge_max_sigma": 7.314873986669804,
+      "edge_max_v_kms": 118.96725442346383,
+      "abs_b": 14.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 51.98,
+      "gb": -14.0,
+      "edge": "high",
+      "edge_max_sigma": 6.863491607403954,
+      "edge_max_v_kms": 127.54161325800726,
+      "abs_b": 14.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 5.57,
+      "gb": -16.0,
+      "edge": "high",
+      "edge_max_sigma": 5.480602047757278,
+      "edge_max_v_kms": 118.96725442346383,
+      "abs_b": 16.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 9.73,
+      "gb": -16.0,
+      "edge": "high",
+      "edge_max_sigma": 9.63601880995634,
+      "edge_max_v_kms": 120.28638655189353,
+      "abs_b": 16.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 15.97,
+      "gb": -16.0,
+      "edge": "high",
+      "edge_max_sigma": 5.461616110256537,
+      "edge_max_v_kms": 122.9246508086198,
+      "abs_b": 16.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 18.05,
+      "gb": -16.0,
+      "edge": "high",
+      "edge_max_sigma": 5.294932539098978,
+      "edge_max_v_kms": 123.58421687285129,
+      "abs_b": 16.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 28.45,
+      "gb": 16.0,
+      "edge": "high",
+      "edge_max_sigma": 7.010021270683732,
+      "edge_max_v_kms": 117.64812229510069,
+      "abs_b": 16.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 36.78,
+      "gb": 16.0,
+      "edge": "high",
+      "edge_max_sigma": 7.435887813322639,
+      "edge_max_v_kms": 118.30768835929891,
+      "abs_b": 16.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 38.86,
+      "gb": 16.0,
+      "edge": "high",
+      "edge_max_sigma": 13.530875063626343,
+      "edge_max_v_kms": 120.28638655189353,
+      "abs_b": 16.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 51.34,
+      "gb": -16.0,
+      "edge": "high",
+      "edge_max_sigma": 8.519280591274676,
+      "edge_max_v_kms": 127.54161325800726,
+      "abs_b": 16.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 86.71,
+      "gb": -16.0,
+      "edge": "high",
+      "edge_max_sigma": 5.469090714436685,
+      "edge_max_v_kms": 119.62682048766204,
+      "abs_b": 16.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 12.75,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 6.985065681171613,
+      "edge_max_v_kms": 121.60551868025667,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 19.06,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 5.655999842048939,
+      "edge_max_v_kms": 124.2437829370162,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 27.47,
+      "gb": 18.0,
+      "edge": "high",
+      "edge_max_sigma": 7.223246861892936,
+      "edge_max_v_kms": 116.98855623093577,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 31.68,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 5.312629929178613,
+      "edge_max_v_kms": 126.22248112957756,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 31.68,
+      "gb": 18.0,
+      "edge": "high",
+      "edge_max_sigma": 6.741011586108514,
+      "edge_max_v_kms": 116.98855623093577,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 35.88,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 5.060473249933724,
+      "edge_max_v_kms": 128.20117932217218,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 37.99,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 7.0476898651000806,
+      "edge_max_v_kms": 128.20117932217218,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 48.5,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 5.875116304521925,
+      "edge_max_v_kms": 126.22248112957756,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 69.53,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 5.124546145039518,
+      "edge_max_v_kms": 125.56291506537934,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 71.63,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 6.741037070599444,
+      "edge_max_v_kms": 124.90334900121442,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 73.74,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 5.1239536823148235,
+      "edge_max_v_kms": 124.2437829370162,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 77.94,
+      "gb": -18.0,
+      "edge": "high",
+      "edge_max_sigma": 5.4076144118652465,
+      "edge_max_v_kms": 122.26508474442159,
+      "abs_b": 18.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 5.07,
+      "gb": -20.0,
+      "edge": "high",
+      "edge_max_sigma": 12.51810399913625,
+      "edge_max_v_kms": 116.98855623093577,
+      "abs_b": 20.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 19.97,
+      "gb": -20.0,
+      "edge": "high",
+      "edge_max_sigma": 6.18039655639132,
+      "edge_max_v_kms": 124.2437829370162,
+      "abs_b": 20.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 43.38,
+      "gb": 20.0,
+      "edge": "high",
+      "edge_max_sigma": 6.433297927368444,
+      "edge_max_v_kms": 116.98855623093577,
+      "abs_b": 20.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 58.28,
+      "gb": -20.0,
+      "edge": "high",
+      "edge_max_sigma": 6.596455298980441,
+      "edge_max_v_kms": 127.54161325800726,
+      "abs_b": 20.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 60.41,
+      "gb": -20.0,
+      "edge": "high",
+      "edge_max_sigma": 8.03574541496212,
+      "edge_max_v_kms": 126.22248112957756,
+      "abs_b": 20.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    },
+    {
+      "gl": 73.18,
+      "gb": -20.0,
+      "edge": "high",
+      "edge_max_sigma": 5.263579352224013,
+      "edge_max_v_kms": 123.58421687285129,
+      "abs_b": 20.0,
+      "suggested_pair": "lower",
+      "suggested_lo_mhz": [
+        1418.58,
+        1419.86
+      ]
+    }
+  ]
+}

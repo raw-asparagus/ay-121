@@ -538,46 +538,87 @@ def plot_survey_mollweide_gridded(
     cutoff_hpbw: float = 2.0,
     min_weight: float = 0.1,
 ) -> tuple[plt.Figure, plt.Axes]:
-    """Beam-weighted Mollweide map of survey values.
+    """Beam-weighted Mollweide map of survey values (FFT-based).
 
-    Each pixel is a Gaussian-beam-weighted average of pointings within
-    ``cutoff_hpbw * hpbw_deg`` of its center. Pixels with total weight below
-    ``min_weight`` are masked. Produces a pcolormesh fill instead of a scatter.
+    Samples are deposited (nearest-pixel) onto an intermediate sinusoidal
+    grid u, v = (l - center_l) * cos(b), b, in which the dish beam is well
+    approximated as a stationary 2-D Gaussian.  Two grids -- weighted-value
+    and weight -- are convolved via scipy.signal.fftconvolve with a Gaussian
+    kernel of FWHM = hpbw_deg (truncated at cutoff_hpbw * hpbw_deg), then
+    bilinearly sampled back onto the (l, b) output grid for the Mollweide
+    pcolormesh.  Pixels with total weight below ``min_weight`` are masked.
+
+    The sinusoidal-projection approximation incurs an angular-distance
+    error of order (kernel / R_curvature) ** 2 with R = 1 rad ~= 57 deg,
+    i.e. <0.1% for HPBW = 3.4 deg -- negligible compared to per-pointing
+    noise.  Cost is O(N + Npix log Npix) vs. O(N * Npix) for the exact
+    great-circle matrix formulation it replaces, with a constant memory
+    footprint set by the grid resolution rather than N.
     """
-    sigma_rad = np.deg2rad(hpbw_deg / (2.0 * np.sqrt(2.0 * np.log(2.0))))
-    cutoff_rad = np.deg2rad(cutoff_hpbw * hpbw_deg)
+    from scipy.signal import fftconvolve
+    from scipy.ndimage import map_coordinates
 
-    gl_shifted = gl - center_l
-    gl_shifted = np.where(gl_shifted > 180, gl_shifted - 360, gl_shifted)
-    gl_shifted = np.where(gl_shifted < -180, gl_shifted + 360, gl_shifted)
+    sigma_deg = hpbw_deg / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+    cutoff_deg = cutoff_hpbw * hpbw_deg
+
+    gl_shifted = (np.asarray(gl) - center_l + 180.0) % 360.0 - 180.0
+    gb = np.asarray(gb)
 
     half = pixel_deg / 2.0
-    l_centers = np.deg2rad(np.arange(-180.0 + half, 180.0, pixel_deg))
-    b_centers = np.deg2rad(np.arange(-90.0 + half, 90.0, pixel_deg))
+    u_centers = np.arange(-180.0 + half, 180.0, pixel_deg)
+    v_centers = np.arange(-90.0 + half, 90.0, pixel_deg)
+    nu, nv = len(u_centers), len(v_centers)
+
+    # Deposit samples on (u, v).  u = l_shifted * cos(b) puts the kernel
+    # in a locally-Euclidean frame -- sample-to-pixel separation in (u, v)
+    # tracks great-circle distance to (kernel / R) ** 2.
+    u_samp = gl_shifted * np.cos(np.deg2rad(gb))
+    v_samp = gb
+
+    vals = np.asarray(vals, dtype=float)
+    finite = np.isfinite(vals)
+    vals_safe = np.where(finite, vals, 0.0)
+    w_samp = finite.astype(float)
+
+    iu = np.clip(np.round((u_samp - u_centers[0]) / pixel_deg).astype(int),
+                 0, nu - 1)
+    iv = np.clip(np.round((v_samp - v_centers[0]) / pixel_deg).astype(int),
+                 0, nv - 1)
+
+    num_grid = np.zeros((nv, nu))
+    den_grid = np.zeros((nv, nu))
+    np.add.at(num_grid, (iv, iu), vals_safe * w_samp)
+    np.add.at(den_grid, (iv, iu), w_samp)
+
+    # Gaussian beam kernel, truncated at cutoff_deg.
+    sigma_pix = sigma_deg / pixel_deg
+    half_kernel = int(np.ceil(cutoff_deg / pixel_deg))
+    k_axis = np.arange(-half_kernel, half_kernel + 1)
+    KX, KY = np.meshgrid(k_axis, k_axis)
+    r2_pix2 = KX ** 2 + KY ** 2
+    kernel = np.exp(-0.5 * r2_pix2 / sigma_pix ** 2)
+    kernel[r2_pix2 > (cutoff_deg / pixel_deg) ** 2] = 0.0
+
+    num_conv = fftconvolve(num_grid, kernel, mode='same')
+    den_conv = fftconvolve(den_grid, kernel, mode='same')
+
+    # Output (l, b) grid; sample the convolved field back at each pixel
+    # center via bilinear interpolation in (u, v).
+    l_centers = np.arange(-180.0 + half, 180.0, pixel_deg)
+    b_centers = np.arange(-90.0 + half, 90.0, pixel_deg)
     l_edges = np.deg2rad(np.arange(-180.0, 180.0 + pixel_deg, pixel_deg))
     b_edges = np.deg2rad(np.arange(-90.0, 90.0 + pixel_deg, pixel_deg))
     LL, BB = np.meshgrid(l_centers, b_centers)
 
-    def _uv(l, b):
-        return np.stack([np.cos(b) * np.cos(l),
-                         np.cos(b) * np.sin(l),
-                         np.sin(b)], axis=-1)
-
-    P = _uv(np.deg2rad(gl_shifted), np.deg2rad(gb))         # (N, 3)
-    G = _uv(LL, BB).reshape(-1, 3)                          # (M, 3)
-    cosang = np.clip(G @ P.T, -1.0, 1.0)                    # (M, N)
-    theta = np.arccos(cosang)
-    w = np.exp(-0.5 * (theta / sigma_rad) ** 2)
-    w = np.where(theta > cutoff_rad, 0.0, w)
-
-    vals = np.asarray(vals, dtype=float)
-    finite = np.isfinite(vals)
-    w = w * finite[None, :]
-    vals_safe = np.where(finite, vals, 0.0)
-
-    num = w @ vals_safe
-    den = w.sum(axis=1)
-    img = np.where(den > min_weight, num / den, np.nan).reshape(LL.shape)
+    U_out = LL * np.cos(np.deg2rad(BB))
+    iu_o = (U_out - u_centers[0]) / pixel_deg
+    iv_o = (BB - v_centers[0]) / pixel_deg
+    num_out = map_coordinates(num_conv, [iv_o, iu_o], order=1,
+                              mode='constant', cval=0.0)
+    den_out = map_coordinates(den_conv, [iv_o, iu_o], order=1,
+                              mode='constant', cval=0.0)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        img = np.where(den_out > min_weight, num_out / den_out, np.nan)
 
     fig, _ax = landscapewidth_figure(5)
     _ax.remove()

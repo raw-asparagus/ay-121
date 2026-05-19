@@ -9,12 +9,15 @@ def compute_cell_W(
     results_dict: dict,
     dv_kms: float,
     *,
-    spectrum_key: str = 'R',
+    spectrum_key: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute velocity-integrated spectrum for each cell.
 
     NaN channels (DC mask, RFI) are filled by linear interpolation from
     neighboring valid channels before integration.
+
+    Operates on a single spectrum key (one pol or a caller-prepared
+    summed key).  Run twice if you need both pols.
 
     Parameters
     ----------
@@ -24,7 +27,7 @@ def compute_cell_W(
     dv_kms : float
         Channel width in km/s.
     spectrum_key : str
-        Key holding the spectrum to integrate (default ``'R'``).
+        Key holding the spectrum to integrate.
 
     Returns
     -------
@@ -60,6 +63,8 @@ def assemble_W_R_arrays(
     recal_cells: dict,
     qa_flagged_set: set,
     dv_kms: float,
+    *,
+    spectrum_key: str,
 ) -> dict:
     """Stack science + recal cells into flat arrays for Mollweide plotting.
 
@@ -67,6 +72,9 @@ def assemble_W_R_arrays(
     aggregated across visits and sessions) are appended after the science
     cells.  ``W_R = sum(R) * dv_kms`` (NaNs propagate) for science cells;
     recal cells carry a pre-computed ``W_R``.
+
+    Operates on a single spectrum key (one pol or a caller-prepared
+    summed key) -- call twice for per-pol output if needed.
 
     Returns
     -------
@@ -77,7 +85,7 @@ def assemble_W_R_arrays(
     clean_keys = [k for k in cell_combined if k not in qa_flagged_set]
     gl_sci = np.array([k[0] for k in clean_keys])
     gb_sci = np.array([k[1] for k in clean_keys])
-    R_stack = np.array([cell_combined[k]['R'] for k in clean_keys])
+    R_stack = np.array([cell_combined[k][spectrum_key] for k in clean_keys])
     W_R_sci = np.nansum(R_stack, axis=1) * dv_kms
 
     gl_rec = np.array([c['gl'] for c in recal_cells.values()])
@@ -102,10 +110,10 @@ def compute_lv_strip(
     b_max_deg: float,
     dl_fine_deg: float,
     hpbw_deg: float,
-    cutoff_hpbw: float = 1.5,
+    cutoff_hpbw: float = 2.0,
     keep_near_hpbw: float = 1.0,
     min_weight: float = 0.1,
-    spectrum_key: str = 'R',
+    spectrum_key: str,
 ) -> dict:
     """Beam-weighted (l, v) resampling of the b ~ 0 strip.
 

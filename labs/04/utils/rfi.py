@@ -130,20 +130,17 @@ def preprocess_dumps(
     rfi_sample_frac: float,
     rfi_extrema_order: int,
 ) -> int:
-    """In-place fftshift + per-pol RFI flag + Stokes-I sum.
+    """In-place fftshift + per-pol RFI flag.
 
     For each record: ``np.fft.fftshift`` ``corr00`` and ``corr11`` so
-    baseband indices run lowest-to-highest, flag RFI on each pol
-    independently with :func:`flag_rfi_channels`, then set
-    ``stokes_I = corr00 + corr11`` -- the true total-intensity Stokes I
-    for two linear-feed auto-correlations.  HI is unpolarised, so summing
-    gains sqrt(2) in SNR over a single pol; channels NaN in either pol
-    propagate to NaN in the sum (which is correct -- a half-flagged
-    channel is biased low).
+    baseband indices run lowest-to-highest, then flag RFI on each pol
+    independently with :func:`flag_rfi_channels`.
 
-    The cal-side concern about pol 0 at 3.2 MHz is a T_cal accuracy
-    issue; it does not affect the dimensionless frequency-switched ratio
-    R that this pipeline produces, so both pols feed Stokes I.
+    The two pols are NOT summed here -- they are propagated separately
+    through the pipeline so that downstream temperature calibration can
+    apply pol-specific ``T_cal`` (pol 0 = 58 K, pol 1 = 79 K).  The sum
+    into a Stokes-I science product is deferred to the plotting stage,
+    after calibration.
 
     Returns the total number of channels flagged across both pols.
     """
@@ -160,7 +157,6 @@ def preprocess_dumps(
                 sample_frac=rfi_sample_frac,
                 extrema_order=rfi_extrema_order,
             )
-        r['stokes_I'] = r['corr00'] + r['corr11']
     return total
 
 
@@ -168,22 +164,35 @@ def flag_outlier_dumps(records: list[dict],
                        *,
                        dev_thresh: float,
                        frac_thresh: float,
-                       min_group_size: int) -> list[dict]:
+                       min_group_size: int,
+                       pols: tuple[str, ...] = ('corr00', 'corr11')) -> list[dict]:
     """Flag and remove dumps whose spectral shape deviates from group median.
 
     Groups dumps by (session, galactic coordinate, LO) and compares each
-    dump's Stokes I to the group median.  Dumps with too many deviant
-    channels are removed from *records* (in-place) and returned separately.
+    dump's spectrum to the group median **independently per pol** (pol 0
+    = ``corr00``, pol 1 = ``corr11``).  A dump is flagged if any selected
+    pol's deviant-channel fraction exceeds ``frac_thresh``; flagged dumps
+    are removed from *records* (in-place) and returned separately.
+
+    Per-pol shape checking is consistent with the per-pol propagation of
+    the science spectra (each pol carries its own bandpass and calibration
+    later) -- a dump with a glitch in only one pol is still bad.
 
     Parameters
     ----------
     records : list of dict
         Dump records; each must have 'session', 'lo_mhz', 'noise_on',
-        and 'stokes_I' keys, plus 'gl'/'gb'.
+        and 'corr00'/'corr11' keys, plus 'gl'/'gb'.
     dev_thresh : float
         Per-channel deviation threshold (fraction of median ratio).
     frac_thresh : float
-        Fraction of channels that must deviate to flag a dump.
+        Fraction of channels that must deviate to flag a dump (applied
+        independently to each pol).
+    pols : tuple of str
+        Which pols to flag on: ``('corr00',)`` for pol 0 only,
+        ``('corr11',)`` for pol 1 only, or ``('corr00', 'corr11')``
+        (default) for both.  A dump is flagged if any listed pol with a
+        usable group-median reference exceeds ``frac_thresh``.
 
     Returns
     -------
@@ -191,6 +200,12 @@ def flag_outlier_dumps(records: list[dict],
         The removed outlier records.
     """
     from collections import defaultdict
+
+    valid_pols = ('corr00', 'corr11')
+    if not pols or any(p not in valid_pols for p in pols):
+        raise ValueError(
+            f'pols must be a non-empty subset of {valid_pols}, got {pols!r}'
+        )
 
     cell_groups: dict[tuple, list[dict]] = defaultdict(list)
     for r in records:
@@ -203,26 +218,39 @@ def flag_outlier_dumps(records: list[dict],
         if len(group) < min_group_size:
             continue
 
-        spectra = np.array([r['stokes_I'] for r in group])
+        pol_stacks = {p: np.array([r[p] for r in group]) for p in pols}
+
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', RuntimeWarning)
-            med_spec = np.nanmedian(spectra, axis=0)
+            pol_meds = {k: np.nanmedian(v, axis=0) for k, v in pol_stacks.items()}
 
-        if np.all(np.isnan(med_spec)) or np.nanmax(np.abs(med_spec)) == 0:
+        # Drop pols whose median is unusable (all-NaN or all-zero); a dump
+        # is flagged only by a pol that has a viable reference.
+        usable_pols = [
+            k for k, med in pol_meds.items()
+            if not np.all(np.isnan(med)) and np.nanmax(np.abs(med)) > 0
+        ]
+        if not usable_pols:
             continue
 
-        for r, spec in zip(group, spectra):
-            with warnings.catch_warnings():
-                warnings.simplefilter('ignore', RuntimeWarning)
-                ratio = spec / med_spec
-            valid = np.isfinite(ratio)
-            if valid.sum() == 0:
-                frac_bad = 1.0
-            else:
-                frac_bad = (
-                    np.sum(np.abs(ratio[valid] - 1.0) > dev_thresh) / valid.sum()
-                )
-            if frac_bad > frac_thresh:
+        for i, r in enumerate(group):
+            flagged = False
+            for pol_key in usable_pols:
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore', RuntimeWarning)
+                    ratio = pol_stacks[pol_key][i] / pol_meds[pol_key]
+                valid = np.isfinite(ratio)
+                if valid.sum() == 0:
+                    frac_bad = 1.0
+                else:
+                    frac_bad = (
+                        np.sum(np.abs(ratio[valid] - 1.0) > dev_thresh)
+                        / valid.sum()
+                    )
+                if frac_bad > frac_thresh:
+                    flagged = True
+                    break
+            if flagged:
                 records.remove(r)
                 outlier_records.append(r)
 

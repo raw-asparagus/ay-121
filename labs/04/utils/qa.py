@@ -29,6 +29,10 @@ the flag is cleared and the cell is marked `bimodal=True`.
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
 import numpy as np
 from scipy.signal import find_peaks
 
@@ -155,19 +159,23 @@ def compute_cell_metrics(
     peak_min_sep_kms: float,
     peak_prom_nsigma: float,
     min_noise_ch: int,
+    spectrum_key: str,
 ) -> dict:
     """Compute W, peak_v, SNR, and noise for each cell.
+
+    Operates on a single spectrum key (one pol or a caller-prepared
+    summed key); call twice for per-pol metrics.
 
     Parameters
     ----------
     cell_results_combined : dict
-        ``(gl, gb) -> {'R': array, 'n_pairs': int, ...}``.  ``R`` is the
-        per-cell overlap-grid spectrum on the shared LSR axis (the canonical
-        output of :func:`combine_viable_pairs`).
+        ``(gl, gb) -> {spectrum_key: array, 'n_pairs': int, ...}``.
     v_lsr_overlap : 1-D array
-        LSR velocity grid matching ``R``.
+        LSR velocity grid matching the spectrum.
     dv_kms : float
         Channel width in km/s.
+    spectrum_key : str
+        Key holding the spectrum (e.g. ``'R_pol0'``).
 
     Returns
     -------
@@ -177,7 +185,7 @@ def compute_cell_metrics(
     cell_metrics: dict[tuple, dict] = {}
 
     for (gl, gb), cr in cell_results_combined.items():
-        R = cr['R']
+        R = cr[spectrum_key]
         finite = np.isfinite(R)
         n_valid_ch = np.count_nonzero(finite)
         if n_valid_ch < min_valid_ch:
@@ -509,15 +517,21 @@ def flag_outlier_pairs(
     """Cross-session per-pair outlier filter using population MAD.
 
     For each cell, compute a robust population reference (median + MAD)
-    over all per-pair spectra from all sessions, then flag any pair whose
-    channels deviate from the reference too often.  Catches bad sessions
-    that the within-session dump filter missed (drifting bandpass,
-    transient line-region RFI, bad calibration).
+    over all per-pair spectra from all sessions for the given
+    ``spectrum_key``, then flag any pair whose channels deviate from the
+    reference too often.  Catches bad sessions that the within-session
+    dump filter missed (drifting bandpass, transient line-region RFI,
+    bad calibration).
+
+    Pols are propagated separately, so call this once per pol (e.g.
+    ``spectrum_key='R_lsr_pol0'`` then ``'R_lsr_pol1'``) -- each call
+    consumes the output of the previous so a pair flagged on either pol
+    is dropped.
 
     Parameters
     ----------
     cell_pairs : dict
-        ``{(gl, gb): [{'session', 'pair_idx', spectrum_key: 1-D array}, ...]}``.
+        ``{(gl, gb): [{'session', 'pair_idx', spectrum_key: array}, ...]}``.
         Each pair's spectrum must be on a common (e.g. LSR) velocity grid so
         cross-session comparison is meaningful.
     n_sigma : float
@@ -529,15 +543,15 @@ def flag_outlier_pairs(
         Cells with fewer than this many pairs skip filtering and pass
         through (population statistics are not robust below the threshold).
     spectrum_key : str
-        Key under which each pair stores its spectrum.
+        Per-pol key on each pair dict to test (e.g. ``'R_lsr_pol0'``).
 
     Returns
     -------
     viable_pairs_per_cell : dict
         ``{(gl, gb): [pair_dicts]}`` after rejection.
     flagged : list of dict
-        Records ``{'gl', 'gb', 'session', 'pair_idx', 'deviant_frac'}``
-        for each rejected pair.
+        Records ``{'gl', 'gb', 'session', 'pair_idx', 'deviant_frac',
+        'spectrum_key'}`` for each rejected pair.
     """
     viable_pairs_per_cell: dict[tuple, list[dict]] = {}
     flagged: list[dict] = []
@@ -563,6 +577,7 @@ def flag_outlier_pairs(
                     'session': p['session'],
                     'pair_idx': p['pair_idx'],
                     'deviant_frac': frac,
+                    'spectrum_key': spectrum_key,
                 })
             else:
                 viable.append(p)
@@ -575,9 +590,14 @@ def combine_viable_pairs(
     viable_pairs_per_cell: dict,
     *,
     min_pairs: int,
-    spectrum_key: str = 'R_lsr',
+    spectrum_key: str,
+    out_key: str,
+    cell_combined: dict | None = None,
 ) -> tuple[dict, list[dict]]:
-    """Average per-pair spectra into a single spectrum per (gl, gb) cell.
+    """Average per-pair spectra into one spectrum per (gl, gb) cell.
+
+    Operates on a single pol per call.  Pass ``cell_combined`` from a
+    previous call to merge another pol's mean into the same dict.
 
     Parameters
     ----------
@@ -587,30 +607,36 @@ def combine_viable_pairs(
         Cells with fewer surviving pairs are still combined but flagged for
         reobservation.
     spectrum_key : str
-        Key on each pair dict holding the spectrum to average (default
-        ``'R_lsr'``).
+        Key on each pair dict holding the spectrum to average (e.g.
+        ``'R_lsr_pol0'``).
+    out_key : str
+        Key under which the averaged spectrum is stored on each cell entry
+        (e.g. ``'R_pol0'``).
+    cell_combined : dict or None
+        Existing dict to update in place.  If ``None``, a new dict is
+        created.  When merging multiple pols, reuse the dict from the first
+        call so each entry accumulates per-pol keys.
 
     Returns
     -------
     cell_combined : dict
-        ``(gl, gb) -> {'R', 'n_pairs'}`` where ``R`` is the per-channel
-        nanmean over surviving pairs.
+        ``(gl, gb) -> {**out_keys, 'n_pairs'}`` -- nanmean over surviving
+        pairs for the requested pol.
     cells_insufficient_pairs : list of dict
         Records describing cells with fewer than ``min_pairs`` viable pairs
         (suitable for the reobserve list).
     """
-    cell_combined: dict = {}
+    if cell_combined is None:
+        cell_combined = {}
     cells_insufficient: list[dict] = []
     for (gl, gb), pairs in viable_pairs_per_cell.items():
-        specs = [p[spectrum_key] for p in pairs]
-        n_viable = len(specs)
+        n_viable = len(pairs)
         if n_viable == 0:
             cells_insufficient.append({'l': gl, 'b': gb, 'n_viable': 0})
             continue
-        cell_combined[(gl, gb)] = {
-            'R': np.nanmean(specs, axis=0),
-            'n_pairs': n_viable,
-        }
+        entry = cell_combined.setdefault((gl, gb), {})
+        entry['n_pairs'] = n_viable
+        entry[out_key] = np.nanmean([p[spectrum_key] for p in pairs], axis=0)
         if n_viable < min_pairs:
             cells_insufficient.append({'l': gl, 'b': gb,
                                        'n_viable': n_viable})
@@ -646,3 +672,176 @@ def collect_reobserve(
         else:
             reobs_map[key] = {'l': c['l'], 'b': c['b'], 'reason': tag}
     return sorted(reobs_map.values(), key=lambda r: (r['b'], r['l']))
+
+
+def detect_edge_clipped_cells(
+    cell_combined: dict,
+    *,
+    v_lsr_overlap: np.ndarray,
+    edge_kms: float,
+    sigma_thresh: float,
+    excluded=(),
+    spectrum_key: str = 'R',
+) -> list[dict]:
+    """Flag cells whose line emission reaches either end of v_lsr_overlap.
+
+    For each cell, estimate a robust per-channel noise (MAD/0.6745) from
+    the interior of the spectrum (channels not within ``edge_kms`` of
+    either v_LSR end), then test the maximum |R - median| in each edge
+    region against ``sigma_thresh`` * noise.  A flagged cell is one whose
+    line wing extends to the edge of the current frequency-switched
+    overlap band -- the current LO pair is not wide enough to contain it.
+
+    The ``edge`` field on each returned record is ``'high'`` when the
+    hot edge is at the most-positive v_LSR end (line wing extends beyond
+    the positive-velocity limit -> need a lower LO pair to cover more
+    positive velocities) and ``'low'`` when at the most-negative end
+    (need a higher LO pair).
+
+    Parameters
+    ----------
+    cell_combined : dict
+        ``(gl, gb) -> entry`` with ``entry[spectrum_key]`` a 1-D array on
+        the ``v_lsr_overlap`` grid.
+    v_lsr_overlap : np.ndarray
+        LSR velocity grid, sorted descending (``v[0]`` is most positive).
+    edge_kms : float
+        Width of each edge region in km/s.
+    sigma_thresh : float
+        Sigma threshold (in MAD-sigma units) for flagging an edge.
+    excluded : iterable of dict
+        Cells to skip, as ``cells_insufficient_pairs`` records with
+        ``'l'``, ``'b'`` keys.
+    spectrum_key : str
+        Entry key for the spectrum to test (default ``'R'`` -- the
+        summed-pol Stokes-I proxy set by Section 5).
+
+    Returns
+    -------
+    list of dict
+        ``{'gl', 'gb', 'edge', 'edge_max_sigma', 'edge_max_v_kms'}`` per
+        flagged cell.  Unsorted; the caller is expected to add
+        ``suggested_pair`` and sort.
+    """
+    excluded_keys = {(e['l'], e['b']) for e in excluded}
+
+    v = v_lsr_overlap
+    if v.size < 4:
+        return []
+    # v is descending; v[0] is most positive ('high'), v[-1] most negative.
+    high_mask = v >= (v[0] - edge_kms)
+    low_mask  = v <= (v[-1] + edge_kms)
+    interior_mask = ~(high_mask | low_mask)
+
+    def _edge_max(R: np.ndarray, mask: np.ndarray, median: float, sigma: float):
+        edge = R[mask]
+        finite = np.isfinite(edge)
+        if not finite.any():
+            return 0.0, float('nan')
+        dev = np.abs(edge[finite] - median) / sigma
+        i = np.argmax(dev)
+        v_edge = v[mask][finite][i]
+        return float(dev[i]), float(v_edge)
+
+    flagged: list[dict] = []
+    for cell, entry in cell_combined.items():
+        if cell in excluded_keys or spectrum_key not in entry:
+            continue
+        R = entry[spectrum_key]
+        if R.shape != v.shape:
+            continue
+        interior = R[interior_mask]
+        interior = interior[np.isfinite(interior)]
+        if interior.size < 20:
+            continue
+        median = np.median(interior)
+        mad = np.median(np.abs(interior - median))
+        sigma = mad / 0.6745
+        if not np.isfinite(sigma) or sigma <= 0:
+            continue
+        high_sig, high_v = _edge_max(R, high_mask, median, sigma)
+        low_sig,  low_v  = _edge_max(R, low_mask,  median, sigma)
+        if high_sig <= sigma_thresh and low_sig <= sigma_thresh:
+            continue
+        if high_sig >= low_sig:
+            edge, sig, v_at = 'high', high_sig, high_v
+        else:
+            edge, sig, v_at = 'low', low_sig, low_v
+        flagged.append({
+            'gl': cell[0],
+            'gb': cell[1],
+            'edge': edge,
+            'edge_max_sigma': sig,
+            'edge_max_v_kms': v_at,
+        })
+    return flagged
+
+
+def write_edge_recheck_manifest(
+    cell_combined: dict,
+    *,
+    v_lsr_overlap: np.ndarray,
+    edge_kms: float,
+    sigma_thresh: float,
+    excluded,
+    current_pair_mhz: tuple[float, float],
+    path,
+    spectrum_key: str = 'R',
+    source_notebook: str = 'main_scan_load.ipynb',
+) -> dict:
+    """Detect edge-clipped cells and write a recheck manifest as JSON.
+
+    Builds the lower / higher LO pair from ``current_pair_mhz`` by
+    shifting by ``Delta_LO = |F2 - F1|``.  Hot edges at the most-positive
+    v_LSR end need the lower pair (more positive v_LSR coverage); hot
+    edges at the most-negative end need the higher pair.  Manifest cells
+    are sorted by ``|b|`` ascending, then by ``gl``.
+
+    The manifest is consumed by ``scripts/main/edges.py``.
+
+    Returns the manifest dict (also written to ``path``).
+    """
+    f1, f2 = current_pair_mhz
+    delta_lo = abs(f2 - f1)
+    lower_pair = (round(f1 - delta_lo, 4), f1)
+    higher_pair = (f2, round(f2 + delta_lo, 4))
+
+    flagged = detect_edge_clipped_cells(
+        cell_combined,
+        v_lsr_overlap=v_lsr_overlap,
+        edge_kms=edge_kms,
+        sigma_thresh=sigma_thresh,
+        excluded=excluded,
+        spectrum_key=spectrum_key,
+    )
+
+    manifest_cells = []
+    for f in flagged:
+        if f['edge'] == 'high':
+            pair_label, pair = 'lower', lower_pair
+        else:
+            pair_label, pair = 'higher', higher_pair
+        manifest_cells.append({
+            **f,
+            'abs_b': abs(f['gb']),
+            'suggested_pair': pair_label,
+            'suggested_lo_mhz': list(pair),
+        })
+    manifest_cells.sort(key=lambda c: (c['abs_b'], c['gl']))
+
+    manifest = {
+        'generated_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'source_notebook': source_notebook,
+        'current_lo_pair_mhz': [f1, f2],
+        'delta_lo_mhz': delta_lo,
+        'lower_pair_mhz': list(lower_pair),
+        'higher_pair_mhz': list(higher_pair),
+        'detection': {'edge_kms': edge_kms, 'sigma_thresh': sigma_thresh},
+        'cells': manifest_cells,
+    }
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, 'w') as fh:
+        json.dump(manifest, fh, indent=2)
+    return manifest

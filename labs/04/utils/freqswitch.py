@@ -26,8 +26,9 @@ def compute_R_for_dumps(
     Parameters
     ----------
     dump_list : list of dict
-        Science records with 'session', 'lo_mhz', 'stokes_I',
-        'v_corr_lsr', 'ra', 'dec' keys.
+        Science records with 'session', 'lo_mhz', 'corr00', 'corr11',
+        'v_corr_lsr', 'ra', 'dec' keys.  Pols are summed locally to form
+        the legacy Stokes-I R.
     lo1, lo2 : float
         The two LO frequencies in MHz.
     overlap_mask : 1-D bool array
@@ -62,8 +63,8 @@ def compute_R_for_dumps(
         if n_p == 0:
             continue
 
-        I1 = np.array([r['stokes_I'] for r in d1[:n_p]])
-        I2 = np.array([r['stokes_I'] for r in d2[:n_p]])
+        I1 = np.array([r['corr00'] + r['corr11'] for r in d1[:n_p]])
+        I2 = np.array([r['corr00'] + r['corr11'] for r in d2[:n_p]])
         R_pairs = (I1 - I2) / I2  # (n_p, 1024)
 
         if lsr_correct:
@@ -188,7 +189,10 @@ def build_lsr_pairs(
     ----------
     records : list of dict
         Science records with 'session', 'gl', 'gb', 'noise_on', 'lo_mhz',
-        'stokes_I', 'time', 'ra', 'dec' keys.
+        'corr00', 'corr11', 'time', 'ra', 'dec' keys.  ``corr00`` and
+        ``corr11`` are propagated as separate pols all the way through
+        the ratio computation; downstream calibration applies pol-specific
+        ``T_cal``.
     lo1, lo2 : float
         Local-oscillator frequencies (MHz).
     overlap_mask : 1-D bool array
@@ -201,7 +205,7 @@ def build_lsr_pairs(
     Returns
     -------
     cell_pairs : dict
-        ``(gl, gb) -> [{'session', 'pair_idx', 'R_lsr'}, ...]``.
+        ``(gl, gb) -> [{'session', 'pair_idx', 'R_lsr_pol0', 'R_lsr_pol1'}, ...]``.
     obs_dumps_by_cell : dict
         ``(session, gl, gb) -> list of obs records``.
     v_lsr_overlap : 1-D float array
@@ -235,19 +239,25 @@ def build_lsr_pairs(
         n_p = min(len(d1), len(d2))
         if n_p == 0:
             continue
-        I1 = np.array([r['stokes_I'] for r in d1[:n_p]])
-        I2 = np.array([r['stokes_I'] for r in d2[:n_p]])
-        with np.errstate(divide='ignore', invalid='ignore'):
-            R_pairs = (I1 - I2) / I2
-        R_pairs_ov = R_pairs[:, overlap_mask]
 
         v_shifted = v_overlap + session_cell_vcorr.get((dr, gl, gb), 0.0)
+
+        R_ov_per_pol: dict[str, np.ndarray] = {}
+        for pol_key in ('corr00', 'corr11'):
+            I1 = np.array([r[pol_key] for r in d1[:n_p]])
+            I2 = np.array([r[pol_key] for r in d2[:n_p]])
+            with np.errstate(divide='ignore', invalid='ignore'):
+                R_pairs = (I1 - I2) / I2
+            R_ov_per_pol[pol_key] = R_pairs[:, overlap_mask]
+
         for i in range(n_p):
-            R_lsr = _interp_to_lsr_inc(R_pairs_ov[i], v_shifted, v_lsr_inc)
             cell_pairs[(gl, gb)].append({
                 'session': dr,
                 'pair_idx': i,
-                'R_lsr': R_lsr,
+                'R_lsr_pol0': _interp_to_lsr_inc(
+                    R_ov_per_pol['corr00'][i], v_shifted, v_lsr_inc),
+                'R_lsr_pol1': _interp_to_lsr_inc(
+                    R_ov_per_pol['corr11'][i], v_shifted, v_lsr_inc),
             })
 
     return dict(cell_pairs), dict(obs_dumps_by_cell), v_lsr_overlap, mean_vcorr
@@ -303,9 +313,8 @@ def build_recal_visits(
     dict
         Mapping ``(session, target_id) -> list of visit dicts`` with keys
         ``t_mid``, ``alt_mean``, ``n_pairs``, ``gl``, ``gb``,
-        ``R_lsr`` (Stokes-I R = (I_LO1 - I_LO2)/I_LO2 with
-        I = corr00 + corr11; this is the canonical recal spectrum),
-        plus ``R_lsr_pol0`` and ``R_lsr_pol1`` for diagnostic comparison.
+        ``R_lsr_pol0`` and ``R_lsr_pol1`` (per-pol LSR-interpolated R;
+        the plot stage sums them after pol-specific calibration).
     """
     from collections import defaultdict
 
@@ -352,8 +361,7 @@ def build_recal_visits(
             }
 
             for pol_key, out_key in (('corr00', 'R_lsr_pol0'),
-                                     ('corr11', 'R_lsr_pol1'),
-                                     ('stokes_I', 'R_lsr')):
+                                     ('corr11', 'R_lsr_pol1')):
                 I1 = np.array([d[pol_key] for d in d1[:n_p]])
                 I2 = np.array([d[pol_key] for d in d2[:n_p]])
                 with np.errstate(divide='ignore', invalid='ignore'):
@@ -379,17 +387,16 @@ def aggregate_recal_visits(
     """Pool visits across all sessions per ``target_id`` into one cell entry.
 
     Output mirrors ``cell_combined``: each target becomes a single
-    (gl, gb) cell whose ``R`` is the visit-mean Stokes-I spectrum
-    (matching the science pipeline), with per-pol means retained
-    alongside for diagnostic comparison.
+    (gl, gb) cell with per-pol mean spectra ``R_pol0`` and ``R_pol1``.
+    Plot-stage consumers sum the two pols (after per-pol T_cal).
 
     Returns
     -------
     dict
-        ``target_id -> {'gl', 'gb', 'R', 'R_pol0', 'R_pol1', 'n_visits',
+        ``target_id -> {'gl', 'gb', 'R_pol0', 'R_pol1', 'n_visits',
         'n_sessions', 'W_R'}``.  ``W_R`` is the velocity-integrated
-        Stokes-I ratio in km/s, directly comparable to the science cells'
-        ``W_R``.
+        per-pol sum (R_pol0 + R_pol1) in km/s, directly comparable to
+        the science cells' ``W_R``.
     """
     from collections import defaultdict
 
@@ -404,17 +411,15 @@ def aggregate_recal_visits(
     for tgt, visits in by_tgt.items():
         if not visits:
             continue
-        R_I = np.nanmean([v['R_lsr'] for v in visits], axis=0)
         R_pol0 = np.nanmean([v['R_lsr_pol0'] for v in visits], axis=0)
         R_pol1 = np.nanmean([v['R_lsr_pol1'] for v in visits], axis=0)
         cells[tgt] = {
             'gl': visits[0]['gl'],
             'gb': visits[0]['gb'],
-            'R': R_I,
             'R_pol0': R_pol0,
             'R_pol1': R_pol1,
             'n_visits': len(visits),
             'n_sessions': len(sessions_by_tgt[tgt]),
-            'W_R': np.nansum(R_I) * dv_kms,
+            'W_R': np.nansum(R_pol0 + R_pol1) * dv_kms,
         }
     return cells

@@ -8,12 +8,15 @@ axes for interactive use.  Notebooks import individual functions::
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 from pathlib import Path
 
 import astropy.coordinates as ac
 import astropy.units as u
+from astropy.time import Time
 import matplotlib as mpl
+from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -25,13 +28,17 @@ from ugradiolab.plotting import (
     EMPHASIS_SIZE,
     LW_FINE,
     LW_LIGHT,
+    SS_MICRO,
     SS_FINE,
+    SS_STANDARD,
     ALPHA_FAINT,
+    ALPHA_LIGHT,
     ALPHA_STANDARD,
     NEUTRAL_COLOR,
     GRID_STYLE,
     GUIDE_STYLE,
     SCATTER_STYLE,
+    subpanels,
     textwidth_figure,
     landscapewidth_figure,
 )
@@ -53,6 +60,17 @@ AZ_MAX_DEG = 348.0
 
 _LAB04_DIR = Path(__file__).resolve().parent
 _FIGURES_DIR = _LAB04_DIR / "report" / "figures"
+
+
+def az_to_lon(az_deg: np.ndarray) -> np.ndarray:
+    """Wrap azimuth into [-180, 180] for Mollweide plotting.
+
+    Azimuths in [0, 180] map to themselves; (180, 360) map to negative
+    longitudes so the cable-wrap wedge near az=0/360 sits on the central
+    meridian.
+    """
+    az = az_deg % 360.0
+    return np.where(az <= 180.0, az, az - 360.0)
 
 
 def savefig(fig: plt.Figure, name: str) -> None:
@@ -284,6 +302,143 @@ def add_topo_inaccessible_overlay(
             alpha=0.4,
             zorder=1,
         )
+
+
+# ---------------------------------------------------------------------------
+# Per-session coverage (topocentric + galactic flat-sky)
+# ---------------------------------------------------------------------------
+
+def plot_session_coverage(
+    session: dict,
+    even_grid,
+    *,
+    hpbw_deg: float = 3.4,
+) -> plt.Figure:
+    """Two-panel coverage view of one archived session.
+
+    Left: topocentric Mollweide with the dish's inaccessible regions
+    hatched, science pointings coloured by hours into the session, recal
+    detours as red crosses, and a seam-aware dashed track in observation
+    order.  Right: galactic flat-sky with the full survey grid as a faint
+    backdrop, per-cell beam ellipses (cos(b)-stretched in longitude), the
+    same time-coloured scatter, the same recal markers, and the same
+    track.  Axis limits expand to include off-grid recal pointings.
+
+    ``session`` is a dict as returned by :func:`utils.io.rank_sessions_by_contiguity`
+    (keys ``all_cells, t_start, name, n_cells, n_recals, duration_h, l_span``).
+    ``even_grid`` is the iterable of ``(*, *, l, b, *)`` records produced by
+    :func:`utils.mapping.build_galplane_grid`.
+    """
+    from matplotlib.collections import LineCollection, PolyCollection
+
+    from utils.mapping import cell_radec, fast_altaz
+
+    all_l = np.array([c['l'] for c in session['all_cells']])
+    all_b = np.array([c['b'] for c in session['all_cells']])
+    all_t = np.array([c['t'] for c in session['all_cells']])
+    is_recal = np.array([c['is_recal'] for c in session['all_cells']])
+    all_h = (all_t - session['t_start']) / 3600.0
+    sci = ~is_recal
+
+    alts = np.empty(all_l.shape); azs = np.empty(all_l.shape)
+    for i, (l, b, t) in enumerate(zip(all_l, all_b, all_t)):
+        ra, dec = cell_radec(l, b)
+        alts[i], azs[i] = fast_altaz(ra, dec, t)
+    lons = az_to_lon(azs)
+
+    cmap = plt.get_cmap('viridis')
+    norm = mpl.colors.Normalize(vmin=all_h[sci].min(), vmax=all_h[sci].max())
+
+    fig, _ax = textwidth_figure(8)
+    _ax.remove()
+    ax_topo = fig.add_subplot(1, 2, 1, projection='mollweide')
+    ax_gal = fig.add_subplot(1, 2, 2)
+
+    recal_kw = dict(marker='x', color='C3', s=SS_FINE * 1.5,
+                    linewidths=LW_LIGHT, zorder=6, label='recal drift')
+
+    # Topocentric Mollweide
+    ax_topo.grid(True, **{k: v for k, v in GRID_STYLE.items() if k != 'color'},
+                 color=NEUTRAL_COLOR)
+    add_topo_inaccessible_overlay(ax_topo)
+    ax_topo.scatter(
+        np.deg2rad(lons[sci]), np.deg2rad(alts[sci]),
+        c=all_h[sci], cmap=cmap, norm=norm,
+        s=SS_MICRO, edgecolors='none', zorder=5,
+    )
+    if is_recal.any():
+        ax_topo.scatter(np.deg2rad(lons[is_recal]),
+                        np.deg2rad(alts[is_recal]), **recal_kw)
+
+    pts = np.column_stack([np.deg2rad(lons), np.deg2rad(alts)])
+    segs = [[p0, p1] for p0, p1 in zip(pts[:-1], pts[1:])
+            if abs(p1[0] - p0[0]) <= math.pi]
+    ax_topo.add_collection(LineCollection(
+        segs, colors='k', linestyles='--',
+        linewidths=LW_FINE, alpha=ALPHA_FAINT, zorder=3,
+    ))
+
+    az_ticks = np.array([-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150])
+    ax_topo.set_xticks(np.deg2rad(az_ticks))
+    ax_topo.set_xticklabels(
+        [rf'{int(t % 360)}$^\circ$' for t in az_ticks],
+        fontsize=TICK_SIZE - 3,
+    )
+    ax_topo.set_title('Topocentric (az, alt)', fontsize=LABEL_SIZE)
+    if is_recal.any():
+        ax_topo.legend(loc='lower left', fontsize=LEGEND_SIZE - 1,
+                       framealpha=0.85)
+
+    # Galactic flat-sky
+    grid_l = np.array([c[2] for c in even_grid])
+    grid_b = np.array([c[3] for c in even_grid])
+    ax_gal.scatter(grid_l, grid_b, c='lightgrey', s=SS_FINE * 0.5,
+                   edgecolors='none', alpha=ALPHA_FAINT, zorder=1,
+                   label='full grid')
+
+    phi = np.linspace(0.0, 2.0 * np.pi, 33)
+    r = hpbw_deg / 2.0
+    polys_gal = []
+    for lc, bc in zip(all_l[sci], all_b[sci]):
+        cos_b = math.cos(math.radians(bc))
+        polys_gal.append(np.column_stack(
+            [lc + (r / cos_b) * np.sin(phi), bc + r * np.cos(phi)]
+        ))
+    ax_gal.add_collection(PolyCollection(
+        polys_gal, facecolors='none', edgecolors=cmap(norm(all_h[sci])),
+        linewidths=LW_LIGHT, alpha=ALPHA_FAINT, zorder=3,
+    ))
+    ax_gal.scatter(all_l[sci], all_b[sci], c=all_h[sci], cmap=cmap, norm=norm,
+                   s=SS_FINE, edgecolors='none', zorder=4)
+    if is_recal.any():
+        ax_gal.scatter(all_l[is_recal], all_b[is_recal], **recal_kw)
+    ax_gal.plot(all_l, all_b, color='k', ls='--', lw=LW_FINE,
+                alpha=ALPHA_FAINT, zorder=2)
+
+    sci_l, sci_b = all_l[sci], all_b[sci]
+    l_pad = hpbw_deg / max(math.cos(math.radians(np.max(np.abs(sci_b)))), 0.1)
+    l_hi = max(sci_l.max(), all_l.max()) + l_pad
+    l_lo = min(sci_l.min(), all_l.min()) - l_pad
+    b_hi = max(sci_b.max(), all_b.max()) + hpbw_deg
+    b_lo = min(sci_b.min(), all_b.min()) - hpbw_deg
+    ax_gal.set_xlim(l_hi, l_lo)
+    ax_gal.set_ylim(b_lo, b_hi)
+    ax_gal.set_aspect('equal')
+    ax_gal.set_xlabel(r'$\ell$ [deg]', fontsize=LABEL_SIZE)
+    ax_gal.set_ylabel(r'$b$ [deg]', fontsize=LABEL_SIZE)
+    ax_gal.set_title('Galactic flat-sky', fontsize=LABEL_SIZE)
+    ax_gal.legend(fontsize=LEGEND_SIZE - 1, loc='lower left')
+
+    sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm); sm.set_array([])
+    fig.colorbar(sm, ax=[ax_topo, ax_gal], orientation='horizontal',
+                 shrink=0.6, pad=0.08, label='hours into session')
+
+    title = (rf'{session["name"]}: {session["n_cells"]} cells + '
+             rf'{session["n_recals"]} recal, '
+             rf'{session["duration_h"]:.1f} h, '
+             rf'$\ell$ span {session["l_span"]:.0f}$^\circ$')
+    fig.suptitle(title, fontsize=EMPHASIS_SIZE)
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -945,3 +1100,359 @@ def spectra_per_session_pdf(
                 plt.close(f)
                 n_pages += 1
     return n_pages
+
+
+
+# ---------------------------------------------------------------------------
+# Tcal(t) calibration figures (main_scan_calibration.ipynb)
+# ---------------------------------------------------------------------------
+
+LEUSCHNER_LOC = ac.EarthLocation(lat=37.9183 * u.deg, lon=-122.1067 * u.deg,
+                                 height=304 * u.m)
+PDT_TZ = dt.timezone(dt.timedelta(hours=-7), name="PDT")
+SIDEREAL_RATE = 1.00273790935
+SIDEREAL_DAY_S = 86400.0 / SIDEREAL_RATE
+SOLAR_DAY_S = 86400.0
+LST_TICK_HOURS = (0, 6, 12, 18)
+PDT_TICK_HOURS = (0, 6, 12, 18)
+
+SESSION_SPAN_ALPHA = 0.08
+SESSION_BOUNDARY_ALPHA = 0.45
+SESSION_BOUNDARY_COLOR = "0.35"
+
+
+def _lst_hour(unix_t):
+    return float(Time(unix_t, format="unix", location=LEUSCHNER_LOC)
+                 .sidereal_time("apparent").hour) % 24.0
+
+
+def _ticks_at_lst(t_lo, t_hi, hours):
+    lst0 = _lst_hour(t_lo)
+    out = []
+    for tgt in hours:
+        dlst = (tgt - lst0) % 24.0
+        t = t_lo + (dlst / SIDEREAL_RATE) * 3600.0
+        while t <= t_hi:
+            out.append(t)
+            t += SIDEREAL_DAY_S
+    return sorted(out)
+
+
+def _ticks_at_pdt(t_lo, t_hi, hours):
+    out = []
+    for tgt in hours:
+        day0 = dt.datetime.fromtimestamp(t_lo, PDT_TZ).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        t = (day0 + dt.timedelta(hours=tgt)).timestamp()
+        while t < t_lo:
+            t += SOLAR_DAY_S
+        while t <= t_hi:
+            out.append(t)
+            t += SOLAR_DAY_S
+    return sorted(out)
+
+
+def time_axes_lst_pdt(axes):
+    """Annotate a shared-x stack with LST ticks (bottom) and PDT ticks (top).
+
+    The Unix-epoch axis the panels were plotted against is preserved; only
+    tick locators/labels are added.  Returns the twinned top axis.
+    """
+    bottom = axes[-1]
+    t_lo, t_hi = bottom.get_xlim()
+    lst_ticks = _ticks_at_lst(t_lo, t_hi, LST_TICK_HOURS)
+    bottom.set_xticks(lst_ticks)
+    bottom.set_xticklabels([f"{int(round(_lst_hour(t))) % 24:d}h"
+                            for t in lst_ticks], rotation=30, ha="right")
+    bottom.set_xlabel("LST")
+    top = axes[0].twiny()
+    top.set_xlim(axes[0].get_xlim())
+    pdt_ticks = _ticks_at_pdt(t_lo, t_hi, PDT_TICK_HOURS)
+    top.set_xticks(pdt_ticks)
+    top.set_xticklabels(
+        [dt.datetime.fromtimestamp(t, PDT_TZ).strftime("%H:%M")
+         for t in pdt_ticks], rotation=30, ha="left")
+    top.set_xlabel("PDT")
+    return top
+
+
+def shade_sessions(ax, session_spans):
+    """Shade observation sessions on a Unix-epoch axis.
+
+    ``session_spans`` maps a session label to ``(t_start, t_end)`` in
+    Unix-epoch seconds.  Sessions are filled with NEUTRAL_COLOR and their
+    boundaries drawn as faint vertical lines.
+    """
+    boundaries = set()
+    for t0, t1 in session_spans.values():
+        ax.axvspan(t0, t1, color=NEUTRAL_COLOR,
+                   alpha=SESSION_SPAN_ALPHA, zorder=0)
+        boundaries.add(t0)
+        boundaries.add(t1)
+    for t in boundaries:
+        ax.axvline(t, color=SESSION_BOUNDARY_COLOR,
+                   alpha=SESSION_BOUNDARY_ALPHA,
+                   lw=LW_FINE, zorder=1)
+
+
+def plot_ebhis_vs_leuschner_R(
+    ebhis_spectra,
+    pointing_R_avg,
+    pointing_R_N,
+    ebhis_peak_v, ebhis_peak_tb,
+    R_peak_v, R_peak_ref,
+    v_lsr_axis,
+    pointing_labels,
+    *,
+    v_lsr_window,
+    n_visits_by_pointing,
+):
+    """Two-panel sanity check: EBHIS T_B (top) and Leuschner R(v) (bottom).
+
+    Peak markers are overlaid on both panels.  ``ebhis_spectra`` maps
+    pointing -> (v_eb, T_eb); ``pointing_R_avg`` maps pointing -> R(c);
+    ``pointing_R_N`` maps pointing -> (n_lo1, n_lo2).  ``v_lsr_window`` is
+    the ``(lo, hi)`` shading range for the Leuschner window on EBHIS.
+    """
+    v_lo, v_hi = v_lsr_window
+    fig, axes = plt.subplots(2, 1,
+                             figsize=(TEXTWIDTH_IN * 0.6, TEXTWIDTH_IN * 0.8),
+                             constrained_layout=True)
+
+    ax = axes[0]
+    for name in ebhis_spectra:
+        v, T = ebhis_spectra[name]
+        ax.axvspan(v_lo, v_hi, color="C2", alpha=ALPHA_FAINT, zorder=0,
+                   label=r"Leuschner $v_{\rm LSR}$ window")
+        ax.plot(v, T, color="C0", lw=LW_LIGHT, zorder=2)
+        ax.fill_between(v, 0, T, where=((v >= v_lo) & (v <= v_hi)),
+                        color="C0", alpha=ALPHA_LIGHT, zorder=1)
+        ax.axhline(0, color="0.5", lw=LW_FINE, alpha=ALPHA_LIGHT)
+        for vp, Tp in zip(ebhis_peak_v[name], ebhis_peak_tb[name]):
+            ax.axvline(vp, color="C3", ls=":", lw=LW_FINE,
+                       alpha=ALPHA_STANDARD, zorder=3)
+            ax.scatter([vp], [Tp], color="C3", s=SS_STANDARD,
+                       edgecolor="k", linewidth=LW_FINE, zorder=4)
+        ax.set_xlabel(r"$v_{\rm LSR}$ (km/s)")
+        ax.set_ylabel(r"EBHIS $T_B$ (K)")
+        ax.set_title(rf"EBHIS {pointing_labels[name]}")
+        ax.set_xlim(-400, 400)
+
+    ax = axes[1]
+    for name in pointing_R_avg:
+        ax.axvspan(v_lo, v_hi, color="C2", alpha=ALPHA_FAINT, zorder=0,
+                   label=r"INT\_MASK ($v_{\rm LSR}$ window)")
+        ax.axhline(0, color="0.5", lw=LW_FINE, alpha=ALPHA_LIGHT, zorder=1)
+        R_c = pointing_R_avg[name]
+        n_lo1, n_lo2 = pointing_R_N[name]
+        ax.plot(v_lsr_axis, R_c, color="C0", lw=LW_LIGHT,
+                alpha=ALPHA_STANDARD, zorder=2,
+                label=rf"$R(c)$ (Stokes I, N={n_lo1}+{n_lo2})")
+        for vp, Rp in zip(R_peak_v[name], R_peak_ref[name]):
+            ax.axvline(vp, color="C3", ls=":", lw=LW_FINE,
+                       alpha=ALPHA_STANDARD, zorder=3)
+            ax.scatter([vp], [Rp], color="C3", s=SS_STANDARD,
+                       edgecolor="k", linewidth=LW_FINE, zorder=4)
+        nv = n_visits_by_pointing.get(name, 0)
+        ax.set_title(rf"Leuschner {pointing_labels[name]}: "
+                     rf"FS-differenced, avg over {nv} visits")
+        ax.set_xlabel(r"$v_{\rm LSR}$ (km/s, LO1 mapping)")
+        ax.set_ylabel(r"$R(c) = (P_{\rm LO1}-P_{\rm LO2})/P_{\rm LO2}$")
+        ax.set_xlim(-400, 400)
+
+    fig.suptitle(r"EBHIS reference (top) vs Leuschner frequency-switched (bottom)")
+    return fig, axes
+
+
+def plot_ebhis_vs_leuschner_R_per_pol(
+    ebhis_spectra,
+    pointing_R_avg,
+    pointing_R_N,
+    ebhis_peak_v, ebhis_peak_tb,
+    R_peak_v, R_peak_ref,
+    v_lsr_axis,
+    pointing_labels,
+    *,
+    v_lsr_window,
+    n_visits_by_pointing,
+):
+    """Three-row sanity check: EBHIS (top), Leuschner R pol 0 (middle), pol 1 (bottom).
+
+    Per-pol variant of :func:`plot_ebhis_vs_leuschner_R`.  The Leuschner-
+    side dicts are keyed by ``(pointing_name, pol_index)`` (with
+    ``pol_index in (0, 1)``); ``ebhis_*`` dicts remain keyed by pointing
+    name because the EBHIS reference is pol-agnostic.
+
+    Pol 0 and pol 1 carry independent peak anchors because the noise
+    diode coupling is pol-dependent and the pol-0 coupling deficit at
+    3.2 MHz can shift the apparent peak relative to pol 1.
+    """
+    v_lo, v_hi = v_lsr_window
+    fig, axes = plt.subplots(3, 1,
+                             figsize=(TEXTWIDTH_IN * 0.6, TEXTWIDTH_IN * 1.2),
+                             constrained_layout=True)
+
+    ax = axes[0]
+    for name in ebhis_spectra:
+        v, T = ebhis_spectra[name]
+        ax.axvspan(v_lo, v_hi, color="C2", alpha=ALPHA_FAINT, zorder=0,
+                   label=r"Leuschner $v_{\rm LSR}$ window")
+        ax.plot(v, T, color="C0", lw=LW_LIGHT, zorder=2)
+        ax.fill_between(v, 0, T, where=((v >= v_lo) & (v <= v_hi)),
+                        color="C0", alpha=ALPHA_LIGHT, zorder=1)
+        ax.axhline(0, color="0.5", lw=LW_FINE, alpha=ALPHA_LIGHT)
+        for vp, Tp in zip(ebhis_peak_v[name], ebhis_peak_tb[name]):
+            ax.axvline(vp, color="C3", ls=":", lw=LW_FINE,
+                       alpha=ALPHA_STANDARD, zorder=3)
+            ax.scatter([vp], [Tp], color="C3", s=SS_STANDARD,
+                       edgecolor="k", linewidth=LW_FINE, zorder=4)
+        ax.set_ylabel(r"EBHIS $T_B$ (K)")
+        ax.set_title(rf"EBHIS {pointing_labels[name]}")
+        ax.set_xlim(-400, 400)
+
+    for row, pi in ((1, 0), (2, 1)):
+        ax = axes[row]
+        ax.axvspan(v_lo, v_hi, color="C2", alpha=ALPHA_FAINT, zorder=0,
+                   label=r"INT\_MASK ($v_{\rm LSR}$ window)")
+        ax.axhline(0, color="0.5", lw=LW_FINE, alpha=ALPHA_LIGHT, zorder=1)
+        for name in {k[0] for k in pointing_R_avg if k[1] == pi}:
+            R_c = pointing_R_avg[(name, pi)]
+            n_lo1, n_lo2 = pointing_R_N[(name, pi)]
+            ax.plot(v_lsr_axis, R_c, color="C0", lw=LW_LIGHT,
+                    alpha=ALPHA_STANDARD, zorder=2,
+                    label=rf"$R_{{\rm pol\,{pi}}}(c)$ (N={n_lo1}+{n_lo2})")
+            for vp, Rp in zip(R_peak_v[(name, pi)], R_peak_ref[(name, pi)]):
+                ax.axvline(vp, color="C3", ls=":", lw=LW_FINE,
+                           alpha=ALPHA_STANDARD, zorder=3)
+                ax.scatter([vp], [Rp], color="C3", s=SS_STANDARD,
+                           edgecolor="k", linewidth=LW_FINE, zorder=4)
+            nv = n_visits_by_pointing.get(name, 0)
+            ax.set_title(rf"Leuschner pol {pi} {pointing_labels[name]}: "
+                         rf"FS-differenced, avg over {nv} visits")
+        ax.set_ylabel(rf"$R_{{\rm pol\,{pi}}}(c)$")
+        ax.set_xlim(-400, 400)
+    axes[-1].set_xlabel(r"$v_{\rm LSR}$ (km/s)")
+
+    fig.suptitle(
+        r"EBHIS reference (top) vs Leuschner frequency-switched, per pol (middle / bottom)"
+    )
+    return fig, axes
+
+
+def plot_tcal_vs_time(
+    tcal_df,
+    pointing_labels,
+    *,
+    pol0_plot_max=10.0,
+    alt_range=(17.0, 83.0),
+):
+    """Two-panel Tcal(t) scatter (pol 0, pol 1) with LST/PDT time axes.
+
+    ``tcal_df`` must contain columns ``t_mid``, ``target_id``, ``session``,
+    ``alt``, ``Tcal_pol0``, ``Tcal_pol1``.  Pol-0 visits with
+    ``Tcal_pol0 > pol0_plot_max`` are masked from the scatter (still in
+    the underlying medians).
+    """
+    pointings = sorted(tcal_df["target_id"].unique())
+    markers = dict(zip(pointings, ["o", "^"]))
+    alt_min, alt_max = alt_range
+    cmap = plt.cm.viridis_r
+
+    fig = plt.figure(figsize=(TEXTWIDTH_IN, TEXTWIDTH_IN * 10 / 16),
+                     constrained_layout=True)
+    axes = subpanels(fig, 2, sharex=True)
+
+    def _plot_keep(df, pi):
+        if pi == 0:
+            return df[f"Tcal_pol{pi}"].fillna(np.inf) <= pol0_plot_max
+        return np.ones(len(df), dtype=bool)
+
+    sc = None
+    for ax, pi in zip(axes, (0, 1)):
+        for tid in pointings:
+            sub = tcal_df[tcal_df["target_id"] == tid].dropna(
+                subset=[f"Tcal_pol{pi}"])
+            plot_sub = sub[_plot_keep(sub, pi)]
+            sc = ax.scatter(plot_sub["t_mid"], plot_sub[f"Tcal_pol{pi}"],
+                            c=plot_sub["alt"], cmap=cmap,
+                            vmin=alt_min, vmax=alt_max,
+                            marker=markers[tid], s=SS_STANDARD,
+                            edgecolor="k", linewidth=LW_FINE, zorder=3)
+        median = tcal_df[f"Tcal_pol{pi}"].median()
+        ax.axhline(median, color=f"C{pi}", ls="--", lw=LW_FINE,
+                   alpha=ALPHA_LIGHT,
+                   label=rf"median = {median:.2f} K")
+        ax.set_ylabel(rf"$T_{{\rm cal}}$ pol {pi} (K)")
+        ax.legend(loc="upper right", frameon=True, fontsize="small")
+
+    marker_handles = [
+        Line2D([], [], marker=markers[tid], color="none",
+               markerfacecolor="lightgray", markeredgecolor="k",
+               markersize=8, label=pointing_labels[tid])
+        for tid in pointings
+    ]
+    axes[0].legend(
+        handles=marker_handles + [
+            Line2D([], [], color="C0", ls="--", lw=LW_FINE,
+                   label=rf"pol 0 median = "
+                         rf"{tcal_df['Tcal_pol0'].median():.2f} K")],
+        loc="upper right", frameon=True, fontsize="small",
+        title="pointing",
+    )
+
+    time_axes_lst_pdt(axes)
+    cbar = fig.colorbar(sc, ax=axes, location="right",
+                        fraction=0.04, pad=0.02, shrink=0.9)
+    cbar.set_label("altitude (deg)")
+    fig.suptitle(
+        r"2-peak-anchored $T_{\rm cal}(t)$ per pol "
+        r"(EBHIS $T_B$ paired by sorted-$v$ index with Leuschner $R$ peaks)"
+    )
+    return fig, axes
+
+
+def plot_tcal_24h_fold(
+    fold,
+    n_harmonics,
+    fourier_design_fn,
+    pointing_label,
+    *,
+    pol0_plot_max=10.0,
+):
+    """24 h PDT fold + Fourier-fit overlay (one panel per pol).
+
+    ``fold`` maps pi -> dict with keys ``h``, ``y``, ``coef``, ``K``,
+    ``rms``, ``dof``.  ``fourier_design_fn(h, n_harm)`` builds the design
+    matrix for evaluating the smooth fit (the period is baked into the
+    fit at call site, so this wrapper only needs ``n_harm``).
+    """
+    h_smooth = np.linspace(0.0, 24.0, 481)
+    fig = plt.figure(figsize=(TEXTWIDTH_IN, TEXTWIDTH_IN * 10 / 16),
+                     constrained_layout=True)
+    axes = subpanels(fig, 2, sharex=True)
+
+    for ax, pi in zip(axes, (0, 1)):
+        d = fold.get(pi)
+        if d is None:
+            continue
+        mask = (d["y"] <= pol0_plot_max) if pi == 0 \
+            else np.ones_like(d["y"], dtype=bool)
+        ax.scatter(d["h"][mask], d["y"][mask],
+                   s=20, color=f"C{pi}", edgecolor="k",
+                   linewidth=LW_FINE, alpha=ALPHA_STANDARD, zorder=2)
+        y_fit = fourier_design_fn(h_smooth, d["K"]) @ d["coef"]
+        ax.plot(h_smooth, y_fit, color="C3", lw=LW_LIGHT, zorder=3,
+                label=rf"$K={d['K']}$ fit, "
+                      rf"RMS = {d['rms']:.2f} K (dof = {d['dof']})")
+        ax.axhline(d["coef"][0], color="0.3", ls="--", lw=LW_FINE,
+                   alpha=ALPHA_LIGHT, zorder=1,
+                   label=rf"$a_0={d['coef'][0]:.2f}$ K")
+        ax.set_ylabel(rf"$T_{{\rm cal}}$ pol {pi} (K)")
+        ax.legend(loc="upper right", fontsize="small", frameon=True)
+
+    axes[-1].set_xlabel("hour of day (PDT)")
+    axes[-1].set_xlim(0, 24)
+    axes[-1].set_xticks([0, 3, 6, 9, 12, 15, 18, 21, 24])
+    fig.suptitle(rf"24 h PDT fold + Fourier fit ($K_0={n_harmonics[0]}$, "
+                 rf"$K_1={n_harmonics[1]}$) at {pointing_label}")
+    return fig, axes

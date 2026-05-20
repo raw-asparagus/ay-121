@@ -22,19 +22,23 @@ from __future__ import annotations
 
 import glob
 import json
-import math
 import re
 import sys
 import time as _time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterator
 
 import numpy as np
 
-# Allow `from utils.timing_stats import ...` when run with cwd=labs/04/.
+# Allow `from utils.X import ...` when run with cwd=labs/04/.
 sys.path.insert(0, '.')
 from utils.timing_stats import load as _load_timing_stats  # noqa: E402
+from utils.mapping import (  # noqa: E402
+    build_galplane_grid,
+    cell_radec as _cell_radec,
+    fast_altaz as _fast_altaz,
+)
 
 from ugradiolab.astronomy import (
     LEO_LAT_DEG,
@@ -143,141 +147,8 @@ class SurveyConfig:
 
 
 # ---------------------------------------------------------------------------
-# Grid builder
+# Grid + fast planning math live in utils.mapping (shared with notebooks).
 # ---------------------------------------------------------------------------
-
-def _build_l_row(b_deg: float, cfg: SurveyConfig, l_center: float) -> list[float]:
-    """Non-integer longitude grid at latitude b, anchored at l_center.
-
-    Walks outward from l_center in steps of PHYSICAL_SPACING_DEG / cos(b),
-    keeping only values inside [l_min, l_max].  When l_center sits inside
-    the range the filter is a no-op; when it sits outside (e.g. NPS,
-    where the anchor is shared with the galactic-plane survey for
-    brick-interleave consistency) the filter trims the row to the
-    survey window.
-    """
-    cos_b = math.cos(math.radians(b_deg))
-    if cos_b <= 0:
-        return [l_center] if cfg.l_min <= l_center <= cfg.l_max else []
-    dl = cfg.physical_spacing_deg / cos_b
-
-    l_vals = [round(l_center, 2)]
-    l = l_center + dl
-    while l <= cfg.l_max:
-        l_vals.append(round(l, 2))
-        l += dl
-    l = l_center - dl
-    while l >= cfg.l_min:
-        l_vals.append(round(l, 2))
-        l -= dl
-
-    return sorted(v for v in l_vals if cfg.l_min <= v <= cfg.l_max)
-
-
-def build_galplane_grid(cfg: SurveyConfig, phase: str = 'even'):
-    """Column-major grid: constant-l columns swept in b, zig-zagged.
-
-    Returns list of ``(col_idx, row_idx, l, b)`` tuples in scan order.
-    """
-    if phase == 'even':
-        b_vals = list(range(cfg.b_min, cfg.b_max + 1, cfg.b_step))
-    else:
-        b_vals = list(range(cfg.b_min + 1, cfg.b_max, cfg.b_step))
-
-    all_cells = []
-    for b in b_vals:
-        if phase == 'odd':
-            half_step = cfg.physical_spacing_deg / (2 * math.cos(math.radians(b)))
-            l_center = cfg.l_center + half_step
-        else:
-            l_center = cfg.l_center
-
-        l_vals = _build_l_row(b, cfg, l_center=l_center)
-        if not l_vals:
-            print(f'  b={b:+3d}: 0 cells (filtered out of range)')
-            continue
-        dl = cfg.physical_spacing_deg / np.cos(np.radians(b))
-        print(f'  b={b:+3d}: Delta_l={dl:.2f} deg, {len(l_vals)} cells, '
-              f'l=[{l_vals[0]:.1f}, {l_vals[-1]:.1f}]')
-        for l in l_vals:
-            all_cells.append((l, b))
-
-    if not all_cells:
-        return []
-
-    all_cells.sort(key=lambda c: c[0])
-    col_tol = cfg.physical_spacing_deg / 2
-    columns = [[all_cells[0]]]
-    for cell in all_cells[1:]:
-        if cell[0] - columns[-1][0][0] <= col_tol:
-            columns[-1].append(cell)
-        else:
-            columns.append([cell])
-
-    cells = []
-    for col_idx, col in enumerate(columns):
-        col_sorted = sorted(col, key=lambda c: c[1])
-        if col_idx % 2 == 1:
-            col_sorted = list(reversed(col_sorted))
-        for row_idx, (l, b) in enumerate(col_sorted):
-            cells.append((col_idx, row_idx, l, b))
-
-    print(f'  Column-major: {len(columns)} columns, {len(cells)} cells total')
-    return cells
-
-
-# ---------------------------------------------------------------------------
-# Fast planning math (cached RA/Dec + closed-form alt/az; planner hot path)
-# ---------------------------------------------------------------------------
-
-_RADEC_CACHE: dict = {}
-_LAT_R = math.radians(LEO_LAT_DEG)
-_SIN_LAT = math.sin(_LAT_R)
-_COS_LAT = math.cos(_LAT_R)
-
-
-def _cell_radec(l: float, b: float) -> tuple[float, float]:
-    """Cached ICRS (ra, dec) in degrees for galactic (l, b)."""
-    key = (round(l % 360.0, 4), b)
-    cached = _RADEC_CACHE.get(key)
-    if cached is not None:
-        return cached
-    import astropy.units as u
-    from astropy.coordinates import SkyCoord
-    gc = SkyCoord(l=l * u.deg, b=b * u.deg, frame='galactic')
-    ra = float(gc.icrs.ra.deg)
-    dec = float(gc.icrs.dec.deg)
-    _RADEC_CACHE[key] = (ra, dec)
-    return ra, dec
-
-
-def _gmst_hours(unix_t: float) -> float:
-    """Approximate GMST in hours from unix time (accurate to ~1 s)."""
-    jd = unix_t / 86400.0 + 2440587.5
-    d = jd - 2451545.0
-    return (18.697374558 + 24.06570982441908 * d) % 24.0
-
-
-def _fast_altaz(ra_deg: float, dec_deg: float, unix_t: float) -> tuple[float, float]:
-    """Closed-form alt/az for Leuschner; matches astropy under a degree."""
-    lst_deg = (_gmst_hours(unix_t) * 15.0 + LEO_LON_DEG) % 360.0
-    ha_deg = ((lst_deg - ra_deg + 180.0) % 360.0) - 180.0
-    ha = math.radians(ha_deg)
-    dec = math.radians(dec_deg)
-    cos_dec = math.cos(dec)
-    sin_dec = math.sin(dec)
-    sin_alt = _SIN_LAT * sin_dec + _COS_LAT * cos_dec * math.cos(ha)
-    sin_alt = max(-1.0, min(1.0, sin_alt))
-    alt = math.degrees(math.asin(sin_alt))
-    cos_alt_sq = 1.0 - sin_alt * sin_alt
-    if cos_alt_sq <= 1e-18:
-        return alt, 0.0
-    cos_alt = math.sqrt(cos_alt_sq)
-    sin_az = -cos_dec * math.sin(ha) / cos_alt
-    cos_az = (sin_dec - _SIN_LAT * sin_alt) / (_COS_LAT * cos_alt)
-    az = (math.degrees(math.atan2(sin_az, cos_az)) + 360.0) % 360.0
-    return alt, az
-
 
 def classify_cells_by_az_side(cells, cfg: SurveyConfig, unix_t=None):
     """Split cells into rising and setting candidate lists at unix_t."""
@@ -490,7 +361,12 @@ def plan_phase(phase: str, cfg: SurveyConfig, cell_total_time_sec: float):
     forward-sim survivors.
     """
     now = _time.time()
-    all_phase = build_galplane_grid(cfg, phase=phase)
+    all_phase = build_galplane_grid(
+        b_min=cfg.b_min, b_max=cfg.b_max, b_step=cfg.b_step,
+        l_min=cfg.l_min, l_max=cfg.l_max, l_center=cfg.l_center,
+        physical_spacing_deg=cfg.physical_spacing_deg,
+        phase=phase, verbose=True,
+    )
     print(f'\n  Total grid cells ({phase}): {len(all_phase)}')
     if not all_phase:
         return []

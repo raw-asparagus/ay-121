@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import calendar
+import re
+import time as _time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -14,6 +17,102 @@ from .cache import _memory
 
 
 RECAL_CELL_PREFIXES = ('obs_recal_', 'cal_recal_')
+
+# Cell directory and dump filename conventions written by scripts/main/main
+# and scripts/main/nps.py.  ``_DUMP_RE`` matches one .npz dump file;
+# ``_OBSCAL_RE`` matches one cell directory (obs_* or cal_*).
+_DUMP_RE = re.compile(r'^(?:obs|cal)_(.+?)_(-?\d+)_(\d{8}_\d{6})\.npz$')
+_OBSCAL_RE = re.compile(r'^(obs|cal)_(.+?)_(-?\d+)$')
+
+
+def _parse_l_token(name_l: str) -> tuple[float, bool]:
+    """Parse a directory l-token; strip ``recal_drift[_bk]_`` prefix.
+
+    Returns ``(l, is_recal)``.  Recal-drift pointings carry a prefix that
+    distinguishes them from same-(l, b) science cells.
+    """
+    raw, is_recal = name_l, False
+    for prefix in ('recal_drift_bk_', 'recal_drift_'):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):]
+            is_recal = True
+            break
+    return float(raw.replace('p', '.')), is_recal
+
+
+def rank_sessions_by_contiguity(data_dir) -> list[dict]:
+    """Enumerate all ``session_*`` directories under ``data_dir`` and rank them.
+
+    Each returned dict carries ``name, cells, all_cells, t_start, t_end,
+    duration_h, n_cells, n_recals, l_span``.  Sort key is ``(-n_cells,
+    l_span)``: prefer the largest session, breaking ties so a wrap-around
+    session (l_span ~ 360) ranks below a contiguous arc of equal cell count.
+    """
+    data_dir = Path(data_dir)
+    sessions: list[dict] = []
+    for sd in sorted(p for p in data_dir.glob('session_*') if p.is_dir()):
+        science, all_cells = enumerate_session_cells(sd)
+        if not science:
+            continue
+        ls = [c['l'] for c in science]
+        sessions.append({
+            'name': sd.name,
+            'cells': science,
+            'all_cells': all_cells,
+            't_start': science[0]['t'],
+            't_end': science[-1]['t'],
+            'duration_h': (science[-1]['t'] - science[0]['t']) / 3600.0,
+            'n_cells': len(science),
+            'n_recals': sum(1 for c in all_cells if c['is_recal']),
+            'l_span': max(ls) - min(ls) if ls else 0.0,
+        })
+    sessions.sort(key=lambda s: (-s['n_cells'], s['l_span']))
+    return sessions
+
+
+def enumerate_session_cells(session_dir) -> tuple[list[dict], list[dict]]:
+    """Return ``(science_cells, all_cells)`` for one ``session_NNN/`` directory.
+
+    Each cell dict has keys ``l, b, t, is_recal``.  ``t`` is the unix
+    timestamp of the earliest dump in the cell.  ``all_cells`` interleaves
+    recal-drift detours with science cells in observation order;
+    ``science_cells`` is the recal-free subset.
+
+    Filename-only enumeration: no npz contents are read.  For full dump
+    loading see :func:`load_session_dumps`.
+    """
+    cells: dict[tuple[bool, float, int], dict] = {}
+    session_dir = Path(session_dir)
+    for sub in session_dir.iterdir():
+        if not sub.is_dir():
+            continue
+        m = _OBSCAL_RE.match(sub.name)
+        if m is None:
+            continue
+        kind, l_name, b_str = m.group(1), m.group(2), m.group(3)
+        ts = []
+        for f in sub.glob('*.npz'):
+            mm = _DUMP_RE.match(f.name)
+            if mm is None:
+                continue
+            ts.append(calendar.timegm(
+                _time.strptime(mm.group(3), '%Y%m%d_%H%M%S')))
+        if not ts:
+            continue
+        l, is_recal = _parse_l_token(l_name)
+        b = int(b_str)
+        t_first = min(ts)
+        # Key by recal flag so off-grid recal pointings cannot collide with
+        # same-(l, b) science cells.  obs_ seeds the entry; cal_ only
+        # updates an existing entry's start time.
+        key = (is_recal, l, b)
+        if kind == 'obs' or key in cells:
+            entry = cells.get(key)
+            if entry is None or t_first < entry['t']:
+                cells[key] = {'l': l, 'b': b, 't': t_first, 'is_recal': is_recal}
+    all_ordered = sorted(cells.values(), key=lambda r: r['t'])
+    science = [c for c in all_ordered if not c['is_recal']]
+    return science, all_ordered
 
 # Per-dump scalar fields: (record_key, npz_key, decoder).  Scalars round-trip
 # through np.savez as 0-D arrays; the decoder extracts a Python scalar so

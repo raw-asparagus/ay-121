@@ -124,27 +124,17 @@ def _load_session_dumps_cached(fingerprint: tuple, jobs: list[tuple]) -> list[di
     return records
 
 
-def load_session_dumps(
-    data_dirs: list[Path],
-    *,
-    skip_recal: bool = True,
-) -> list[dict]:
-    """Load every .npz dump under ``data_dirs`` into a flat list of records.
+def load_session_dumps(data_dirs: list[Path]) -> list[dict]:
+    """Load every science .npz dump under ``data_dirs`` into a flat list of records.
 
     Each record carries the correlator spectra, observation metadata, and the
     galactic (l, b) of the pointing (rounded to integer b, two decimals on l).
-    Recal-drift cells are skipped by default; load them via
-    :func:`load_recal_dumps` if needed.
+    Recal-drift cells are skipped; load them via :func:`load_recal_dumps`.
 
     Results are cached on disk via :mod:`joblib`; the cache key includes each
     file path and its mtime, so adding/removing/rewriting a dump invalidates
     the relevant entry automatically.
     """
-    if not skip_recal:
-        raise NotImplementedError(
-            "skip_recal=False is not supported; use load_recal_dumps() to load "
-            "recal-pointing dumps separately."
-        )
     jobs = _collect_dump_jobs(data_dirs, want_recal=False)
     fingerprint = _fingerprint_jobs(jobs)
     return _load_session_dumps_cached(fingerprint, jobs)

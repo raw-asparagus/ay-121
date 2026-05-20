@@ -25,21 +25,15 @@ from ugradiolab.plotting import (
     EMPHASIS_SIZE,
     LW_FINE,
     LW_LIGHT,
-    MS_MICRO,
     SS_FINE,
-    ALPHA_EXTRA_LIGHT,
     ALPHA_FAINT,
-    ALPHA_LIGHT,
     ALPHA_STANDARD,
     NEUTRAL_COLOR,
     GRID_STYLE,
     GUIDE_STYLE,
     SCATTER_STYLE,
     textwidth_figure,
-    columnwidth_figure,
     landscapewidth_figure,
-    subpanels,
-    zero_line,
 )
 
 
@@ -71,28 +65,6 @@ def savefig(fig: plt.Figure, name: str) -> None:
 # ---------------------------------------------------------------------------
 # Single HI spectrum
 # ---------------------------------------------------------------------------
-
-def plot_hi_spectrum(
-    v_kms: np.ndarray,
-    R: np.ndarray,
-    *,
-    title: str | None,
-    ylabel: str,
-    xlabel: str,
-    color: str,
-    ax: plt.Axes | None,
-) -> plt.Axes:
-    """Plot a single frequency-switched HI profile."""
-    if ax is None:
-        _, ax = columnwidth_figure(4)
-    ax.plot(v_kms, R, lw=LW_FINE, color=color, alpha=ALPHA_STANDARD, zorder=2)
-    zero_line(ax)
-    ax.set_xlabel(xlabel, fontsize=LABEL_SIZE)
-    ax.set_ylabel(ylabel, fontsize=LABEL_SIZE)
-    if title:
-        ax.set_title(title, fontsize=TICK_SIZE)
-    return ax
-
 
 # ---------------------------------------------------------------------------
 # Beam-outline polygons for Mollweide overlays
@@ -257,6 +229,64 @@ def add_never_observable_overlay(
 
 
 # ---------------------------------------------------------------------------
+# Topocentric (alt/az) Mollweide accessibility overlay
+# ---------------------------------------------------------------------------
+
+def add_topo_inaccessible_overlay(
+    ax: plt.Axes,
+    *,
+    min_alt_deg: float = MIN_ALT_DEG,
+    max_alt_deg: float = MAX_ALT_DEG,
+    az_min_deg: float = AZ_MIN_DEG,
+    az_max_deg: float = AZ_MAX_DEG,
+) -> None:
+    """Draw the dish's inaccessible alt/az region on a Mollweide axis.
+
+    Convention used: the axis is plotted in topocentric coordinates with
+    az=0 (=360) mapped to lon=0 (projection center).  Azimuth wraps via
+    ``az if az <= 180 else az - 360`` so the 348..360..7 dead wedge sits
+    on the central meridian.  Altitude maps directly to latitude.
+
+    Three exclusions are hatched in the same style as
+    :func:`add_never_observable_overlay`:
+
+    * ``alt < min_alt_deg`` (horizon band)
+    * ``alt > max_alt_deg`` (zenith cap)
+    * ``az`` outside ``[az_min_deg, az_max_deg]`` (cable-wrap wedge near 0)
+    """
+    az_grid = np.arange(-179.5, 180.5, 1.0)
+    alt_grid = np.arange(-89.5, 90.5, 1.0)
+    AZ, ALT = np.meshgrid(az_grid, alt_grid)
+
+    az_true = AZ % 360.0
+    az_bad = (az_true < az_min_deg) | (az_true > az_max_deg)
+    alt_bad = (ALT < min_alt_deg) | (ALT > max_alt_deg)
+    mask = az_bad | alt_bad
+
+    with mpl.rc_context({"hatch.color": "red", "hatch.linewidth": 0.5}):
+        ax.contourf(
+            np.deg2rad(AZ),
+            np.deg2rad(ALT),
+            mask.astype(float),
+            levels=[0.5, 1.5],
+            colors=["red"],
+            alpha=0.08,
+            hatches=["///"],
+            zorder=0,
+        )
+        ax.contour(
+            np.deg2rad(AZ),
+            np.deg2rad(ALT),
+            mask.astype(float),
+            levels=[0.5],
+            colors=["red"],
+            linewidths=0.6,
+            alpha=0.4,
+            zorder=1,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Spectrum grid (all pointings for one DR)
 # ---------------------------------------------------------------------------
 
@@ -334,136 +364,6 @@ def plot_spectra_grid(
         fig.suptitle(title, fontsize=EMPHASIS_SIZE)
     fig.subplots_adjust(top=0.92)
     return fig
-
-
-# ---------------------------------------------------------------------------
-# Flat heatmap (per-DR)
-# ---------------------------------------------------------------------------
-
-def plot_heatmap(
-    gl: np.ndarray,
-    gb: np.ndarray,
-    vals: np.ndarray,
-    *,
-    title: str,
-    cbar_label: str,
-    cmap: str,
-) -> tuple[plt.Figure, plt.Axes]:
-    """Plot a flat (l, b) heatmap from scattered data."""
-    gl_int = np.round(gl).astype(int)
-    gb_int = np.round(gb).astype(int)
-    l_unique = np.arange(gl_int.min(), gl_int.max() + 1)
-    b_unique = np.arange(gb_int.min(), gb_int.max() + 1)
-    grid = np.full((len(b_unique), len(l_unique)), np.nan)
-    # Cells are unique (gl, gb) by construction, so fancy-index assign is safe.
-    li = np.searchsorted(l_unique, gl_int)
-    bi = np.searchsorted(b_unique, gb_int)
-    in_bounds = (li >= 0) & (li < len(l_unique)) & (bi >= 0) & (bi < len(b_unique))
-    grid[bi[in_bounds], li[in_bounds]] = np.asarray(vals)[in_bounds]
-
-    fig, ax = textwidth_figure(5)
-    im = ax.imshow(
-        grid, origin="lower", aspect="equal",
-        extent=[l_unique[0] - 0.5, l_unique[-1] + 0.5,
-                b_unique[0] - 0.5, b_unique[-1] + 0.5],
-        cmap=cmap,
-    )
-    ax.set_xlabel(r"Galactic longitude $\ell$ [deg]", fontsize=LABEL_SIZE)
-    ax.set_ylabel(r"Galactic latitude $b$ [deg]", fontsize=LABEL_SIZE)
-    if title:
-        ax.set_title(title, fontsize=EMPHASIS_SIZE)
-    plt.colorbar(im, ax=ax, label=cbar_label)
-    return fig, ax
-
-
-# ---------------------------------------------------------------------------
-# Candidate survey footprints
-# ---------------------------------------------------------------------------
-
-# (name, l_min, l_max, b_min, b_max, color)
-SURVEY_FOOTPRINTS = [
-    ("Gal. plane (narrow)",     -10, 250,   -4,   4, "C0"),
-    ("Gal. plane (wide)",         0, 360,  -20,  20, "C0"),
-    ("Great circle l=220/40",   218, 222,  -90,  90, "C1"),
-    ("Great circle l=40/220",    38,  42,  -90,  90, "C1"),
-    ("Great circle l=130/310",  128, 132,  -90,  90, "C2"),
-    ("Great circle l=310/130",  308, 312,  -90,  90, "C2"),
-    ("NCP",                     105, 160,   15,  50, "C3"),
-    ("Orion-Eridanus",          160, 220,  -70, -10, "C4"),
-    ("North Polar Spur",        210, 380,    0,  90, "C5"),
-    ("HVC",                      60, 180,   20,  60, "C6"),
-    ("Magellanic Stream",        60, 110,  -90, -30, "C7"),
-]
-
-
-def add_survey_footprints(
-    ax: plt.Axes,
-    *,
-    center_l: float = MOLL_CENTER_L,
-) -> None:
-    """Draw candidate survey region rectangles on a Mollweide axis."""
-    seam = (center_l + 180) % 360
-
-    def _normalize_l(l):
-        return l % 360
-
-    def _crosses_seam(l_min, l_max):
-        span = l_max - l_min
-        if span >= 360:
-            return True
-        ln = _normalize_l(l_min)
-        lx = _normalize_l(l_max)
-        if ln <= lx:
-            return ln < seam < lx
-        return seam > ln or seam < lx
-
-    def _wrap_l(l):
-        l = l - center_l
-        if l > 180:
-            l -= 360
-        if l < -180:
-            l += 360
-        return l
-
-    def _make_rect(l_min, l_max, b_min, b_max):
-        n = 50
-        wl_min, wl_max = _wrap_l(l_min), _wrap_l(l_max)
-        if wl_min > wl_max:
-            return None
-        l_bot = np.linspace(wl_min, wl_max, n)
-        l_top = np.linspace(wl_max, wl_min, n)
-        b_left = np.linspace(b_min, b_max, n)
-        b_right = np.linspace(b_max, b_min, n)
-        ls = np.concatenate([l_bot, np.full(n, wl_max), l_top, np.full(n, wl_min)])
-        bs = np.concatenate([np.full(n, b_min), b_left, np.full(n, b_max), b_right])
-        return np.column_stack([np.deg2rad(ls), np.deg2rad(bs)])
-
-    # Split footprints that cross the Mollweide seam
-    split = []
-    for name, l_min, l_max, b_min, b_max, color in SURVEY_FOOTPRINTS:
-        if l_max - l_min >= 360:
-            split.append((name, seam + 0.5, seam + 180, b_min, b_max, color))
-            split.append((name, seam + 180, seam + 359.5, b_min, b_max, color))
-        elif _crosses_seam(l_min, l_max):
-            split.append((name, l_min, seam - 0.5, b_min, b_max, color))
-            split.append((name, seam + 0.5, l_max, b_min, b_max, color))
-        else:
-            split.append((name, l_min, l_max, b_min, b_max, color))
-
-    plotted_labels: set[str] = set()
-    for name, l_min, l_max, b_min, b_max, color in split:
-        verts = _make_rect(l_min, l_max, b_min, b_max)
-        if verts is None:
-            continue
-        label = name if name not in plotted_labels else None
-        poly = plt.Polygon(
-            verts, alpha=ALPHA_EXTRA_LIGHT,
-            facecolor=color, edgecolor=color,
-            lw=LW_FINE, linestyle="--", label=label,
-        )
-        ax.add_patch(poly)
-        if label:
-            plotted_labels.add(name)
 
 
 # ---------------------------------------------------------------------------
@@ -727,193 +627,6 @@ def plot_lv_strip(
     cbar = fig.colorbar(pcm, ax=ax, pad=0.02)
     cbar.set_label(cbar_label)
     plt.tight_layout()
-    return fig, ax
-
-
-# ---------------------------------------------------------------------------
-# Alt/Az Mollweide
-# ---------------------------------------------------------------------------
-
-def plot_altaz_mollweide(
-    az: np.ndarray,
-    alt: np.ndarray,
-    bad: np.ndarray,
-    *,
-    min_alt: float,
-    az_min: float,
-    az_max: float,
-    title: str,
-) -> tuple[plt.Figure, plt.Axes]:
-    """Plot telescope pointings on an alt/az Mollweide.
-
-    Uses textwidth for inline display.
-    """
-    az_moll = np.where(az > 180, az - 360, az)
-    good = ~bad
-
-    fig, _ax = textwidth_figure(8)
-    _ax.remove()
-    ax = fig.add_subplot(111, projection="mollweide")
-    ax.grid(True, **{k: v for k, v in GRID_STYLE.items() if k != "color"},
-            color=NEUTRAL_COLOR)
-
-    # Horizon line
-    az_line = np.linspace(-np.pi, np.pi, 500)
-    ax.plot(az_line, np.full_like(az_line, np.deg2rad(min_alt)),
-            lw=LW_LIGHT, ls="--", color="C3", alpha=ALPHA_LIGHT,
-            label=rf"min alt = {min_alt}$^\circ$", zorder=1)
-
-    # Az exclusion
-    for az_lim in [az_min, az_max]:
-        az_l = az_lim if az_lim <= 180 else az_lim - 360
-        ax.axvline(np.deg2rad(az_l), lw=LW_LIGHT, ls="--",
-                   color="C1", alpha=ALPHA_LIGHT, zorder=1)
-
-    ax.scatter(np.deg2rad(az_moll[good]), np.deg2rad(alt[good]),
-               **SCATTER_STYLE, color="C0", zorder=5, label="OK")
-    if bad.any():
-        ax.scatter(np.deg2rad(az_moll[bad]), np.deg2rad(alt[bad]),
-                   s=SS_FINE * 2, color="C3", marker="x",
-                   zorder=6, label="out of limits")
-
-    for azd, name in [(0, "N"), (90, "E"), (180, "S"), (-90, "W")]:
-        ax.annotate(name, (np.deg2rad(azd), np.deg2rad(-2)),
-                    fontsize=TICK_SIZE, ha="center", va="top",
-                    fontweight="bold", color=NEUTRAL_COLOR)
-
-    ax.set_title(title, fontsize=EMPHASIS_SIZE)
-    ax.legend(fontsize=LEGEND_SIZE, loc="lower left")
-    return fig, ax
-
-
-# ---------------------------------------------------------------------------
-# Scan pattern (galactic flat)
-# ---------------------------------------------------------------------------
-
-def plot_scan_pattern(
-    sim: list[dict],
-    *,
-    hpbw_deg: float,
-    title: str,
-) -> tuple[plt.Figure, plt.Axes]:
-    """Plot planned scan pointings with beam circles.
-
-    Uses textwidth for inline display.
-    """
-    from matplotlib.patches import Circle
-
-    fig, ax = textwidth_figure(6)
-
-    for s in sim:
-        color = "C3" if s["bad"] else "C0"
-        beam = Circle(
-            (s["l"], s["b"]), hpbw_deg / 2,
-            fill=False, edgecolor=color,
-            alpha=ALPHA_EXTRA_LIGHT, lw=LW_FINE,
-            zorder=1,
-        )
-        ax.add_patch(beam)
-        ax.plot(s["l"], s["b"], "o", color=color, ms=MS_MICRO, zorder=2)
-
-    ax.set_xlabel(r"$\ell$ [deg]", fontsize=LABEL_SIZE)
-    ax.set_ylabel(r"$b$ [deg]", fontsize=LABEL_SIZE)
-    ax.set_title(title, fontsize=EMPHASIS_SIZE)
-    ax.set_aspect("equal")
-    ax.grid(True, **GRID_STYLE)
-    return fig, ax
-
-
-# ---------------------------------------------------------------------------
-# Timeline (alt + az vs cell index)
-# ---------------------------------------------------------------------------
-
-def plot_timeline(
-    sim: list[dict],
-    *,
-    min_alt: float,
-    az_min: float,
-    az_max: float,
-    title: str,
-) -> tuple[plt.Figure, tuple[plt.Axes, plt.Axes]]:
-    """Plot alt and az vs cell index.
-
-    Uses textwidth for inline display.
-    """
-    idxs = [s["idx"] for s in sim]
-    alts = [s["alt"] for s in sim]
-    azs = [s["az"] for s in sim]
-
-    fig, _ax = textwidth_figure(6)
-    _ax.remove()
-    ax1, ax2 = subpanels(fig, 2, height_ratios=(1, 1), hspace=0.1)
-
-    ax1.plot(idxs, alts, "o-", ms=MS_MICRO, lw=LW_FINE, color="C0", zorder=2)
-    ax1.axhline(min_alt, lw=LW_LIGHT, ls="--", color="C3", alpha=ALPHA_LIGHT, zorder=1)
-    ax1.set_ylabel(r"Alt [deg]", fontsize=LABEL_SIZE)
-    ax1.grid(True, **GRID_STYLE)
-
-    ax2.plot(idxs, azs, "o-", ms=MS_MICRO, lw=LW_FINE, color="C1", zorder=2)
-    ax2.axhline(az_min, lw=LW_LIGHT, ls="--", color="C1", alpha=ALPHA_LIGHT, zorder=1)
-    ax2.axhline(az_max, lw=LW_LIGHT, ls="--", color="C1", alpha=ALPHA_LIGHT, zorder=1)
-    ax2.set_ylabel(r"Az [deg]", fontsize=LABEL_SIZE)
-    ax2.set_xlabel("Cell index", fontsize=LABEL_SIZE)
-    ax2.grid(True, **GRID_STYLE)
-
-    fig.suptitle(title, fontsize=EMPHASIS_SIZE)
-    return fig, (ax1, ax2)
-
-
-# ---------------------------------------------------------------------------
-# Calibrated HI profile (antenna temperature)
-# ---------------------------------------------------------------------------
-
-def plot_calibrated_profiles(
-    profiles: list[dict],
-    *,
-    v_lim: tuple[float, float] | None,
-    f_lim: tuple[float, float] | None,
-    title: str,
-) -> tuple[plt.Figure, plt.Axes]:
-    """Plot calibrated T_A profiles for multiple chips.
-
-    Uses textwidth for inline display.
-
-    Parameters
-    ----------
-    profiles : list of dict
-        Each dict has keys ``v_kms``, ``T_A``, ``label``, ``color``.
-    v_lim : tuple or None
-        Velocity axis limits.
-    f_lim : tuple or None
-        Frequency axis limits for top axis.
-    title : str
-        Figure title.
-    """
-    fig, ax = textwidth_figure(5)
-
-    for p in profiles:
-        ax.plot(p["v_kms"], p["T_A"], lw=LW_FINE,
-                color=p.get("color", "C0"),
-                alpha=ALPHA_STANDARD,
-                label=p.get("label", ""),
-                zorder=2)
-
-    zero_line(ax)
-    ax.set_xlabel(r"Velocity [km\,s$^{-1}$]", fontsize=LABEL_SIZE)
-    ax.set_ylabel(r"Antenna temperature [K]", fontsize=LABEL_SIZE)
-    if title:
-        ax.set_title(title, fontsize=EMPHASIS_SIZE)
-    ax.legend(fontsize=LEGEND_SIZE)
-
-    if v_lim:
-        ax.set_xlim(v_lim)
-
-    if f_lim:
-        ax_freq = ax.twiny()
-        ax_freq.set_xlim(f_lim)
-        ax_freq.set_xlabel(r"Frequency [MHz]", fontsize=LABEL_SIZE)
-        ax_freq.ticklabel_format(axis="x", useOffset=False)
-
     return fig, ax
 
 

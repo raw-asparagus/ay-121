@@ -75,19 +75,3 @@ def compute_cell_scalars(
     return cell_scalars
 
 
-def count_fully_calibratable(
-    cell_scalars: dict,
-    *,
-    lo_freqs: tuple[float, float],
-) -> int:
-    """Count cells with finite P_on/P_off for both pols at both LOs."""
-    n = 0
-    for e in cell_scalars.values():
-        ok = all(
-            np.isfinite(e[f'P_on_{pol}_{lo:g}']) and np.isfinite(e[f'P_off_{pol}_{lo:g}'])
-            for lo in lo_freqs
-            for pol in ('pol0', 'pol1')
-        )
-        if ok:
-            n += 1
-    return n

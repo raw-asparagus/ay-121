@@ -679,18 +679,27 @@ def detect_edge_clipped_cells(
     *,
     v_lsr_overlap: np.ndarray,
     edge_kms: float,
-    sigma_thresh: float,
+    r_height_thresh: float,
     excluded=(),
     spectrum_key: str = 'R',
 ) -> list[dict]:
     """Flag cells whose line emission reaches either end of v_lsr_overlap.
 
-    For each cell, estimate a robust per-channel noise (MAD/0.6745) from
-    the interior of the spectrum (channels not within ``edge_kms`` of
-    either v_LSR end), then test the maximum |R - median| in each edge
-    region against ``sigma_thresh`` * noise.  A flagged cell is one whose
-    line wing extends to the edge of the current frequency-switched
-    overlap band -- the current LO pair is not wide enough to contain it.
+    For each end of v_lsr_overlap, two regions are defined:
+        edge      -- outermost ``edge_kms`` of channels (test window)
+        adjacent  -- next ``edge_kms`` of channels inward (baseline proxy)
+    The baseline is the minimum of the two adjacent-region medians; when
+    one end of the spectrum is clean, that end's adjacent proxies the
+    true noise floor even if the other end has line emission.
+
+    A cell is flagged on an edge when:
+        median(edge) - baseline > r_height_thresh
+
+    The criterion is absolute R-height, not SNR-above-noise.  A clip
+    only matters when the missing wing carries a meaningful fraction
+    of integrated R, regardless of how statistically significant the
+    edge signal is.  Faint but significant edge emission that does not
+    materially affect integrated R is not flagged.
 
     The ``edge`` field on each returned record is ``'high'`` when the
     hot edge is at the most-positive v_LSR end (line wing extends beyond
@@ -707,8 +716,11 @@ def detect_edge_clipped_cells(
         LSR velocity grid, sorted descending (``v[0]`` is most positive).
     edge_kms : float
         Width of each edge region in km/s.
-    sigma_thresh : float
-        Sigma threshold (in MAD-sigma units) for flagging an edge.
+    r_height_thresh : float
+        Minimum baseline-subtracted edge median R (dimensionless) to
+        flag a clip.  Sensible range ~0.02-0.2 for HI: 0.05 catches
+        moderate wings, 0.1 catches clear plateaus, 0.2 catches only
+        severe ones.
     excluded : iterable of dict
         Cells to skip, as ``cells_insufficient_pairs`` records with
         ``'l'``, ``'b'`` keys.
@@ -719,8 +731,9 @@ def detect_edge_clipped_cells(
     Returns
     -------
     list of dict
-        ``{'gl', 'gb', 'edge', 'edge_max_sigma', 'edge_max_v_kms'}`` per
-        flagged cell.  Unsorted; the caller is expected to add
+        ``{'gl', 'gb', 'edge', 'edge_height', 'edge_max_v_kms'}`` per
+        flagged cell.  ``edge_height`` is the baseline-subtracted edge
+        median R.  Unsorted; the caller is expected to add
         ``suggested_pair`` and sort.
     """
     excluded_keys = {(e['l'], e['b']) for e in excluded}
@@ -729,19 +742,23 @@ def detect_edge_clipped_cells(
     if v.size < 4:
         return []
     # v is descending; v[0] is most positive ('high'), v[-1] most negative.
-    high_mask = v >= (v[0] - edge_kms)
-    low_mask  = v <= (v[-1] + edge_kms)
-    interior_mask = ~(high_mask | low_mask)
+    high_edge_mask = v >= (v[0] - edge_kms)
+    low_edge_mask  = v <= (v[-1] + edge_kms)
+    high_adj_mask  = (v < (v[0] - edge_kms)) & (v >= (v[0] - 2.0 * edge_kms))
+    low_adj_mask   = (v > (v[-1] + edge_kms)) & (v <= (v[-1] + 2.0 * edge_kms))
 
-    def _edge_max(R: np.ndarray, mask: np.ndarray, median: float, sigma: float):
-        edge = R[mask]
-        finite = np.isfinite(edge)
+    def _region_median(R, mask):
+        vals = R[mask]
+        vals = vals[np.isfinite(vals)]
+        return float(np.median(vals)) if vals.size > 0 else float('nan')
+
+    def _v_at_max(R, mask, baseline):
+        vals = R[mask]
+        finite = np.isfinite(vals)
         if not finite.any():
-            return 0.0, float('nan')
-        dev = np.abs(edge[finite] - median) / sigma
-        i = np.argmax(dev)
-        v_edge = v[mask][finite][i]
-        return float(dev[i]), float(v_edge)
+            return float('nan')
+        v_sub = v[mask][finite]
+        return float(v_sub[np.argmax(vals[finite] - baseline)])
 
     flagged: list[dict] = []
     for cell, entry in cell_combined.items():
@@ -750,29 +767,40 @@ def detect_edge_clipped_cells(
         R = entry[spectrum_key]
         if R.shape != v.shape:
             continue
-        interior = R[interior_mask]
-        interior = interior[np.isfinite(interior)]
-        if interior.size < 20:
+        med_high_edge = _region_median(R, high_edge_mask)
+        med_high_adj  = _region_median(R, high_adj_mask)
+        med_low_edge  = _region_median(R, low_edge_mask)
+        med_low_adj   = _region_median(R, low_adj_mask)
+
+        # Baseline: cleaner of the two adjacents.  When one end has no
+        # line emission, that end's adjacent sits at the true noise floor.
+        adj_vals = [a for a in (med_high_adj, med_low_adj) if np.isfinite(a)]
+        if not adj_vals:
             continue
-        median = np.median(interior)
-        mad = np.median(np.abs(interior - median))
-        sigma = mad / 0.6745
-        if not np.isfinite(sigma) or sigma <= 0:
+        baseline = min(adj_vals)
+
+        def _edge_height(med_edge):
+            if not np.isfinite(med_edge):
+                return float('nan')
+            return float(med_edge - baseline)
+
+        high_height = _edge_height(med_high_edge)
+        low_height  = _edge_height(med_low_edge)
+        high_clipped = np.isfinite(high_height) and high_height > r_height_thresh
+        low_clipped  = np.isfinite(low_height)  and low_height  > r_height_thresh
+        if not (high_clipped or low_clipped):
             continue
-        high_sig, high_v = _edge_max(R, high_mask, median, sigma)
-        low_sig,  low_v  = _edge_max(R, low_mask,  median, sigma)
-        if high_sig <= sigma_thresh and low_sig <= sigma_thresh:
-            continue
-        if high_sig >= low_sig:
-            edge, sig, v_at = 'high', high_sig, high_v
+        # Pick the taller edge if both fire (rare).
+        if high_clipped and (not low_clipped or high_height >= low_height):
+            edge, height, mask_used = 'high', high_height, high_edge_mask
         else:
-            edge, sig, v_at = 'low', low_sig, low_v
+            edge, height, mask_used = 'low', low_height, low_edge_mask
         flagged.append({
             'gl': cell[0],
             'gb': cell[1],
             'edge': edge,
-            'edge_max_sigma': sig,
-            'edge_max_v_kms': v_at,
+            'edge_height': height,
+            'edge_max_v_kms': _v_at_max(R, mask_used, baseline),
         })
     return flagged
 
@@ -782,7 +810,7 @@ def write_edge_recheck_manifest(
     *,
     v_lsr_overlap: np.ndarray,
     edge_kms: float,
-    sigma_thresh: float,
+    r_height_thresh: float,
     excluded,
     current_pair_mhz: tuple[float, float],
     path,
@@ -810,7 +838,7 @@ def write_edge_recheck_manifest(
         cell_combined,
         v_lsr_overlap=v_lsr_overlap,
         edge_kms=edge_kms,
-        sigma_thresh=sigma_thresh,
+        r_height_thresh=r_height_thresh,
         excluded=excluded,
         spectrum_key=spectrum_key,
     )
@@ -836,7 +864,8 @@ def write_edge_recheck_manifest(
         'delta_lo_mhz': delta_lo,
         'lower_pair_mhz': list(lower_pair),
         'higher_pair_mhz': list(higher_pair),
-        'detection': {'edge_kms': edge_kms, 'sigma_thresh': sigma_thresh},
+        'detection': {'edge_kms': edge_kms,
+                      'r_height_thresh': r_height_thresh},
         'cells': manifest_cells,
     }
 

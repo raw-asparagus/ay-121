@@ -1,3 +1,4 @@
+labs/*/artifacts/
 labs/*/data/
 labs/*/.joblib-cache/
 labs/*/**/.joblib-cache/

@@ -801,7 +801,7 @@ def plot_lv_strip(
     if title:
         ax.set_title(title, fontsize=EMPHASIS_SIZE)
     if runs:
-        ax.legend(loc="upper right", fontsize=LEGEND_SIZE, framealpha=0.9)
+        ax.legend(loc="lower left", fontsize=LEGEND_SIZE, framealpha=0.9)
     cbar = fig.colorbar(pcm, ax=ax, pad=0.02)
     cbar.set_label(cbar_label)
     plt.tight_layout()
@@ -1915,7 +1915,7 @@ def plot_spiral_lv_overlay(
         ax.plot(l_arm, v_arm, lw=LW_STANDARD, color=color,
                 alpha=ALPHA_FULL, zorder=4,
                 label=rf"arm {label} (pitch $= {fit['pitch_deg']:+.1f}^\circ$)")
-    ax.legend(loc="upper right", fontsize="small", ncol=2)
+    ax.legend(loc="lower left", fontsize="small", ncol=2)
     return fig, ax, fits
 
 

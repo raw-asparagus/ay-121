@@ -55,8 +55,8 @@ CONFIG = SurveyConfig(
     l_center=120.0,
     l_min=-60.0,
     l_max=300.0,
-    b_min=-20,
-    b_max=20,
+    b_min=-50,
+    b_max=50,
     b_step=2,
     physical_spacing_deg=2.0,
 
